@@ -105,6 +105,15 @@
                 "x": 300,
                 "y": 0,
                 "z": 0
+              },
+              "rotation_deg": {
+                "axis": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 1
+                },
+                "angle": 90,
+                "pivot": "BBOX_CENTER"
               }
             }
           }

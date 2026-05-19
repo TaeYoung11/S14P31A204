@@ -21,7 +21,7 @@ public class FloorPlanIfcEditEngineRequestMapper {
 
     public JsonNode toEngineRequest(String requestId, UUID projectId, UUID baseRevisionId, List<WorkspaceCommandEnvelope> batch) {
         ObjectNode root = objectMapper.createObjectNode();
-        root.put("schema_version", "v1");
+        root.put("schema_version", "v2");
         root.put("request_id", requestId);
         root.put("mode", "apply");
         root.put("project_id", projectId.toString());
@@ -96,14 +96,22 @@ public class FloorPlanIfcEditEngineRequestMapper {
         }
 
         JsonNode translationMm = firstPoint3d(patch, "translationMm", "translation_mm", "translateMm", "translate_mm");
-        JsonNode rotationDegrees = firstPoint3d(patch, "rotation_degrees", "rotationDegrees", "rotationDeg");
+        JsonNode rotationAxisAngle = firstRotationAxisAngle(patch, "rotation_axis_angle", "rotationAxisAngle");
+        JsonNode rotationDegrees = firstRotation(patch, "rotation_degrees", "rotationDegrees", "rotationDeg");
         if (translationMm != null) {
             // Realtime workspace commands are single-purpose; movement and property edits must be emitted separately.
             ObjectNode params = objectMapper.createObjectNode();
             params.set("translation_mm", translationMm);
-            if (rotationDegrees != null) {
+            if (rotationAxisAngle != null) {
+                params.set("rotation_deg", toIfcRotationAxisAngle(rotationAxisAngle));
+            } else if (rotationDegrees != null) {
                 params.set("rotation_deg", toIfcRotationDeg(rotationDegrees));
             }
+            return operation(envelope.commandId().toString(), "transform_elements", selector(globalId), params);
+        }
+        if (rotationAxisAngle != null) {
+            ObjectNode params = objectMapper.createObjectNode();
+            params.set("rotation_deg", toIfcRotationAxisAngle(rotationAxisAngle));
             return operation(envelope.commandId().toString(), "transform_elements", selector(globalId), params);
         }
         if (rotationDegrees != null) {
@@ -340,6 +348,77 @@ public class FloorPlanIfcEditEngineRequestMapper {
         return null;
     }
 
+    private JsonNode firstRotation(JsonNode node, String... keys) {
+        for (String key : keys) {
+            JsonNode value = node == null ? null : node.get(key);
+            if (value == null || value.isNull()) {
+                continue;
+            }
+            if (value.isNumber()) {
+                return value;
+            }
+            if (value.isArray() && value.size() >= 3
+                    && value.get(0).isNumber()
+                    && value.get(1).isNumber()
+                    && value.get(2).isNumber()) {
+                ObjectNode rotation = objectMapper.createObjectNode();
+                rotation.put("x", value.get(0).asDouble());
+                rotation.put("y", value.get(1).asDouble());
+                rotation.put("z", value.get(2).asDouble());
+                return rotation;
+            }
+            if (value.isObject()
+                    && (hasNumber(value, "x") || hasNumber(value, "y") || hasNumber(value, "z"))) {
+                ObjectNode rotation = objectMapper.createObjectNode();
+                if (hasNumber(value, "x")) {
+                    rotation.put("x", value.get("x").asDouble());
+                }
+                if (hasNumber(value, "y")) {
+                    rotation.put("y", value.get("y").asDouble());
+                }
+                if (hasNumber(value, "z")) {
+                    rotation.put("z", value.get("z").asDouble());
+                }
+                return rotation;
+            }
+        }
+        return null;
+    }
+
+    private JsonNode firstRotationAxisAngle(JsonNode node, String... keys) {
+        for (String key : keys) {
+            JsonNode value = node == null ? null : node.get(key);
+            if (value == null || value.isNull() || !value.isObject()) {
+                continue;
+            }
+            JsonNode axis = value.get("axis");
+            Double angle = firstNumber(value, "angle_degrees", "angleDegrees", "angle");
+            if (axis == null || !axis.isObject() || angle == null || !Double.isFinite(angle)) {
+                continue;
+            }
+            Double x = firstNumber(axis, "x");
+            Double y = firstNumber(axis, "y");
+            Double z = firstNumber(axis, "z");
+            if (x == null || y == null || z == null) {
+                continue;
+            }
+            double axisLength = Math.sqrt(x * x + y * y + z * z);
+            if (!Double.isFinite(axisLength) || axisLength <= 1.0e-8 || Math.abs(angle) <= 1.0e-6) {
+                continue;
+            }
+            ObjectNode rotation = objectMapper.createObjectNode();
+            ObjectNode normalizedAxis = rotation.putObject("axis");
+            normalizedAxis.put("x", x / axisLength);
+            normalizedAxis.put("y", y / axisLength);
+            normalizedAxis.put("z", z / axisLength);
+            rotation.put("angle", angle);
+            String pivot = firstText(value, "pivot");
+            rotation.put("pivot", pivot == null || pivot.isBlank() ? "BBOX_CENTER" : pivot);
+            return rotation;
+        }
+        return null;
+    }
+
     private boolean hasNumber(JsonNode node, String key) {
         return node.get(key) != null && node.get(key).isNumber();
     }
@@ -354,14 +433,47 @@ public class FloorPlanIfcEditEngineRequestMapper {
             return rotation;
         }
         if (rotationDegrees.isObject()) {
-            if (hasNumber(rotationDegrees, "y")) {
+            if (hasNonZeroNumber(rotationDegrees, "z")) {
+                rotation.put("z", rotationDegrees.get("z").asDouble());
+                return rotation;
+            }
+            if (hasNonZeroNumber(rotationDegrees, "y")) {
                 rotation.put("z", rotationDegrees.get("y").asDouble());
+                return rotation;
+            }
+            if (hasNonZeroNumber(rotationDegrees, "x")) {
+                rotation.put("z", rotationDegrees.get("x").asDouble());
                 return rotation;
             }
             if (hasNumber(rotationDegrees, "z")) {
                 rotation.put("z", rotationDegrees.get("z").asDouble());
+                return rotation;
+            }
+            if (hasNumber(rotationDegrees, "y")) {
+                rotation.put("z", rotationDegrees.get("y").asDouble());
+                return rotation;
+            }
+            if (hasNumber(rotationDegrees, "x")) {
+                rotation.put("z", rotationDegrees.get("x").asDouble());
             }
         }
         return rotation;
+    }
+
+    private ObjectNode toIfcRotationAxisAngle(JsonNode rotationAxisAngle) {
+        ObjectNode rotation = objectMapper.createObjectNode();
+        JsonNode axis = rotationAxisAngle.get("axis");
+        ObjectNode axisNode = rotation.putObject("axis");
+        axisNode.put("x", axis.get("x").asDouble());
+        axisNode.put("y", axis.get("y").asDouble());
+        axisNode.put("z", axis.get("z").asDouble());
+        rotation.put("angle", rotationAxisAngle.get("angle").asDouble());
+        JsonNode pivot = rotationAxisAngle.get("pivot");
+        rotation.put("pivot", pivot == null || pivot.isNull() ? "BBOX_CENTER" : pivot.asText("BBOX_CENTER"));
+        return rotation;
+    }
+
+    private boolean hasNonZeroNumber(JsonNode node, String key) {
+        return hasNumber(node, key) && Math.abs(node.get(key).asDouble()) > 1.0e-6;
     }
 }

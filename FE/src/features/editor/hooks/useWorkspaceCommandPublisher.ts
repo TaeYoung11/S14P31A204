@@ -51,6 +51,31 @@ const compactRotationRecord = (record: Record<string, unknown>): Record<string, 
     typeof value === 'number' && Number.isFinite(value) && Math.abs(value) > 1e-6
   )))
 
+const toRotationAxisAngleRecord = (value: unknown): Record<string, unknown> | null => {
+  if (!isRecord(value) || !isRecord(value.axis)) return null
+  const x = getFiniteNumber(value.axis.x)
+  const y = getFiniteNumber(value.axis.y)
+  const z = getFiniteNumber(value.axis.z)
+  const angle = getFiniteNumber(value.angle_degrees)
+    ?? getFiniteNumber(value.angleDegrees)
+    ?? getFiniteNumber(value.angle)
+  if (x === null || y === null || z === null || angle === null || Math.abs(angle) <= 1e-6) {
+    return null
+  }
+  const axisLength = Math.hypot(x, y, z)
+  if (!Number.isFinite(axisLength) || axisLength <= 1e-8) return null
+  return {
+    axis: {
+      x: x / axisLength,
+      y: y / axisLength,
+      z: z / axisLength,
+    },
+    angle_degrees: angle,
+    frame: 'IFC_WORLD',
+    pivot: 'BBOX_CENTER',
+  }
+}
+
 const LIBRARY_ENTITY_BY_TYPE: Record<ThreeDLibraryPreset['type'], string> = {
   roof: 'roof',
   'exterior-wall': 'wall',
@@ -434,7 +459,8 @@ export function useWorkspaceCommandPublisher({
       y: toRotationDelta(patch.rotationY, element.rotationY),
       z: toRotationDelta(patch.rotationZ, element.rotationZ),
     })
-    const explicitRotationDegrees = isRecord(patch.rotationDegrees) || isRecord(patch.rotation_degrees)
+    const hasExplicitRotationDegrees = isRecord(patch.rotationDegrees) || isRecord(patch.rotation_degrees)
+    const explicitRotationDegrees = hasExplicitRotationDegrees
       ? compactRotationRecord({
           x: getFiniteNumber((patch.rotationDegrees as Record<string, unknown> | undefined)?.x)
             ?? getFiniteNumber((patch.rotation_degrees as Record<string, unknown> | undefined)?.x),
@@ -444,16 +470,21 @@ export function useWorkspaceCommandPublisher({
             ?? getFiniteNumber((patch.rotation_degrees as Record<string, unknown> | undefined)?.z),
         })
       : {}
-    const commandRotationDegrees = Object.keys(explicitRotationDegrees).length > 0
+    const commandRotationDegrees = hasExplicitRotationDegrees
       ? explicitRotationDegrees
       : rotationDegrees
-    const hasCommandRotation = hasNonZeroRotation(commandRotationDegrees)
-    if (import.meta.env.DEV && Object.keys(commandRotationDegrees).length > 0) {
+    const commandRotationAxisAngle = toRotationAxisAngleRecord(
+      patch.rotationAxisAngle ?? patch.rotation_axis_angle,
+    )
+    const hasCommandRotation = commandRotationAxisAngle !== null || hasNonZeroRotation(commandRotationDegrees)
+    if (import.meta.env.DEV && (commandRotationAxisAngle || Object.keys(commandRotationDegrees).length > 0)) {
       console.log('[ifc-rotate-save][command-publisher]', {
         commandId,
         elementId: element.id,
         expressId: element.expressId,
         globalId: element.globalId ?? commandId,
+        patchRotationAxisAngle: patch.rotationAxisAngle ?? patch.rotation_axis_angle ?? null,
+        commandRotationAxisAngle,
         patchRotationDegrees: patch.rotationDegrees ?? patch.rotation_degrees ?? null,
         inferredRotationDegrees: rotationDegrees,
         commandRotationDegrees,
@@ -474,7 +505,8 @@ export function useWorkspaceCommandPublisher({
           y: translationY !== null ? translationY : undefined,
           z: translationZ !== null ? translationZ : undefined,
         }),
-        rotation_degrees: hasCommandRotation ? commandRotationDegrees : undefined,
+        rotation_axis_angle: commandRotationAxisAngle ?? undefined,
+        rotation_degrees: commandRotationAxisAngle === null && hasCommandRotation ? commandRotationDegrees : undefined,
       }))
       return
     }
@@ -485,7 +517,8 @@ export function useWorkspaceCommandPublisher({
       thickness: getFiniteNumber(patch.thicknessMm),
       material: typeof patch.material === 'string' ? patch.material : undefined,
       color: typeof patch.color === 'string' ? patch.color : undefined,
-      rotation_degrees: hasCommandRotation ? commandRotationDegrees : undefined,
+      rotation_axis_angle: commandRotationAxisAngle ?? undefined,
+      rotation_degrees: commandRotationAxisAngle === null && hasCommandRotation ? commandRotationDegrees : undefined,
     })
     if (hasMeaningfulValue(nextPatch)) {
       pendingCommandRef.current = updateEntityCommand('ifcElement', commandId, compactRecord({

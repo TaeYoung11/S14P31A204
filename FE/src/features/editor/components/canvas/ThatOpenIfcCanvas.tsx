@@ -55,6 +55,7 @@ import {
   getElementDimensionSignature,
   getElementColorSignature,
   getElementMaterialSignature,
+  getTransformAxisVisibility,
   getIfcMoveTargetKey,
   hasIdentityMatrixDelta,
   nextIfcMoveLifecycleState,
@@ -74,6 +75,7 @@ import {
   findIfcEditableRoot,
   resolveEditorMaterialFromColor,
   resolveIfcCanonicalLocalIds,
+  toIfcRotationAxisAngle,
 } from './thatopen/ifcSceneHelpers'
 import { runIfcMoveWorkflowRegressionCases } from './thatopen/ifcMoveWorkflow.regression'
 import { useTransformRuntimeMachine } from './thatopen/useTransformRuntimeMachine'
@@ -150,13 +152,22 @@ interface ThatOpenIfcCanvasProps {
 
 const syncTransformControlAxisVisibility = (
   transformControls: object,
-  _target: Selected3DTarget | null | undefined,
-  _transformMode: string,
+  target: Selected3DTarget | null | undefined,
+  transformMode: string,
 ) => {
-  const controls = transformControls as { showX?: boolean; showY?: boolean; showZ?: boolean }
-  controls.showX = true
-  controls.showY = true
-  controls.showZ = true
+  const controls = transformControls as {
+    showX?: boolean
+    showY?: boolean
+    showZ?: boolean
+    setSpace?: (space: 'world' | 'local') => void
+  }
+  const visibility = getTransformAxisVisibility(target?.source, transformMode)
+  controls.showX = visibility.showX
+  controls.showY = visibility.showY
+  controls.showZ = visibility.showZ
+  if (target?.source === 'ifc' && transformMode === 'rotate') {
+    controls.setSpace?.('world')
+  }
 }
 
 interface LoadedFragmentModel {
@@ -2385,6 +2396,7 @@ export default function ThatOpenIfcCanvas({
         let lastDragStartPosition: { x: number; y: number; z: number } | null = null
         let lastDragStartRotation: { x: number; y: number; z: number } | null = null
         let lastDragStartWorldRotation: { x: number; y: number; z: number } | null = null
+        let lastDragStartWorldQuaternion: { x: number; y: number; z: number; w: number } | null = null
         let isTransformDragging = false
         let activeDragSessionId: string | null = null
         const isObjectInSceneGraph = (object: Object3D | undefined | null) => {
@@ -2683,6 +2695,9 @@ export default function ThatOpenIfcCanvas({
           } finally {
             ifcCommitInFlightRef.current = false
             lastDragStartPosition = null
+            lastDragStartRotation = null
+            lastDragStartWorldRotation = null
+            lastDragStartWorldQuaternion = null
             if (commitSessionId) {
               dispatchTransformRuntimeAction(
                 { type: 'CLEANUP', transformSessionId: commitSessionId },
@@ -2808,6 +2823,7 @@ export default function ThatOpenIfcCanvas({
                     return {
                       position: deltaPosition,
                       rotation: deltaEuler,
+                      quaternion: deltaQuaternion,
                       scale: deltaScale,
                     }
                   })()
@@ -2830,6 +2846,20 @@ export default function ThatOpenIfcCanvas({
                         z: ((worldEuler.z - lastDragStartWorldRotation.z) * 180) / Math.PI,
                       }
                     : undefined
+                  const fallbackDeltaQuaternion = lastDragStartWorldQuaternion
+                    ? worldQuaternion.clone().multiply(
+                        new activeScene.three.Quaternion(
+                          lastDragStartWorldQuaternion.x,
+                          lastDragStartWorldQuaternion.y,
+                          lastDragStartWorldQuaternion.z,
+                          lastDragStartWorldQuaternion.w,
+                        ).invert(),
+                      )
+                    : undefined
+                  const persistedRotationAxisAngle = currentTransformMode === 'rotate'
+                    ? toIfcRotationAxisAngle(deltaTransform?.quaternion ?? fallbackDeltaQuaternion)
+                    : null
+                  const persistedRotationDegrees = {}
                   const translationMm = lastDragStartPosition && activeScene.worldUnitsPerMm > 0
                     ? {
                         x: (worldPosition.x - lastDragStartPosition.x) / activeScene.worldUnitsPerMm,
@@ -2880,6 +2910,8 @@ export default function ThatOpenIfcCanvas({
                         : null,
                       worldRotationDeg: { x: rotationX, y: rotationY, z: rotationZ },
                       rotationDegrees,
+                      persistedRotationAxisAngle,
+                      persistedRotationDegrees,
                       patchKeys: [
                         'positionX',
                         'positionY',
@@ -2889,6 +2921,7 @@ export default function ThatOpenIfcCanvas({
                         'rotationY',
                         'rotationZ',
                         'rotationDegrees',
+                        'rotationAxisAngle',
                       ],
                     })
                   }
@@ -2903,7 +2936,8 @@ export default function ThatOpenIfcCanvas({
                       rotationX,
                       rotationY,
                       rotationZ,
-                      rotationDegrees,
+                      rotationDegrees: persistedRotationDegrees,
+                      rotationAxisAngle: persistedRotationAxisAngle ?? undefined,
                     },
                   }
                 })()
@@ -3057,6 +3091,9 @@ export default function ThatOpenIfcCanvas({
             } finally {
               ifcCommitInFlightRef.current = false
               lastDragStartPosition = null
+              lastDragStartRotation = null
+              lastDragStartWorldRotation = null
+              lastDragStartWorldQuaternion = null
               if (queuedSessionId) {
                 dispatchTransformRuntimeAction(
                   { type: 'CLEANUP', transformSessionId: queuedSessionId },
@@ -3418,12 +3455,19 @@ export default function ThatOpenIfcCanvas({
                   y: startWorldEuler.y,
                   z: startWorldEuler.z,
                 }
+                lastDragStartWorldQuaternion = {
+                  x: startWorldQuaternion.x,
+                  y: startWorldQuaternion.y,
+                  z: startWorldQuaternion.z,
+                  w: startWorldQuaternion.w,
+                }
                 ;(dragObject.userData as { ifcEditProxyWorldMatrix?: number[] }).ifcEditProxyWorldMatrix =
                   Array.from(dragObject.matrixWorld.elements)
               } else {
                 lastDragStartPosition = null
                 lastDragStartRotation = null
                 lastDragStartWorldRotation = null
+                lastDragStartWorldQuaternion = null
               }
               ifcMoveLifecycleRef.current = nextIfcMoveLifecycleState(ifcMoveLifecycleRef.current, {
                 type: 'start_drag',
@@ -5131,6 +5175,7 @@ export default function ThatOpenIfcCanvas({
 
         await fragments.core.update(true)
         resetIfcLocalRevisionState('ifc_revision_load_success')
+        onIfcElementSelectRef.current?.(null)
         // 최초 로드 시에는 고정 패딩으로 맞추고, 이후 줌 반영은 zoomScale effect에서 처리한다.
         fitObjectWithPadding(THREE, world.camera.three, world.camera.controls, fragmentModel.object, 1.55)
         // 파싱된 IFC 층 목록을 상위 컴포넌트로 전달한다.

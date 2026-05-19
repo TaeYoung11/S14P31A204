@@ -66,6 +66,122 @@ export type Selected3DTarget =
     }
   | null
 
+export type TransformAxisVisibility = {
+  showX: boolean
+  showY: boolean
+  showZ: boolean
+}
+
+type TransformTargetSource = NonNullable<Selected3DTarget>['source'] | null | undefined
+type TransformMode = 'translate' | 'rotate' | 'scale' | string
+type RotationDegrees = {
+  x?: number | null
+  y?: number | null
+  z?: number | null
+} | null | undefined
+type QuaternionLike = {
+  x: number
+  y: number
+  z: number
+  w: number
+} | null | undefined
+type AxisLike = {
+  x?: number | null
+  y?: number | null
+  z?: number | null
+}
+
+const ROTATION_EPSILON_DEGREES = 1e-6
+
+const isNonZeroRotation = (value: number | null | undefined) => (
+  typeof value === 'number' && Number.isFinite(value) && Math.abs(value) > ROTATION_EPSILON_DEGREES
+)
+
+export type IfcRotationAxisAngle = {
+  axis: {
+    x: number
+    y: number
+    z: number
+  }
+  angle_degrees: number
+  frame: 'IFC_WORLD'
+  pivot: 'BBOX_CENTER'
+}
+
+export const getTransformAxisVisibility = (
+  targetSource: TransformTargetSource,
+  transformMode: TransformMode,
+): TransformAxisVisibility => {
+  if (targetSource === 'ifc' && transformMode === 'rotate') {
+    return { showX: true, showY: true, showZ: true }
+  }
+  return { showX: true, showY: true, showZ: true }
+}
+
+export const toIfcYawRotationDegrees = (rotationDegrees: RotationDegrees): { y?: number } => {
+  const y = rotationDegrees?.y
+  if (!isNonZeroRotation(y)) return {}
+  if (isNonZeroRotation(rotationDegrees?.x) || isNonZeroRotation(rotationDegrees?.z)) {
+    return {}
+  }
+  return { y: y as number }
+}
+
+const normalizeAxis = (axis: AxisLike): { x: number; y: number; z: number } | null => {
+  const x = typeof axis.x === 'number' && Number.isFinite(axis.x) ? axis.x : 0
+  const y = typeof axis.y === 'number' && Number.isFinite(axis.y) ? axis.y : 0
+  const z = typeof axis.z === 'number' && Number.isFinite(axis.z) ? axis.z : 0
+  const length = Math.hypot(x, y, z)
+  if (!Number.isFinite(length) || length <= 1e-8) return null
+  return { x: x / length, y: y / length, z: z / length }
+}
+
+export const threeWorldAxisToIfcWorldAxis = (axis: AxisLike): { x: number; y: number; z: number } | null => {
+  const normalized = normalizeAxis(axis)
+  if (!normalized) return null
+  return normalizeAxis({
+    x: normalized.x,
+    y: normalized.z,
+    z: normalized.y,
+  })
+}
+
+export const toIfcRotationAxisAngle = (quaternion: QuaternionLike): IfcRotationAxisAngle | null => {
+  if (!quaternion) return null
+  const length = Math.hypot(quaternion.x, quaternion.y, quaternion.z, quaternion.w)
+  if (!Number.isFinite(length) || length <= 1e-8) return null
+
+  let x = quaternion.x / length
+  let y = quaternion.y / length
+  let z = quaternion.z / length
+  const w = quaternion.w / length
+  const vectorLength = Math.hypot(x, y, z)
+  if (!Number.isFinite(vectorLength) || vectorLength <= 1e-8) return null
+
+  let angle = 2 * Math.atan2(vectorLength, w)
+  if (angle > Math.PI) {
+    angle = Math.PI * 2 - angle
+    x = -x
+    y = -y
+    z = -z
+  }
+  const angleDegrees = (angle * 180) / Math.PI
+  if (!isNonZeroRotation(angleDegrees)) return null
+
+  const axis = threeWorldAxisToIfcWorldAxis({
+    x: x / vectorLength,
+    y: y / vectorLength,
+    z: z / vectorLength,
+  })
+  if (!axis) return null
+  return {
+    axis,
+    angle_degrees: angleDegrees,
+    frame: 'IFC_WORLD',
+    pivot: 'BBOX_CENTER',
+  }
+}
+
 /** ifcEditTarget userData를 가진 편집 프록시 오브젝트 타입 */
 export type IfcEditableObject3D = Object3D & {
   userData: {

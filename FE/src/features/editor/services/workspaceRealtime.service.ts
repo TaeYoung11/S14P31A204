@@ -145,36 +145,26 @@ function requireWorkspaceCommand(workspaceCommand?: WorkspaceCommand | null): Wo
 }
 
 const publishJson = async (destination: string, body: unknown): Promise<void> => {
-  const payload = JSON.stringify(body)
-  const publishOnce = async () => {
-    const client = await ensureStompConnected()
-    if (
-      import.meta.env.DEV &&
-      destination.includes('/floor-plan/update') &&
-      payload.includes('"entity":"ifcElement"') &&
-      payload.includes('"rotation_degrees"')
-    ) {
-      console.log('[ifc-rotate-save][stomp-publish-json]', {
-        destination,
-        bodyJson: payload,
-      })
-    }
-    client.publish({
+  const client = await ensureStompConnected()
+  const bodyJson = JSON.stringify(body)
+  if (
+    import.meta.env.DEV &&
+    destination.includes('/floor-plan/update') &&
+    bodyJson.includes('"entity":"ifcElement"') &&
+    bodyJson.includes('"rotation_degrees"')
+  ) {
+    console.log('[ifc-rotate-save][stomp-publish-json]', {
       destination,
-      headers: {
-        'content-type': 'application/json',
-      },
-      body: payload,
+      bodyJson,
     })
   }
-
-  try {
-    await publishOnce()
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    if (!/CLOSING|CLOSED/i.test(message)) throw error
-    await publishOnce()
-  }
+  client.publish({
+    destination,
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: bodyJson,
+  })
 }
 
 export const workspaceRealtimeService = {

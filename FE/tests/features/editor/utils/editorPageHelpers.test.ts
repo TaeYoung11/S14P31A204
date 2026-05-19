@@ -227,6 +227,16 @@ describe('buildFloorPlanLayoutImportPayload', () => {
     assertLayoutImportV2(payload)
   })
 
+  it('keeps inferred opening generation enabled for layoutImport v2', () => {
+    const payload = buildPayload(
+      [createBubble()],
+      { source: 'none', reason: 'empty-bubbles' },
+    )
+
+    expect(payload.generation_options?.generate_openings).toBe(true)
+    assertLayoutImportV2(payload)
+  })
+
   it('falls back to bubble id when label is null or blank', () => {
     const payload = buildPayload(
       [

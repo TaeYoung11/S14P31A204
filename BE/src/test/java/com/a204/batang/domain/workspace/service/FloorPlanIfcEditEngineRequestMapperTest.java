@@ -6,9 +6,16 @@ import com.a204.batang.domain.workspace.dto.WorkspaceCommandMeta;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.networknt.schema.JsonSchema;
+import com.networknt.schema.JsonSchemaFactory;
+import com.networknt.schema.SpecVersion;
+import com.networknt.schema.ValidationMessage;
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -116,6 +123,137 @@ class FloorPlanIfcEditEngineRequestMapperTest {
     }
 
     @Test
+    void toEngineRequest_mapsRotationAxisAngleToV2TransformElements() throws Exception {
+        UUID projectId = UUID.randomUUID();
+        UUID baseRevisionId = UUID.randomUUID();
+        ObjectNode patch = objectMapper.createObjectNode();
+        ObjectNode rotation = patch.putObject("rotation_axis_angle");
+        rotation.putObject("axis")
+                .put("x", 0.0)
+                .put("y", 0.0)
+                .put("z", 1.0);
+        rotation.put("angle_degrees", 90.0);
+        rotation.put("pivot", "BBOX_CENTER");
+
+        JsonNode engineRequest = mapper.toEngineRequest(
+                "request-axis-angle-rotation",
+                projectId,
+                baseRevisionId,
+                List.of(envelope(projectId, baseRevisionId, "update", "ifcElement", "2HlybO1QH4A9HpWyE9qInJ", null, patch))
+        );
+
+        assertThat(engineRequest.get("schema_version").asText()).isEqualTo("v2");
+        JsonNode rotationDeg = engineRequest.get("operations").get(0).get("parameters").get("rotation_deg");
+        assertThat(rotationDeg.get("axis").get("x").asDouble()).isEqualTo(0.0);
+        assertThat(rotationDeg.get("axis").get("y").asDouble()).isEqualTo(0.0);
+        assertThat(rotationDeg.get("axis").get("z").asDouble()).isEqualTo(1.0);
+        assertThat(rotationDeg.get("angle").asDouble()).isEqualTo(90.0);
+        assertThat(rotationDeg.get("pivot").asText()).isEqualTo("BBOX_CENTER");
+        assertValidEngineRequestV2(engineRequest);
+    }
+
+    @Test
+    void toEngineRequest_prefersRotationAxisAngleOverLegacyRotationDegrees() {
+        UUID projectId = UUID.randomUUID();
+        UUID baseRevisionId = UUID.randomUUID();
+        ObjectNode patch = objectMapper.createObjectNode();
+        patch.putObject("rotation_degrees")
+                .put("y", 15.0);
+        ObjectNode rotation = patch.putObject("rotationAxisAngle");
+        rotation.putObject("axis")
+                .put("x", 1.0)
+                .put("y", 0.0)
+                .put("z", 0.0);
+        rotation.put("angle", 30.0);
+
+        JsonNode engineRequest = mapper.toEngineRequest(
+                "request-axis-angle-priority",
+                projectId,
+                baseRevisionId,
+                List.of(envelope(projectId, baseRevisionId, "update", "ifcElement", "2HlybO1QH4A9HpWyE9qInJ", null, patch))
+        );
+
+        JsonNode rotationDeg = engineRequest.get("operations").get(0).get("parameters").get("rotation_deg");
+        assertThat(rotationDeg.has("z")).isFalse();
+        assertThat(rotationDeg.get("axis").get("x").asDouble()).isEqualTo(1.0);
+        assertThat(rotationDeg.get("angle").asDouble()).isEqualTo(30.0);
+    }
+
+    @Test
+    void toEngineRequest_mapsZOnlyRotationDegreesToTransformElements() throws Exception {
+        UUID projectId = UUID.randomUUID();
+        UUID baseRevisionId = UUID.randomUUID();
+        ObjectNode patch = objectMapper.createObjectNode();
+        patch.put("globalId", "2HlybO1QH4A9HpWyE9qInJ");
+        patch.put("ifcClass", "IfcRoof");
+        patch.putObject("rotation_degrees")
+                .put("z", 26.84518417599014);
+
+        JsonNode engineRequest = mapper.toEngineRequest(
+                "request-z-only-rotation",
+                projectId,
+                baseRevisionId,
+                List.of(envelope(projectId, baseRevisionId, "update", "ifcElement", "2HlybO1QH4A9HpWyE9qInJ", null, patch))
+        );
+
+        JsonNode operations = engineRequest.get("operations");
+        assertThat(operations).hasSize(1);
+        JsonNode operation = operations.get(0);
+        assertThat(operation.get("type").asText()).isEqualTo("transform_elements");
+        assertThat(operation.get("selector").get("global_ids").get(0).asText()).isEqualTo("2HlybO1QH4A9HpWyE9qInJ");
+        assertThat(operation.get("parameters").get("rotation_deg").get("z").asDouble()).isEqualTo(26.84518417599014);
+        assertValidEngineRequestV2(engineRequest);
+    }
+
+    @Test
+    void toEngineRequest_mapsXOnlyThreeDRotationDegreesToIfcZRotation() {
+        UUID projectId = UUID.randomUUID();
+        UUID baseRevisionId = UUID.randomUUID();
+        ObjectNode patch = objectMapper.createObjectNode();
+        patch.put("globalId", "0_1GF8Yyj6mv1iBS0kJvFI");
+        patch.put("expressId", 555);
+        patch.put("ifcClass", "IfcRoof");
+        patch.putObject("rotation_degrees")
+                .put("x", 72.4850252024334);
+
+        JsonNode engineRequest = mapper.toEngineRequest(
+                "request-x-only-rotation",
+                projectId,
+                baseRevisionId,
+                List.of(envelope(projectId, baseRevisionId, "update", "ifcElement", "0_1GF8Yyj6mv1iBS0kJvFI", null, patch))
+        );
+
+        JsonNode operations = engineRequest.get("operations");
+        assertThat(operations).hasSize(1);
+        JsonNode operation = operations.get(0);
+        assertThat(operation.get("type").asText()).isEqualTo("transform_elements");
+        assertThat(operation.get("selector").get("global_ids").get(0).asText()).isEqualTo("0_1GF8Yyj6mv1iBS0kJvFI");
+        assertThat(operation.get("parameters").get("rotation_deg").get("z").asDouble()).isEqualTo(72.4850252024334);
+    }
+
+    @Test
+    void toEngineRequest_prefersNonZeroZRotationWhenYAxisIsZero() {
+        UUID projectId = UUID.randomUUID();
+        UUID baseRevisionId = UUID.randomUUID();
+        ObjectNode patch = objectMapper.createObjectNode();
+        patch.putObject("rotation_degrees")
+                .put("x", 0.0)
+                .put("y", 0.0)
+                .put("z", -82.51572006705355);
+
+        JsonNode engineRequest = mapper.toEngineRequest(
+                "request-z-precedence",
+                projectId,
+                baseRevisionId,
+                List.of(envelope(projectId, baseRevisionId, "update", "ifcElement", "3s2uah2CP65OGApQS50SKQ", null, patch))
+        );
+
+        JsonNode operation = engineRequest.get("operations").get(0);
+        assertThat(operation.get("type").asText()).isEqualTo("transform_elements");
+        assertThat(operation.get("parameters").get("rotation_deg").get("z").asDouble()).isEqualTo(-82.51572006705355);
+    }
+
+    @Test
     void toEngineRequest_mapsRoomUpdateToIfcSpacePropertiesWhenGlobalIdExists() {
         UUID projectId = UUID.randomUUID();
         UUID baseRevisionId = UUID.randomUUID();
@@ -185,5 +323,20 @@ class FloorPlanIfcEditEngineRequestMapperTest {
                 ),
                 new WorkspaceCommandMeta("2d", "client-1", null, "2026-05-14T00:00:00Z")
         );
+    }
+
+    private void assertValidEngineRequestV2(JsonNode engineRequest) throws Exception {
+        JsonSchema schema = JsonSchemaFactory.getInstance(SpecVersion.VersionFlag.V202012)
+                .getSchema(objectMapper.readTree(engineRequestV2SchemaPath().toFile()));
+        Set<ValidationMessage> errors = schema.validate(engineRequest);
+        assertThat(errors).as("engine_request.v2 schema errors").isEmpty();
+    }
+
+    private Path engineRequestV2SchemaPath() {
+        Path fromBeModule = Path.of("..", "shared", "schemas", "engine_request.v2.schema.json").normalize();
+        if (Files.exists(fromBeModule)) {
+            return fromBeModule;
+        }
+        return Path.of("shared", "schemas", "engine_request.v2.schema.json").normalize();
     }
 }
