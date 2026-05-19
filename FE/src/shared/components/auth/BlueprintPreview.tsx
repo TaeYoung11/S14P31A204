@@ -4,14 +4,10 @@ interface BlueprintPreviewProps {
 
 const BLUEPRINT_FONT_FAMILY = 'Pretendard Variable, Pretendard, sans-serif'
 
-/**
- * 인증 화면 좌측 패널에 표시되는 도면 미리보기.
- * 실제 편집 기능이 아닌 브랜드 맥락을 보여주는 장식형 SVG라서 외부 상태를 받지 않는다.
- */
 export default function BlueprintPreview({ compact = false }: BlueprintPreviewProps) {
   return (
     <div
-      className={`max-w-[540px] rounded-2xl border border-[#e5e7eb] bg-white shadow-[0_14px_40px_rgba(17,24,39,0.06)] ${
+      className={`auth-blueprint-card max-w-[540px] rounded-2xl border border-white/70 bg-white/85 shadow-[0_24px_70px_rgba(15,23,42,0.12)] ${
         compact ? 'p-3 xl:p-4' : 'mt-2 p-[18px]'
       }`}
     >
@@ -20,7 +16,7 @@ export default function BlueprintPreview({ compact = false }: BlueprintPreviewPr
           compact ? 'mb-2 pb-2 text-[9px]' : 'mb-3 pb-3 text-[10px]'
         }`}
       >
-        <span>BATANG · 003 / PLAN</span>
+        <span>BATANG WORKSPACE / DESIGN REVIEW</span>
         <span className="flex gap-1.5">
           <span className="h-2 w-2 rounded-full border border-[#4f46e5] bg-[#4f46e5]" />
           <span className="h-2 w-2 rounded-full border border-[#e5e7eb] bg-[#eaecf2]" />
@@ -29,59 +25,98 @@ export default function BlueprintPreview({ compact = false }: BlueprintPreviewPr
       </div>
 
       <svg
-        className={`block w-full rounded-lg bg-[#fafbff] ${compact ? 'h-[clamp(82px,17vh,150px)]' : 'h-[clamp(128px,22vh,180px)]'}`}
-        viewBox="0 0 540 180"
+        className={`auth-blueprint-svg block w-full rounded-lg bg-[#f8fbff] ${
+          compact ? 'h-[clamp(116px,19vh,168px)]' : 'h-[clamp(148px,24vh,196px)]'
+        }`}
+        viewBox="0 0 540 196"
         preserveAspectRatio="none"
-        aria-label="AI 설계 도면 미리보기"
+        aria-label="BATANG 설계 협업 미리보기"
       >
         <defs>
+          <linearGradient id="auth-plan-fill" x1="0" x2="1" y1="0" y2="1">
+            <stop offset="0%" stopColor="rgba(79,70,229,0.14)" />
+            <stop offset="52%" stopColor="rgba(124,58,237,0.09)" />
+            <stop offset="100%" stopColor="rgba(20,184,166,0.10)" />
+          </linearGradient>
+          <linearGradient id="auth-model-face" x1="0" x2="1" y1="0" y2="1">
+            <stop offset="0%" stopColor="#ffffff" />
+            <stop offset="100%" stopColor="#eef2ff" />
+          </linearGradient>
+          <linearGradient id="auth-model-side" x1="0" x2="1" y1="0" y2="1">
+            <stop offset="0%" stopColor="#dbeafe" />
+            <stop offset="100%" stopColor="#ede9fe" />
+          </linearGradient>
           <pattern id="auth-grid" width="24" height="24" patternUnits="userSpaceOnUse">
             <path d="M 24 0 L 0 0 0 24" fill="none" stroke="rgba(17,24,39,0.06)" strokeWidth="1" />
           </pattern>
         </defs>
-        <rect width="540" height="180" fill="url(#auth-grid)" />
-        <rect x="40" y="20" width="460" height="140" fill="none" stroke="rgba(17,24,39,0.5)" strokeWidth="2" />
-        <line x1="180" y1="20" x2="180" y2="100" stroke="rgba(17,24,39,0.5)" strokeWidth="1.5" />
-        <line x1="40" y1="100" x2="320" y2="100" stroke="rgba(17,24,39,0.5)" strokeWidth="1.5" />
-        <line x1="320" y1="20" x2="320" y2="160" stroke="rgba(17,24,39,0.5)" strokeWidth="1.5" />
-        <line x1="320" y1="80" x2="500" y2="80" stroke="rgba(17,24,39,0.5)" strokeWidth="1.5" />
-        <path d="M 180 60 A 14 14 0 0 0 194 74" fill="none" stroke="rgba(17,24,39,0.4)" strokeWidth="1" />
-        <path d="M 320 130 A 14 14 0 0 1 306 144" fill="none" stroke="rgba(17,24,39,0.4)" strokeWidth="1" />
-        <rect
-          x="324"
-          y="84"
-          width="172"
-          height="72"
-          fill="rgba(79,70,229,0.08)"
-          stroke="rgba(79,70,229,0.6)"
-          strokeWidth="1.5"
-          strokeDasharray="4 4"
-        />
-        <text x="334" y="102" fontFamily={BLUEPRINT_FONT_FAMILY} fontSize="9" fill="rgba(79,70,229,0.9)">
-          AI · STUDIO
+
+        <rect width="540" height="196" fill="#f8fbff" />
+        <rect width="540" height="196" fill="url(#auth-grid)" opacity="0.82" />
+
+        <rect x="24" y="24" width="298" height="132" rx="12" fill="rgba(255,255,255,0.58)" stroke="rgba(226,232,240,0.9)" />
+        <text x="40" y="45" fontFamily={BLUEPRINT_FONT_FAMILY} fontSize="10" fontWeight="700" fill="rgba(79,70,229,0.88)">
+          AI PLAN
         </text>
-        <line x1="40" y1="172" x2="500" y2="172" stroke="rgba(17,24,39,0.3)" strokeWidth="1" />
-        <line x1="40" y1="168" x2="40" y2="176" stroke="rgba(17,24,39,0.3)" strokeWidth="1" />
-        <line x1="500" y1="168" x2="500" y2="176" stroke="rgba(17,24,39,0.3)" strokeWidth="1" />
-        <text
-          x="270"
-          y="168"
-          textAnchor="middle"
-          fontFamily={BLUEPRINT_FONT_FAMILY}
-          fontSize="8"
-          fill="rgba(17,24,39,0.45)"
-        >
-          12,400
+        <rect x="42" y="61" width="236" height="74" fill="none" stroke="rgba(17,24,39,0.46)" strokeWidth="2" />
+        <line x1="126" y1="61" x2="126" y2="104" stroke="rgba(17,24,39,0.38)" strokeWidth="1.4" />
+        <line x1="42" y1="104" x2="196" y2="104" stroke="rgba(17,24,39,0.38)" strokeWidth="1.4" />
+        <line x1="196" y1="61" x2="196" y2="135" stroke="rgba(17,24,39,0.38)" strokeWidth="1.4" />
+        <rect x="202" y="88" width="70" height="42" rx="3" fill="url(#auth-plan-fill)" stroke="rgba(79,70,229,0.62)" strokeDasharray="5 5" />
+        <path d="M126 85 A14 14 0 0 0 140 99" fill="none" stroke="rgba(17,24,39,0.28)" strokeWidth="1.1" />
+        <path d="M196 116 A13 13 0 0 1 183 129" fill="none" stroke="rgba(17,24,39,0.28)" strokeWidth="1.1" />
+        <rect x="58" y="116" width="34" height="14" fill="none" stroke="rgba(17,24,39,0.22)" />
+        <rect x="104" y="116" width="34" height="14" fill="none" stroke="rgba(17,24,39,0.22)" />
+        <text x="212" y="106" fontFamily={BLUEPRINT_FONT_FAMILY} fontSize="8" fill="rgba(79,70,229,0.9)">
+          REVIEW
         </text>
-        <text x="50" y="36" fontFamily={BLUEPRINT_FONT_FAMILY} fontSize="8" fill="rgba(17,24,39,0.35)">
-          A-01
+
+        <g transform="translate(344 38)">
+          <rect x="0" y="0" width="154" height="118" rx="14" fill="rgba(255,255,255,0.72)" stroke="rgba(226,232,240,0.95)" />
+          <text x="18" y="24" fontFamily={BLUEPRINT_FONT_FAMILY} fontSize="10" fontWeight="700" fill="rgba(15,23,42,0.78)">
+            3D MODEL
+          </text>
+          <polygon points="58,42 102,58 70,74 26,57" fill="url(#auth-model-face)" stroke="rgba(79,70,229,0.34)" />
+          <polygon points="26,57 70,74 70,108 26,90" fill="#eef2ff" stroke="rgba(79,70,229,0.24)" />
+          <polygon points="70,74 102,58 102,92 70,108" fill="url(#auth-model-side)" stroke="rgba(79,70,229,0.24)" />
+          <polygon points="58,26 102,42 102,58 58,42" fill="rgba(79,70,229,0.18)" stroke="rgba(79,70,229,0.28)" />
+          <polygon points="58,26 26,41 26,57 58,42" fill="rgba(124,58,237,0.12)" stroke="rgba(79,70,229,0.20)" />
+          <line x1="42" y1="68" x2="42" y2="97" stroke="rgba(79,70,229,0.18)" />
+          <line x1="86" y1="66" x2="86" y2="100" stroke="rgba(79,70,229,0.18)" />
+          <rect x="18" y="82" width="42" height="22" rx="6" fill="rgba(255,255,255,0.74)" stroke="rgba(226,232,240,0.9)" />
+          <circle cx="30" cy="93" r="4" fill="#4f46e5" />
+          <text x="40" y="96" fontFamily={BLUEPRINT_FONT_FAMILY} fontSize="8" fontWeight="700" fill="rgba(15,23,42,0.65)">
+            SYNC
+          </text>
+        </g>
+
+        <g transform="translate(42 164)">
+          <rect x="0" y="0" width="118" height="20" rx="10" fill="rgba(79,70,229,0.10)" />
+          <circle cx="14" cy="10" r="4" fill="#4f46e5" />
+          <text x="24" y="13" fontFamily={BLUEPRINT_FONT_FAMILY} fontSize="9" fontWeight="700" fill="rgba(79,70,229,0.9)">
+            PLAN UPDATED
+          </text>
+        </g>
+        <g transform="translate(170 164)">
+          <rect x="0" y="0" width="112" height="20" rx="10" fill="rgba(20,184,166,0.10)" />
+          <circle cx="14" cy="10" r="4" fill="#14b8a6" />
+          <text x="24" y="13" fontFamily={BLUEPRINT_FONT_FAMILY} fontSize="9" fontWeight="700" fill="rgba(15,118,110,0.9)">
+            AI READY
+          </text>
+        </g>
+        <g transform="translate(292 164)">
+          <rect x="0" y="0" width="128" height="20" rx="10" fill="rgba(15,23,42,0.06)" />
+          <circle cx="14" cy="10" r="4" fill="#94a3b8" />
+          <text x="24" y="13" fontFamily={BLUEPRINT_FONT_FAMILY} fontSize="9" fontWeight="700" fill="rgba(51,65,85,0.82)">
+            REVIEW MODE
+          </text>
+        </g>
+        <path d="M310 98 C324 86, 326 76, 338 70" fill="none" stroke="rgba(79,70,229,0.46)" strokeWidth="1.6" strokeDasharray="4 5" />
+        <circle cx="310" cy="98" r="4" fill="#4f46e5" />
+        <circle cx="338" cy="70" r="4" fill="#4f46e5" />
+        <text x="302" y="88" fontFamily={BLUEPRINT_FONT_FAMILY} fontSize="8" fontWeight="700" fill="rgba(79,70,229,0.82)">
+          sync
         </text>
-        <text x="190" y="36" fontFamily={BLUEPRINT_FONT_FAMILY} fontSize="8" fill="rgba(17,24,39,0.35)">
-          +0.000
-        </text>
-        <rect x="60" y="120" width="40" height="24" fill="none" stroke="rgba(17,24,39,0.25)" strokeWidth="1" />
-        <rect x="120" y="120" width="40" height="24" fill="none" stroke="rgba(17,24,39,0.25)" strokeWidth="1" />
-        <circle cx="220" cy="60" r="14" fill="none" stroke="rgba(17,24,39,0.25)" strokeWidth="1" />
       </svg>
 
       <div
@@ -89,8 +124,8 @@ export default function BlueprintPreview({ compact = false }: BlueprintPreviewPr
           compact ? 'mt-2 text-[9px]' : 'mt-3 text-[10px]'
         }`}
       >
-        <span>scale 1 : 100 · DRAFT</span>
-        <span className="rounded bg-[#4f46e5]/10 px-2 py-1 font-medium text-[#4f46e5]">AI 영감 96%</span>
+        <span>AI plan to model sync</span>
+        <span className="rounded bg-[#4f46e5]/10 px-2 py-1 font-medium text-[#4f46e5]">LIVE REVIEW</span>
       </div>
     </div>
   )

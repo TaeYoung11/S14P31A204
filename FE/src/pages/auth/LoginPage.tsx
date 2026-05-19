@@ -29,17 +29,19 @@ export default function LoginPage() {
 
   return (
     <AuthLayout fitViewport>
-      <div className="mb-5 flex justify-end text-xs text-[#6b7280] xl:mb-6">
-        <span>처음 오셨나요?</span>
-        <Link to="/register" className="ml-1 font-medium text-[#4f46e5] hover:underline">
-          회원가입
-        </Link>
-      </div>
+      <div className="auth-form-shell auth-appear">
+        <div className="auth-switch-row mb-5 flex justify-end text-xs text-[#6b7280] xl:mb-6">
+          <span>처음 오셨나요?</span>
+          <Link to="/register" className="ml-1 font-semibold text-[#4f46e5] hover:underline">
+            회원가입
+          </Link>
+        </div>
 
-      <div className="mb-5 xl:mb-6">
-        <h2 className="mb-2 text-[28px] font-bold tracking-[-0.025em] text-[#111827]">BATANG 로그인</h2>
-        <p className="text-[13px] leading-[1.6] text-[#6b7280]">프로젝트와 협업 기록을 이어서 관리하세요.</p>
-      </div>
+        <div className="mb-5 xl:mb-6">
+          <span className="auth-kicker">WELCOME BACK</span>
+          <h2 className="auth-heading mt-2">BATANG 로그인</h2>
+          <p className="auth-subtext">프로젝트와 협업 기록을 이어서 관리하세요.</p>
+        </div>
 
       <form onSubmit={handleSubmit} className="space-y-3.5" autoComplete="on" noValidate>
         {loginNotice && (
@@ -50,11 +52,11 @@ export default function LoginPage() {
           <label htmlFor="login-email-id" className="auth-label">
             이메일
           </label>
-          <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(132px,0.8fr)] items-center rounded-[10px] border border-[#d1d5db] bg-white transition-colors focus-within:border-[#4f46e5] focus-within:ring-2 focus-within:ring-[#4f46e5]/10">
+          <div className="auth-email-field border-[#d1d5db]">
             <input
               id="login-email-id"
               type="text"
-              className="h-[42px] min-w-0 rounded-l-[10px] border-0 bg-transparent px-3 text-sm text-[#111827] outline-none placeholder:text-[#9ca3af]"
+              className="h-11 min-w-0 rounded-l-xl border-0 bg-transparent px-3 text-sm text-[#111827] outline-none placeholder:text-[#9ca3af]"
               placeholder="아이디"
               value={emailLocalPart}
               onChange={(e) => setEmailLocalPart(e.target.value.replace(/\s/g, ''))}
@@ -66,7 +68,7 @@ export default function LoginPage() {
               <div className="relative min-w-0">
                 <input
                   type="text"
-                  className="h-[42px] w-full min-w-0 rounded-r-[10px] border-0 bg-transparent px-3 pr-14 text-sm font-medium text-[#374151] outline-none placeholder:text-[#9ca3af]"
+                  className="h-11 w-full min-w-0 rounded-r-xl border-0 bg-transparent px-3 pr-14 text-sm font-medium text-[#374151] outline-none placeholder:text-[#9ca3af]"
                   placeholder="example.com"
                   value={emailDomain}
                   onChange={(e) => setEmailDomain(e.target.value.replace(/\s/g, ''))}
@@ -86,7 +88,7 @@ export default function LoginPage() {
             ) : (
               <div className="relative min-w-0">
                 <select
-                  className="h-[42px] w-full min-w-0 appearance-none rounded-r-[10px] border-0 bg-transparent py-0 pl-3 pr-12 text-sm font-medium text-[#374151] outline-none"
+                  className="h-11 w-full min-w-0 appearance-none rounded-r-xl border-0 bg-transparent py-0 pl-3 pr-12 text-sm font-medium text-[#374151] outline-none"
                   value={emailDomain}
                   onChange={(e) => selectEmailDomain(e.target.value as (typeof emailDomainOptions)[number] | 'custom')}
                   aria-label="이메일 도메인 선택"
@@ -112,7 +114,7 @@ export default function LoginPage() {
             <input
               id="login-password"
               type={showPw ? 'text' : 'password'}
-              className="h-11 w-full rounded-[10px] border border-[#d1d5db] bg-white px-3.5 pr-11 text-sm text-[#111827] outline-none transition-colors placeholder:text-[#9ca3af] focus:border-[#4f46e5] focus:ring-2 focus:ring-[#4f46e5]/10"
+              className="input-auth pr-11"
               placeholder="비밀번호를 입력해 주세요"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -131,13 +133,14 @@ export default function LoginPage() {
         </div>
 
         <div className="flex items-center py-1">
-          <label className="inline-flex select-none items-center gap-2 text-[13px] text-[#374151]">
+          <label className="auth-checkbox-label">
             <input
               type="checkbox"
-              className="h-4 w-4 rounded border-[#d1d5db] text-[#4f46e5] focus:ring-[#4f46e5]/20"
+              className="auth-checkbox-input"
               checked={rememberEmail}
               onChange={(e) => setRememberEmail(e.target.checked)}
             />
+            <span className="auth-checkbox-box" aria-hidden="true" />
             이메일 기억하기
           </label>
         </div>
@@ -151,7 +154,7 @@ export default function LoginPage() {
         <button
           id="login-submit"
           type="submit"
-          className="flex h-12 w-full items-center justify-center gap-2 rounded-[10px] bg-[#4f46e5] text-sm font-semibold text-white shadow-[0_4px_14px_rgba(79,70,229,0.28)] transition-colors hover:bg-[#4338ca] disabled:cursor-not-allowed disabled:opacity-70"
+          className="auth-submit"
           disabled={isLoggingIn}
         >
           {isLoggingIn ? (
@@ -163,13 +166,8 @@ export default function LoginPage() {
           )}
         </button>
 
-        <p className="pt-2 text-center text-[13px] text-[#6b7280]">
-          계정이 없으신가요?
-          <Link to="/register" className="ml-1 font-semibold text-[#4f46e5] hover:underline">
-            회원가입
-          </Link>
-        </p>
       </form>
+      </div>
     </AuthLayout>
   )
 }
