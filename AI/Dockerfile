@@ -51,6 +51,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xvfb \
     && rm -rf /var/lib/apt/lists/*
 
+# Install PyTorch with CUDA 12.6 support first so the subsequent
+# `pip install -e ./packages/ai-rendering` reuses these wheels instead of
+# pulling the default CPU wheel from PyPI. Target hardware: NVIDIA L4 / Ada
+# (compute capability 8.9). Falls back to CPU at runtime when CUDA is absent.
+RUN pip install --no-cache-dir \
+        --index-url https://download.pytorch.org/whl/cu126 \
+        torch \
+        torchvision
+
 COPY packages/ai-rendering ./packages/ai-rendering
 COPY scripts ./scripts
 
