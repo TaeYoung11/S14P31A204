@@ -88,10 +88,7 @@ type MultiSelectionEntry = {
 
 const PRESET_MOVE_DEBUG = import.meta.env.DEV || import.meta.env.VITE_3D_MOVE_DEBUG === 'true'
 
-const logRoofDebug = (...args: unknown[]) => {
-  if (!import.meta.env.DEV) return
-  console.log('[roof-debug][FloorPlan3DCanvas]', ...args)
-}
+const logRoofDebug = (..._args: unknown[]) => {}
 
 /**
  * 2D 평면도 데이터를 Three.js로 즉시 3D 변환하여 표시하는 캔버스.

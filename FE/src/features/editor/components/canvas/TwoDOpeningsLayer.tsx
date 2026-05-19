@@ -11,6 +11,7 @@ interface TwoDOpeningsLayerProps {
   wallById: Map<string, FloorWall>
   selectedOpeningId: string | null
   selectedOpeningIds: string[]
+  outsideOpeningIds: Set<string>
   selectedTool: string
   isPanMode: boolean
   isWallTool: boolean
@@ -36,6 +37,7 @@ export function TwoDOpeningsLayer({
   wallById,
   selectedOpeningId,
   selectedOpeningIds,
+  outsideOpeningIds,
   selectedTool,
   isPanMode,
   isWallTool,
@@ -74,6 +76,7 @@ export function TwoDOpeningsLayer({
         const angleDeg = (Math.atan2(wall.end.y - wall.start.y, wall.end.x - wall.start.x) * 180) / Math.PI
         const openingWidthPx = openingWidthMmToPx(opening.widthMm)
         const isSelectedOpening = selectedOpeningId === opening.id || selectedOpeningIds.includes(opening.id)
+        const isOutsideSiteOpening = outsideOpeningIds.has(opening.id)
         const wallStrokePx = wallThicknessMmToPx(wall.thickness)
         const openingTypeLabel = opening.type === 'door' ? '문' : '창문'
         const openingSillLabel = opening.type === 'window' ? ` / ${opening.sillHeightMm ?? 900}SH` : ''
@@ -99,6 +102,7 @@ export function TwoDOpeningsLayer({
               openingWidthPx={openingWidthPx}
               wallStrokePx={wallStrokePx}
               isSelectedOpening={isSelectedOpening}
+              isOutsideSiteOpening={isOutsideSiteOpening}
             />
 
             {isSelectedOpening && (

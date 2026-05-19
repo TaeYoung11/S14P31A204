@@ -44,7 +44,6 @@ export default function EditorHeader({
         onOpenProjectSwitcher={onOpenProjectSwitcher}
       />
       <EditorHeaderActions
-        mode={mode}
         isViewer={isViewer}
         userType={userType}
         onOpenInvite={onOpenInvite}

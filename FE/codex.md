@@ -52,3 +52,48 @@ Transform tasks into verifiable goals:
 - "Refactor X" → "Ensure tests pass before and after"
 
 For multi-step tasks, state a brief plan:
+
+## 5. Editor Realtime And History Safety
+
+**Treat autosave, STOMP sync, snapshots, and undo/redo as one system.**
+
+The editor has tightly coupled realtime state. Small condition changes can break autosave,
+undo, redo, or 2D/3D synchronization. When touching any of these areas, do not make an
+isolated change without checking the full flow:
+
+- `useEditorPage.ts`
+- `useBubbleSnapshotRealtime.ts`
+- `useWorkspaceRemoteSnapshotHandlers.ts`
+- `useWorkspaceCommandPublisher.ts`
+- `workspaceRealtime.service.ts`
+- 2D canvas edit handlers
+- 3D IFC transform/delete/selection handlers
+
+Before changing editor realtime/history code, explicitly identify:
+- Whether the change marks the snapshot dirty.
+- Whether it creates, consumes, or skips a pending workspace command.
+- Whether it changes STOMP publish timing or duplicate publish behavior.
+- Whether it changes server echo handling.
+- Whether it affects history cursor updates.
+- Whether it changes 2D layout state, 3D IFC source state, or both.
+
+For editor realtime/history changes, verify this complete cycle:
+
+`local state -> pending command -> publish -> server echo -> history cursor -> undo/redo`
+
+Rules:
+- Do not change `FLOOR_PLAN_UPDATED`, `FLOOR_PLAN_PROCESSING`, undo, or redo handling without checking IFC URL application, floor-plan layout application, bubble snapshot application, and history cursor updates together.
+- Do not call `replaceFloorPlanState` for a narrow edit if a functional updater can preserve concurrent local state.
+- Do not consume `workspaceCommandPublisher` commands unless the publish path is definitely ready to send that command.
+- Do not add new `mode === '3d'` behavior without checking the 2D state after switching modes.
+- Do not add temporary console logs or performance markers without removing them before commit.
+- Keep `useEditorPage.ts` changes small. Prefer moving focused logic into existing hooks or utilities.
+
+Minimum manual checks before considering the change done:
+- 2D room move, undo, redo.
+- 2D wall/opening edit, undo, redo.
+- 3D Space move and 2D layout reflection.
+- 3D Wall/Slab/Roof move, undo, redo.
+- 3D delete without worker DLQ.
+- Floor add and floor panel consistency in 2D and 3D.
+- Hard refresh keeps the latest IFC and history state.

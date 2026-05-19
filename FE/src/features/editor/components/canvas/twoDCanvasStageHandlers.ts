@@ -60,6 +60,8 @@ interface UseTwoDCanvasStageHandlersParams {
   ) => void
   onWallMove?: (wallId: string, dx: number, dy: number) => void
   onOpeningMove?: (openingId: string, wallPosition: number, wallId?: string) => void
+  onWorkspaceEditStart?: () => void
+  onWorkspaceEditCommit?: () => void
   onTwoDMarqueeSelect?: (
     payload: { roomIds: string[]; wallIds: string[]; openingIds: string[] },
     append?: boolean,
@@ -79,6 +81,7 @@ interface UseTwoDCanvasStageHandlersParams {
   marqueeStart: MutableRefObject<Point2D | null>
   marqueeAppendRef: MutableRefObject<boolean>
   skipStageClickClearRef: MutableRefObject<boolean>
+  workspaceDragTransactionRef: MutableRefObject<boolean>
 }
 
 /**
@@ -123,6 +126,8 @@ export function useTwoDCanvasStageHandlers({
   onWallCreate,
   onWallMove,
   onOpeningMove,
+  onWorkspaceEditStart,
+  onWorkspaceEditCommit,
   onTwoDMarqueeSelect,
   onMarqueeSelect,
   onWheelZoom,
@@ -139,7 +144,20 @@ export function useTwoDCanvasStageHandlers({
   marqueeStart,
   marqueeAppendRef,
   skipStageClickClearRef,
+  workspaceDragTransactionRef,
 }: UseTwoDCanvasStageHandlersParams) {
+  const beginWorkspaceDragTransaction = () => {
+    if (workspaceDragTransactionRef.current) return
+    workspaceDragTransactionRef.current = true
+    onWorkspaceEditStart?.()
+  }
+
+  const commitWorkspaceDragTransaction = () => {
+    if (!workspaceDragTransactionRef.current) return
+    workspaceDragTransactionRef.current = false
+    onWorkspaceEditCommit?.()
+  }
+
   /** 마퀴 선택 시작 상태를 초기화한다. */
   const beginMarqueeSelection = (point: Point2D, append: boolean) => {
     isDrawingMarquee.current = true
@@ -211,6 +229,7 @@ export function useTwoDCanvasStageHandlers({
       snapThreshold: openingSnapThreshold,
       openingMinClearanceMm,
     })
+    beginWorkspaceDragTransaction()
     onOpeningMove?.(openingDragState.openingId, snapped.wallPosition, wall.id)
     setOpeningSnapGuide(
       snapped.guidePosition === null
@@ -226,6 +245,7 @@ export function useTwoDCanvasStageHandlers({
     const dx = stagePoint.x - wallDragState.lastPoint.x
     const dy = stagePoint.y - wallDragState.lastPoint.y
     if (dx !== 0 || dy !== 0) {
+      beginWorkspaceDragTransaction()
       onWallMove?.(wallDragState.wallId, dx, dy)
       setWallDragState({ wallId: wallDragState.wallId, lastPoint: stagePoint })
     }
@@ -329,6 +349,7 @@ export function useTwoDCanvasStageHandlers({
       setOpeningDragState(null)
       setOpeningSnapGuide(null)
     }
+    commitWorkspaceDragTransaction()
     finalizeMarqueeSelection()
   }
 

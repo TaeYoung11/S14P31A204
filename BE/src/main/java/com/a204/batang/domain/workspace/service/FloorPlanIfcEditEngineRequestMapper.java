@@ -161,7 +161,9 @@ public class FloorPlanIfcEditEngineRequestMapper {
         if (!isIfcGlobalId(globalId)) {
             return null;
         }
-        return operation(envelope.commandId().toString(), "delete_elements", selector(globalId), objectMapper.createObjectNode());
+        ObjectNode params = objectMapper.createObjectNode();
+        params.put("reason", "workspace-command-delete");
+        return operation(envelope.commandId().toString(), "delete_elements", selector(globalId), params);
     }
 
     private ObjectNode operation(String id, String type, ObjectNode selector, ObjectNode parameters) {
