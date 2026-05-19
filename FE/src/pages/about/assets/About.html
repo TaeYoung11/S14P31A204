@@ -401,19 +401,11 @@
     margin-top: 40px;
     padding: 32px 40px;
     border-top: 1px solid var(--line);
-    display: flex; align-items: center; justify-content: space-between;
+    display: flex; align-items: center; justify-content: flex-end;
     font-family: var(--mono);
     font-size: 11px;
     color: var(--muted);
     letter-spacing: 0.14em;
-  }
-  .keywords{ display: flex; gap: 28px; }
-  .keywords span{ position: relative; }
-  .keywords span:not(:last-child)::after{
-    content: ""; position: absolute;
-    right: -16px; top: 50%; transform: translateY(-50%);
-    width: 2px; height: 2px; border-radius: 50%;
-    background: var(--muted-2);
   }
 
   /* responsive */
@@ -1161,19 +1153,630 @@
     }
 
     footer.foot {
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 14px;
+      align-items: center;
       padding: 28px 22px;
     }
+  }
 
-    .keywords {
-      gap: 14px;
-      flex-wrap: wrap;
+  /* polished about layout */
+  body {
+    background:
+      radial-gradient(980px 640px at 86% 8%, rgba(124, 58, 237, 0.18), transparent 62%),
+      radial-gradient(760px 500px at 8% 38%, rgba(91, 70, 232, 0.1), transparent 68%),
+      linear-gradient(180deg, #f8fafc 0%, #f4f2ff 52%, #f8fafc 100%);
+  }
+
+  body::before {
+    background-image:
+      linear-gradient(to right, rgba(91, 70, 232, 0.055) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(91, 70, 232, 0.045) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: linear-gradient(180deg, black 0%, rgba(0, 0, 0, 0.84) 64%, transparent 100%);
+  }
+
+  .about-noise {
+    opacity: .16;
+  }
+
+  .hero {
+    max-width: 1360px;
+    min-height: 86vh;
+    padding: clamp(132px, 14vh, 190px) clamp(28px, 5vw, 72px) clamp(72px, 9vh, 120px);
+    grid-template-columns: minmax(0, .86fr) minmax(520px, 1.14fr);
+    gap: clamp(42px, 6vw, 92px);
+    align-items: center;
+  }
+
+  .hero-copy {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 28px;
+  }
+
+  .eyebrow {
+    margin-bottom: 0;
+    border-color: rgba(91, 70, 232, .18);
+    background: rgba(255, 255, 255, .72);
+    box-shadow: 0 14px 40px rgba(15, 23, 42, .07);
+  }
+
+  h1.title {
+    max-width: 720px;
+    font-size: clamp(54px, 7.2vw, 98px);
+    line-height: .98;
+    letter-spacing: 0;
+  }
+
+  .about-process {
+    border-radius: 34px;
+    padding: 24px;
+    background:
+      linear-gradient(145deg, rgba(255, 255, 255, .9), rgba(255, 255, 255, .58)),
+      radial-gradient(circle at 78% 8%, rgba(124, 58, 237, .18), transparent 44%);
+    border-color: rgba(255, 255, 255, .86);
+    box-shadow:
+      0 34px 110px rgba(91, 70, 232, .18),
+      inset 0 1px 0 rgba(255, 255, 255, .92);
+  }
+
+  .about-process-head {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 24px;
+    margin-bottom: 18px;
+  }
+
+  .about-process-head strong {
+    font-size: clamp(24px, 2.3vw, 34px);
+  }
+
+  .about-process-head span {
+    max-width: 320px;
+    text-align: right;
+  }
+
+  .about-process-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .about-process-card {
+    min-height: 330px;
+    border-radius: 24px;
+    padding: 18px;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, .78), rgba(248, 250, 252, .56));
+    transition: transform .25s ease, box-shadow .25s ease, border-color .25s ease;
+  }
+
+  .about-process-card:hover {
+    transform: translateY(-6px);
+    border-color: rgba(91, 70, 232, .2);
+    box-shadow: 0 24px 70px rgba(91, 70, 232, .16);
+  }
+
+  .about-process-label {
+    font-size: 22px;
+  }
+
+  .about-stage {
+    inset: 70px 18px 18px;
+    border-radius: 20px;
+    box-shadow: inset 0 0 0 1px rgba(91, 70, 232, .08);
+  }
+
+  .section {
+    max-width: 1360px;
+    padding: clamp(64px, 8vw, 104px) clamp(28px, 5vw, 72px);
+  }
+
+  .section-head {
+    display: grid;
+    grid-template-columns: 150px minmax(280px, 1fr) minmax(300px, 600px);
+    gap: 32px;
+    align-items: end;
+    margin-bottom: 38px;
+    padding-bottom: 28px;
+    border-bottom-color: rgba(91, 70, 232, .14);
+  }
+
+  .section-head .num {
+    align-self: start;
+    padding-top: 9px;
+    line-height: 1.45;
+  }
+
+  .section-head h2 {
+    max-width: 540px;
+    font-size: clamp(34px, 4.6vw, 64px);
+    line-height: 1.06;
+    letter-spacing: 0;
+  }
+
+  .section-head .desc {
+    align-self: center;
+    margin-left: 0;
+    max-width: none;
+    text-align: left;
+    font-size: 16px;
+    line-height: 1.72;
+    color: #64748b;
+  }
+
+  .mission-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+  }
+
+  .mcard {
+    position: relative;
+    min-height: 250px;
+    padding: 34px;
+    border-radius: 28px;
+    overflow: hidden;
+    background:
+      linear-gradient(145deg, rgba(255, 255, 255, .86), rgba(255, 255, 255, .58));
+  }
+
+  .mcard::before {
+    content: "0" counter(mission-card);
+    position: absolute;
+    right: 28px;
+    top: 26px;
+    font-family: var(--mono);
+    font-size: 48px;
+    color: rgba(91, 70, 232, .1);
+    letter-spacing: 0;
+  }
+
+  .mission-grid {
+    counter-reset: mission-card;
+  }
+
+  .mcard {
+    counter-increment: mission-card;
+  }
+
+  .mcard::after {
+    content: "";
+    position: absolute;
+    left: 34px;
+    top: 34px;
+    width: 42px;
+    height: 42px;
+    border-radius: 14px;
+    background:
+      radial-gradient(circle at 35% 30%, rgba(255, 255, 255, .82), transparent 34%),
+      linear-gradient(135deg, rgba(91, 70, 232, .92), rgba(124, 58, 237, .72));
+    box-shadow: 0 16px 34px rgba(91, 70, 232, .24);
+  }
+
+  .mcard h3 {
+    margin-top: 74px;
+    font-size: 28px;
+    line-height: 1.18;
+    letter-spacing: 0;
+  }
+
+  .mcard p {
+    max-width: 390px;
+    font-size: 16px;
+    line-height: 1.78;
+    color: #475569;
+  }
+
+  .values {
+    max-width: 1360px;
+    border-radius: 30px;
+    background:
+      linear-gradient(145deg, rgba(255, 255, 255, .8), rgba(255, 255, 255, .52));
+  }
+
+  .value {
+    padding: clamp(38px, 5vw, 64px);
+  }
+
+  .value h3 {
+    font-size: clamp(26px, 2.7vw, 38px);
+    letter-spacing: 0;
+  }
+
+  .value p {
+    font-size: 16px;
+    line-height: 1.75;
+    color: #475569;
+  }
+
+  .team-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  .member {
+    min-height: 168px;
+    justify-content: space-between;
+    border-radius: 24px;
+    padding: 26px;
+  }
+
+  .member::before {
+    content: "";
+    width: 48px;
+    height: 48px;
+    border-radius: 16px;
+    background:
+      radial-gradient(circle at 36% 30%, rgba(255, 255, 255, .86), transparent 34%),
+      linear-gradient(135deg, rgba(15, 23, 42, .9), rgba(91, 70, 232, .76));
+    box-shadow: 0 18px 38px rgba(15, 23, 42, .16);
+  }
+
+  .member .name {
+    font-size: 20px;
+    letter-spacing: 0;
+  }
+
+  .member .name .num {
+    display: block;
+    margin: 0 0 8px;
+    color: #8b5cf6;
+  }
+
+  .tag {
+    border-radius: 999px;
+    padding: 5px 9px;
+    background: rgba(248, 250, 252, .86);
+  }
+
+  .cta-block {
+    max-width: 1360px;
+    margin: 40px auto 0;
+    padding: clamp(48px, 7vw, 86px) clamp(28px, 5vw, 72px);
+    border-radius: 36px;
+    border: 1px solid rgba(124, 58, 237, .16);
+    background:
+      linear-gradient(135deg, rgba(255, 255, 255, .86), rgba(245, 243, 255, .72)),
+      radial-gradient(circle at 86% 20%, rgba(124, 58, 237, .18), transparent 44%);
+    color: #111827;
+    box-shadow:
+      0 24px 76px rgba(91, 70, 232, .14),
+      inset 0 1px 0 rgba(255, 255, 255, .88);
+  }
+
+  .cta-block h2 {
+    font-size: clamp(34px, 4.7vw, 64px);
+    line-height: 1.08;
+    letter-spacing: 0;
+    color: #111827;
+  }
+
+  .cta-block::before {
+    opacity: .28;
+    background: linear-gradient(90deg, transparent, rgba(124, 58, 237, .16), transparent);
+  }
+
+  .cta-block .btn-primary {
+    background: linear-gradient(135deg, #5b46e8, #7c3aed);
+    color: white;
+    box-shadow: 0 16px 36px rgba(91, 70, 232, .24);
+  }
+
+  .cta-block .btn-primary:hover {
+    background: linear-gradient(135deg, #4f46e5, #6d28d9);
+  }
+
+  footer.foot {
+    max-width: 1360px;
+    margin: 56px auto 0;
+    padding: 28px clamp(28px, 5vw, 72px);
+    border-top-color: rgba(91, 70, 232, .12);
+  }
+
+  @media (max-width: 1180px) {
+    .hero {
+      grid-template-columns: 1fr;
+      min-height: auto;
     }
 
-    .keywords span:not(:last-child)::after {
-      display: none;
+    .about-process-grid,
+    .team-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .about-process-card {
+      min-height: 240px;
+    }
+
+    .section-head {
+      grid-template-columns: 120px 1fr;
+    }
+
+    .section-head .desc {
+      grid-column: 2;
+    }
+  }
+
+  @media (max-width: 760px) {
+    header.nav {
+      padding: 18px 22px;
+    }
+
+    .nav-right {
+      gap: 14px;
+    }
+
+    .hero {
+      padding: 120px 22px 54px;
+      gap: 32px;
+    }
+
+    h1.title {
+      font-size: clamp(42px, 14vw, 66px);
+    }
+
+    .about-process {
+      padding: 16px;
+      border-radius: 24px;
+    }
+
+    .about-process-head {
+      display: block;
+    }
+
+    .about-process-head span {
+      max-width: none;
+      text-align: left;
+    }
+
+    .about-process-grid,
+    .mission-grid,
+    .team-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .about-process-card {
+      min-height: 178px;
+    }
+
+    .section {
+      padding: 56px 22px;
+    }
+
+    .section-head {
+      grid-template-columns: 1fr;
+      gap: 14px;
+    }
+
+    .section-head .desc {
+      grid-column: auto;
+    }
+
+    .mcard {
+      min-height: 220px;
+      padding: 28px;
+    }
+
+    .mcard::after {
+      left: 28px;
+      top: 28px;
+    }
+
+    .values {
+      margin: 0 22px;
+    }
+
+    .value {
+      padding: 32px 24px;
+    }
+
+    .cta-block {
+      margin: 42px 22px 0;
+      border-radius: 24px;
+    }
+  }
+
+  /* typography and spacing balance */
+  .hero {
+    min-height: auto;
+    padding-top: clamp(108px, 11vh, 148px);
+    padding-bottom: clamp(56px, 7vh, 86px);
+    grid-template-columns: minmax(0, .95fr) minmax(500px, 1.05fr);
+    gap: clamp(36px, 5vw, 72px);
+  }
+
+  .eyebrow {
+    min-height: 30px;
+    padding: 7px 12px;
+    font-size: 12px;
+    letter-spacing: .12em;
+  }
+
+  h1.title {
+    max-width: 640px;
+    font-size: clamp(46px, 5.6vw, 74px);
+    line-height: 1.05;
+  }
+
+  .about-process {
+    padding: 20px;
+    border-radius: 28px;
+  }
+
+  .about-process-head {
+    align-items: center;
+    margin-bottom: 16px;
+  }
+
+  .about-process-head strong {
+    font-size: clamp(22px, 1.9vw, 28px);
+  }
+
+  .about-process-head span {
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .about-process-card {
+    min-height: 260px;
+    border-radius: 20px;
+  }
+
+  .about-process-label {
+    font-size: 18px;
+  }
+
+  .about-process-label em {
+    font-size: 11px;
+  }
+
+  .about-stage {
+    inset: 58px 14px 14px;
+  }
+
+  .section {
+    padding-top: clamp(56px, 6vw, 78px);
+    padding-bottom: clamp(56px, 6vw, 78px);
+  }
+
+  .section-head {
+    grid-template-columns: 150px minmax(360px, .95fr) minmax(360px, 1fr);
+    gap: 28px;
+    align-items: center;
+    margin-bottom: 32px;
+  }
+
+  .section-head .num {
+    padding-top: 0;
+    font-size: 13px;
+    letter-spacing: .13em;
+    line-height: 1.55;
+  }
+
+  .section-head h2 {
+    max-width: 680px;
+    font-size: clamp(32px, 3.4vw, 48px);
+    line-height: 1.14;
+  }
+
+  .section-head .desc {
+    font-size: 15px;
+    line-height: 1.65;
+  }
+
+  .mcard {
+    min-height: 220px;
+    padding: 30px;
+    border-radius: 22px;
+  }
+
+  .mcard::before {
+    right: 24px;
+    top: 22px;
+    font-size: 38px;
+  }
+
+  .mcard::after {
+    left: 30px;
+    top: 30px;
+    width: 34px;
+    height: 34px;
+    border-radius: 11px;
+  }
+
+  .mcard h3 {
+    margin-top: 58px;
+    font-size: 23px;
+  }
+
+  .mcard p,
+  .value p {
+    font-size: 15px;
+    line-height: 1.7;
+  }
+
+  .value {
+    padding: clamp(34px, 4vw, 50px);
+  }
+
+  .value .num {
+    font-size: 12px;
+    margin-bottom: 18px;
+  }
+
+  .value h3 {
+    font-size: clamp(24px, 2.35vw, 32px);
+  }
+
+  .value h3 em {
+    font-size: 12px;
+  }
+
+  .member {
+    min-height: 148px;
+    padding: 22px;
+    border-radius: 20px;
+  }
+
+  .member::before {
+    width: 40px;
+    height: 40px;
+    border-radius: 13px;
+  }
+
+  .member .name {
+    font-size: 18px;
+  }
+
+  .tag {
+    font-size: 10px;
+  }
+
+  .cta-block {
+    padding-top: clamp(42px, 5vw, 64px);
+    padding-bottom: clamp(42px, 5vw, 64px);
+    border-radius: 28px;
+  }
+
+  .cta-block h2 {
+    font-size: clamp(30px, 3.6vw, 48px);
+    line-height: 1.16;
+  }
+
+  @media (max-width: 1180px) {
+    .hero {
+      grid-template-columns: 1fr;
+      padding-top: 112px;
+    }
+
+    .section-head {
+      grid-template-columns: 128px minmax(0, 1fr);
+    }
+  }
+
+  @media (max-width: 760px) {
+    .hero {
+      padding: 104px 22px 44px;
+    }
+
+    h1.title {
+      font-size: clamp(38px, 11vw, 54px);
+    }
+
+    .section-head {
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+
+    .section-head h2 {
+      font-size: clamp(28px, 8vw, 38px);
+    }
+
+    .about-process-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .about-process-card {
+      min-height: 168px;
     }
   }
 </style>
@@ -1198,10 +1801,6 @@
   <!-- HERO -->
   <section class="hero">
     <div class="hero-copy">
-      <div class="eyebrow">
-        <span class="dot"></span>
-        <span>About · BATANG</span>
-      </div>
       <h1 class="title">
         더 빠른 <span class="accent">초기 설계</span>,<br>
         더 선명한 협업.
@@ -1236,43 +1835,30 @@
   <!-- MISSION -->
   <section class="section">
     <div class="section-head">
-      <span class="num">01 / MISSION</span>
+      <span class="num">01 / DESIGN SPEED</span>
       <h2>초기 설계의 속도를 바꿉니다.</h2>
       <p class="desc">아이디어, 검토, 공유가 끊기지 않도록 설계 정보를 한 화면에 모읍니다.</p>
     </div>
     <div class="mission-grid">
       <div class="mcard">
-        <span class="badge">PROBLEM</span>
-        <h3>흩어진 도구</h3>
-        <p>스케치, 도면, 메모, 3D 검토가 분리되면 설계 의사결정이 느려집니다.</p>
+        <h3>다양한 툴</h3>
+        <p>단축키와 도구 전환으로 버블, 2D, 3D 작업을 빠르게 오가며 설계를 이어갑니다.</p>
       </div>
       <div class="mcard">
-        <span class="badge">APPROACH</span>
-        <h3>AI 협업 흐름</h3>
-        <p>요청을 해석하고, 설계안을 만들고, 변경 내용을 도면과 모델에 이어 붙입니다.</p>
+        <h3>빠른 소통</h3>
+        <p>핀에 댓글을 달아 도면과 모델 위에서 바로 피드백을 주고받습니다.</p>
       </div>
       <div class="mcard">
-        <span class="badge">OUTCOME</span>
-        <h3>하나의 작업면</h3>
-        <p>검토, 수정, 공유까지 같은 맥락에서 이어져 팀의 반복 비용을 줄입니다.</p>
+        <h3>AI 설계 요청</h3>
+        <p>채팅창에 원하는 변경을 적으면 벽 생성 같은 설계 작업을 빠르게 반영합니다.</p>
       </div>
     </div>
-  </section>
-
-  <!-- TEAM -->
-  <section class="section">
-    <div class="section-head">
-      <span class="num">02 / TEAM</span>
-      <h2>제품을 만드는 팀.</h2>
-      <p class="desc">프론트엔드, 백엔드, AI, 인프라가 같은 설계 흐름을 기준으로 움직입니다.</p>
-    </div>
-    <div class="team-grid" id="team-grid"></div>
   </section>
 
   <!-- VALUES -->
   <section class="section" style="padding-bottom: 0;">
     <div class="section-head">
-      <span class="num">03 / VALUES</span>
+      <span class="num">02 / PRINCIPLES</span>
       <h2>우리가 지키는 기준.</h2>
     </div>
   </section>
@@ -1294,6 +1880,16 @@
     </div>
   </div>
 
+  <!-- TEAM -->
+  <section class="section">
+    <div class="section-head">
+      <span class="num">03 / TEAM</span>
+      <h2>제품을 만드는 팀.</h2>
+      <p class="desc">프론트엔드, 백엔드, AI, 인프라가 같은 설계 흐름을 기준으로 움직입니다.</p>
+    </div>
+    <div class="team-grid" id="team-grid"></div>
+  </section>
+
   <!-- CTA -->
   <section class="cta-block">
     <h2>아이디어를 바로<br>공간으로 전환해보세요.</h2>
@@ -1305,12 +1901,7 @@
 </main>
 
 <footer class="foot">
-  <div class="keywords">
-    <span>PRECISION</span>
-    <span>CLARITY</span>
-    <span>STRUCTURE</span>
-  </div>
-  <span>© 2025 BATANG</span>
+  <span>© 2026 BATANG</span>
 </footer>
 
 <script>
@@ -1345,7 +1936,7 @@
     grid.appendChild(el);
   });
 
-  const revealTargets = document.querySelectorAll('.section, .workflow-step, .member, .value, .cta-block');
+  const revealTargets = document.querySelectorAll('.section, .member, .value, .cta-block');
   if ('IntersectionObserver' in window) {
     const revealObserver = new IntersectionObserver((entries) => {
       entries.forEach((entry) => {
