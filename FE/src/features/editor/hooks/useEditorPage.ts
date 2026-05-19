@@ -814,7 +814,7 @@ export function useEditorPage() {
   const [commentNotifications, setCommentNotifications] = useState<FloorCommentNotification[]>([])
   const [isLibraryOpen, setIsLibraryOpen] = useState(false)
   const [libraryElements, setLibraryElements] = useState<ThreeDLibraryPreset[]>([])
-  const [isGridVisible, setIsGridVisible] = useState(false)
+  const [isGridVisible, setIsGridVisible] = useState(true)
   const [userViewRotationRadians, setUserViewRotationRadians] = useState(0)
   /** 연결 도구에서 첫 번째로 선택된 버블 id */
   /** 인라인 라벨 편집 상태 */
@@ -5264,7 +5264,7 @@ export function useEditorPage() {
     let didLoadIfc = false
 
     try {
-      // private S3 버킷: assetId 또는 s3:// URL → download-url API로 presigned URL 발급
+      // private S3 bucket storage key: refresh the latest IFC source from the project API.
       const refreshIfcSource = async () => {
         let lastError: unknown = null
         for (let attempt = 0; attempt < 5; attempt += 1) {
@@ -5304,14 +5304,14 @@ export function useEditorPage() {
         action === WORKSPACE_SYNC_ACTION.floorPlanUndo ||
         action === WORKSPACE_SYNC_ACTION.floorPlanRedo
 
-      if (!assetId && isIfcObjectStorageKey(normalizedIfcStorageUrl)) {
+      if (!normalizedIfcStorageUrl || isIfcObjectStorageKey(normalizedIfcStorageUrl)) {
         const refreshed = await refreshIfcSource()
         resolvedUrl = refreshed.url
         resolvedStorageUrl = refreshed.storageUrl
         resolvedAssetId = refreshed.assetId
         resolvedRevisionId = refreshed.revisionId
       } else {
-        resolvedUrl = await resolveIfcPresignedUrl(ifcStorageUrl, assetId ?? undefined)
+        resolvedUrl = await resolveIfcPresignedUrl(ifcStorageUrl)
         resolvedStorageUrl = normalizedIfcStorageUrl || resolvedUrl
       }
 

@@ -80,10 +80,12 @@ export default function EditorLeftSidebar({
         <ThreeDSidebarTools
           selectedTool={selectedTool}
           isLibraryOpen={isLibraryOpen}
+          isGridVisible={isGridVisible}
           hasDeletableSelection={hasDeletableSelection}
           isDeleteActionLocked={isDeleteActionLocked}
           onToolSelect={onToolSelect}
           onToggleLibrary={onToggleLibrary}
+          onToggleGrid={onToggleGrid}
           onDeleteSelected={onDeleteSelected}
           onExportIFC={onExportIFC}
         />

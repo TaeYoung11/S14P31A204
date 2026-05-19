@@ -1,5 +1,4 @@
 import { getRuntimeEnvString } from '@/shared/lib/runtimeEnv'
-import { fetchS3AssetDownloadUrl } from '../services/s3Asset.service'
 
 const DEFAULT_API_BASE_URL = '/api/v1'
 
@@ -44,26 +43,20 @@ export const resolveIfcFetchUrl = (rawUrl: string): string => {
 
 /**
  * WS로 받은 IFC 저장소 URL 또는 assetId를 브라우저 fetch 가능한 URL로 변환한다.
- * - assetId(UUID)가 있으면 download-url API로 presigned URL 발급
- * - s3://bucket/key 형식이면 S3 key를 assetId로 간주하여 download-url API 호출
- * - http/https이면 그대로 반환
+ * - http/https이면 BE가 이미 발급한 presigned URL로 보고 그대로 반환
+ * - assetId는 호출 호환성을 위해 받지만, BE에 없는 download-url API를 호출하지 않는다
+ * - s3://bucket/key 형식은 호출부의 최신 IFC source 보강 경로에서 처리한다
  * - 상대경로이면 API origin 붙여서 반환
  */
-export const resolveIfcPresignedUrl = async (rawUrl: string, assetId?: string): Promise<string> => {
-  if (assetId) {
-    return fetchS3AssetDownloadUrl(assetId)
-  }
-
+export const resolveIfcPresignedUrl = (rawUrl: string, assetId?: string): Promise<string> => {
   const normalized = rawUrl.trim()
-  if (!normalized) return normalized
+  if (!normalized) return Promise.resolve(normalized)
 
-  if (normalized.startsWith('s3://')) {
-    // s3://bucket/key → key를 assetId로 간주해 download-url API 호출
-    const s3Key = normalized.replace(/^s3:\/\/[^/]+\//, '')
-    return fetchS3AssetDownloadUrl(s3Key)
+  if (assetId && (normalized.startsWith('https://') || normalized.startsWith('http://'))) {
+    return Promise.resolve(normalized)
   }
 
-  return resolveIfcFetchUrl(normalized)
+  return Promise.resolve(resolveIfcFetchUrl(normalized))
 }
 
 /**
