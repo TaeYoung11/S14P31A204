@@ -36,6 +36,7 @@ export default function ThreeDModeCanvas({
   const freshIfcUrl = useFreshIfcUrl(
     editorProps.currentIfcAssetId,
     editorProps.currentIfcUrl ?? '/mock/shinchan_house.ifc',
+    editorProps.projectId ?? null,
   )
 
   useEffect(() => {
