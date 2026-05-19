@@ -4311,6 +4311,48 @@ export function useEditorPage() {
     element: IfcElementInfo,
     patch: Omit<IfcElementChange, 'expressId'>,
   ) => {
+    setSelectedIfcElement((prev) => {
+      if (!prev || prev.source !== element.source) return prev
+      const isSameElement = prev.id === element.id || (
+        typeof prev.expressId === 'number' &&
+        typeof element.expressId === 'number' &&
+        prev.expressId === element.expressId
+      )
+      if (!isSameElement) return prev
+      const nextPositionX = typeof patch.positionX === 'number' ? patch.positionX : prev.positionX
+      const nextPositionY = typeof patch.positionY === 'number' ? patch.positionY : prev.positionY
+      const nextPositionZ = typeof patch.positionZ === 'number' ? patch.positionZ : prev.positionZ
+      const nextRotationX = typeof patch.rotationX === 'number' ? patch.rotationX : prev.rotationX
+      const nextRotationY = typeof patch.rotationY === 'number' ? patch.rotationY : prev.rotationY
+      const nextRotationZ = typeof patch.rotationZ === 'number' ? patch.rotationZ : prev.rotationZ
+      const nextLengthMm = typeof patch.lengthMm === 'number' ? patch.lengthMm : prev.lengthMm
+      const nextHeightMm = typeof patch.heightMm === 'number' ? patch.heightMm : prev.heightMm
+      const nextThicknessMm = typeof patch.thicknessMm === 'number' ? patch.thicknessMm : prev.thicknessMm
+      return {
+        ...prev,
+        lengthMm: nextLengthMm,
+        heightMm: nextHeightMm,
+        thicknessMm: nextThicknessMm,
+        positionX: nextPositionX,
+        positionY: nextPositionY,
+        positionZ: nextPositionZ,
+        rotationX: nextRotationX,
+        rotationY: nextRotationY,
+        rotationZ: nextRotationZ,
+        properties: {
+          ...prev.properties,
+          Length: nextLengthMm ?? prev.properties.Length,
+          Height: nextHeightMm ?? prev.properties.Height,
+          Thickness: nextThicknessMm ?? prev.properties.Thickness,
+          PositionX: typeof nextPositionX === 'number' ? Number(nextPositionX.toFixed(3)) : prev.properties.PositionX,
+          PositionY: typeof nextPositionY === 'number' ? Number(nextPositionY.toFixed(3)) : prev.properties.PositionY,
+          PositionZ: typeof nextPositionZ === 'number' ? Number(nextPositionZ.toFixed(3)) : prev.properties.PositionZ,
+          RotationX: typeof nextRotationX === 'number' ? Number(nextRotationX.toFixed(2)) : prev.properties.RotationX,
+          RotationY: typeof nextRotationY === 'number' ? Number(nextRotationY.toFixed(2)) : prev.properties.RotationY,
+          RotationZ: typeof nextRotationZ === 'number' ? Number(nextRotationZ.toFixed(2)) : prev.properties.RotationZ,
+        },
+      }
+    })
     recordIfcElementChange(element, patch)
   }, [recordIfcElementChange])
 

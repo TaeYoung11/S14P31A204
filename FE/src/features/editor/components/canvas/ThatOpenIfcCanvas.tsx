@@ -514,6 +514,36 @@ const getElementTransformSignature = (element?: IfcElementInfo | null) => {
   )).join('|')
 }
 
+const buildIfcTransformCommitPayload = (
+  sceneState: ThatOpenSceneState,
+  target: Extract<Selected3DTarget, { source: 'ifc' }>,
+) => {
+  const editable = target.object as IfcEditableObject3D | undefined
+  const element = editable?.userData.ifcEditTarget?.element
+  if (!editable || !element) return null
+  const worldPosition = new sceneState.three.Vector3()
+  const worldQuaternion = new sceneState.three.Quaternion()
+  const worldEuler = new sceneState.three.Euler()
+  editable.getWorldPosition(worldPosition)
+  editable.getWorldQuaternion(worldQuaternion)
+  worldEuler.setFromQuaternion(worldQuaternion, 'XYZ')
+  const sizeMm = getObjectSizeMm(sceneState.three, editable, sceneState.worldUnitsPerMm)
+  return {
+    element,
+    patch: {
+      lengthMm: sizeMm?.lengthMm ?? element.lengthMm,
+      heightMm: sizeMm?.heightMm ?? element.heightMm,
+      thicknessMm: sizeMm?.thicknessMm ?? element.thicknessMm,
+      positionX: worldPosition.x,
+      positionY: worldPosition.y,
+      positionZ: worldPosition.z,
+      rotationX: worldEuler.x,
+      rotationY: worldEuler.y,
+      rotationZ: worldEuler.z,
+    },
+  }
+}
+
 export default function ThatOpenIfcCanvas({
   ifcUrl,
   projectId,
@@ -2492,6 +2522,10 @@ export default function ThatOpenIfcCanvas({
     target: Extract<Selected3DTarget, { source: 'ifc' }>,
     nextLocalId: number | null,
     reason: string,
+    options?: {
+      transformSessionId?: string | null
+      finalizeRuntime?: boolean
+    },
   ) => {
     if (ifcCommitInFlightRef.current) {
       await waitForIfcCommitInFlightToSettle(`${reason}_precheck`)
@@ -2513,12 +2547,25 @@ export default function ThatOpenIfcCanvas({
     }
 
     ifcCommitInFlightRef.current = true
+    const transformSessionId = options?.transformSessionId ?? null
     try {
+      const transformCommit = buildIfcTransformCommitPayload(sceneState, target)
       await commitIfcProxyTransformToModel(sceneState, target, {
         keepProxyVisibleAfterCommit: true,
+        transformSessionId,
       })
       const moveState = ifcMoveLifecycleRef.current
       if (moveState.lastError) {
+        if (options?.finalizeRuntime && transformSessionId) {
+          dispatchTransformRuntimeAction(
+            {
+              type: 'COMMIT_FAIL',
+              transformSessionId,
+              message: moveState.lastError,
+            },
+            `${reason}_commit_failure`,
+          )
+        }
         logIfcMove('hierarchy_selection_commit_failed', {
           reason,
           modelId: target.modelId,
@@ -2527,7 +2574,20 @@ export default function ThatOpenIfcCanvas({
         })
         return target
       }
+      if (options?.finalizeRuntime && transformSessionId) {
+        dispatchTransformRuntimeAction(
+          {
+            type: 'COMMIT_SUCCESS',
+            transformSessionId,
+            targetId: resolveTargetOwnerId(target) ?? target.localId,
+          },
+          `${reason}_commit_success`,
+        )
+      }
       ifcMoveDirtyRef.current = false
+      if (transformCommit) {
+        onIfcElementTransformCommitRef.current?.(transformCommit.element, transformCommit.patch)
+      }
       const editable = target.object as IfcEditableObject3D
       const resolvedModelId = editable.userData.ifcEditTarget?.modelId ?? target.modelId
       const normalizedResolvedModelId = normalizeRootModelId(resolvedModelId, sceneState.modelId)
@@ -2547,6 +2607,16 @@ export default function ThatOpenIfcCanvas({
       })
       return committedTarget
     } catch (error) {
+      if (options?.finalizeRuntime && transformSessionId) {
+        dispatchTransformRuntimeAction(
+          {
+            type: 'COMMIT_FAIL',
+            transformSessionId,
+            message: error instanceof Error ? error.message : String(error),
+          },
+          `${reason}_commit_exception`,
+        )
+      }
       logIfcMove('hierarchy_selection_commit_exception', {
         reason,
         modelId: target.modelId,
@@ -2556,10 +2626,20 @@ export default function ThatOpenIfcCanvas({
       return target
     } finally {
       ifcCommitInFlightRef.current = false
+      if (options?.finalizeRuntime) {
+        dispatchTransformRuntimeAction(
+          transformSessionId
+            ? { type: 'CLEANUP', transformSessionId }
+            : { type: 'CLEANUP' },
+          `${reason}_commit_cleanup`,
+        )
+      }
     }
   }, [
     commitIfcProxyTransformToModel,
+    dispatchTransformRuntimeAction,
     logIfcMove,
+    resolveTargetOwnerId,
     waitForIfcCommitInFlightToSettle,
   ])
   const deleteSelectedTarget = useCallback(async () => {
@@ -3102,6 +3182,7 @@ export default function ThatOpenIfcCanvas({
             transformSessionId: commitSessionId,
           })
           try {
+            const transformCommit = buildIfcTransformCommitPayload(activeScene, target)
             await commitIfcProxyTransformToModel(activeScene, target, {
               keepProxyVisibleAfterCommit: options?.keepProxyVisibleAfterCommit,
               transformSessionId: commitSessionId,
@@ -3148,6 +3229,9 @@ export default function ThatOpenIfcCanvas({
               )
             }
             ifcMoveDirtyRef.current = false
+            if (transformCommit) {
+              onIfcElementTransformCommitRef.current?.(transformCommit.element, transformCommit.patch)
+            }
             if (options?.keepSelectionAttached && selectedTargetRef.current?.source === 'ifc') {
               const currentSelected = selectedTargetRef.current
               if (currentSelected.object === target.object) {
@@ -3314,33 +3398,7 @@ export default function ThatOpenIfcCanvas({
             try {
               const activeScene = sceneRef.current
               if (activeScene) {
-                const editable = selectedTarget.object as IfcEditableObject3D
-                const editTarget = editable.userData.ifcEditTarget
-                const transformCommit = (() => {
-                  const element = editTarget?.element
-                  if (!element) return null
-                  const worldPosition = new activeScene.three.Vector3()
-                  const worldQuaternion = new activeScene.three.Quaternion()
-                  const worldEuler = new activeScene.three.Euler()
-                  editable.getWorldPosition(worldPosition)
-                  editable.getWorldQuaternion(worldQuaternion)
-                  worldEuler.setFromQuaternion(worldQuaternion, 'XYZ')
-                  const sizeMm = getObjectSizeMm(activeScene.three, editable, activeScene.worldUnitsPerMm)
-                  return {
-                    element,
-                    patch: {
-                      lengthMm: sizeMm?.lengthMm ?? element.lengthMm,
-                      heightMm: sizeMm?.heightMm ?? element.heightMm,
-                      thicknessMm: sizeMm?.thicknessMm ?? element.thicknessMm,
-                      positionX: worldPosition.x,
-                      positionY: worldPosition.y,
-                      positionZ: worldPosition.z,
-                      rotationX: worldEuler.x,
-                      rotationY: worldEuler.y,
-                      rotationZ: worldEuler.z,
-                    },
-                  }
-                })()
+                const transformCommit = buildIfcTransformCommitPayload(activeScene, selectedTarget)
                 await commitIfcProxyTransformToModel(activeScene, selectedTarget, {
                   keepProxyVisibleAfterCommit: true,
                   transformSessionId: queuedSessionId,
@@ -6336,7 +6394,46 @@ export default function ThatOpenIfcCanvas({
         const selectRequestedIfcElement = async () => {
           try {
             const runtimeState = transformRuntimeStateRef.current
+            let currentTarget = selectedTargetRef.current
             if (isRuntimeTransformLocked()) {
+              const pendingTransformSessionId = runtimeState.pendingCommitSessionId ?? runtimeState.transformSessionId
+              const canReleaseFinishedCleanup = (
+                runtimeState.phase === 'cleanup'
+                && !ifcCommitInFlightRef.current
+              )
+              const canFinalizePendingIfcCommit = (
+                runtimeState.phase === 'commit'
+                && currentTarget?.source === 'ifc'
+                && Boolean(currentTarget.object)
+                && !ifcCommitInFlightRef.current
+              )
+              if (canReleaseFinishedCleanup) {
+                dispatchTransformRuntimeAction(
+                  pendingTransformSessionId
+                    ? { type: 'CLEANUP', transformSessionId: pendingTransformSessionId }
+                    : { type: 'CLEANUP' },
+                  'requested_select_ifc_release_cleanup',
+                )
+                logIfcMove('requested_select_ifc_cleanup_released', {
+                  requestedIfcElementLocalId,
+                  token: ifcElementSelectionRequestToken,
+                  phase: runtimeState.phase,
+                  transformSessionId: pendingTransformSessionId,
+                })
+              } else if (canFinalizePendingIfcCommit) {
+                const ifcTarget = currentTarget as Extract<Selected3DTarget, { source: 'ifc' }>
+                currentTarget = await commitActiveIfcBeforeHierarchySelection(
+                  sceneState,
+                  ifcTarget,
+                  requestedIfcElementLocalId,
+                  'requested_select_ifc_locked_commit',
+                  {
+                    transformSessionId: pendingTransformSessionId,
+                    finalizeRuntime: true,
+                  },
+                )
+                if (isCancelled) return
+              } else {
               deferredHierarchySelectionRef.current = {
                 kind: 'ifc',
                 token: ifcElementSelectionRequestToken,
@@ -6350,12 +6447,12 @@ export default function ThatOpenIfcCanvas({
               })
               scheduleDeferredHierarchySelectionFlush('requested_select_ifc_deferred_transform_active', 120)
               return
+              }
             }
             if (isDeferredRetry) {
               deferredHierarchySelectionRef.current = null
             }
             handledIfcSelectionRequestTokenRef.current = ifcElementSelectionRequestToken
-            let currentTarget = selectedTargetRef.current
             if (currentTarget?.source === 'ifc' && currentTarget.hitLocalId === requestedIfcElementLocalId) {
               if (currentTarget.object && isObjectInSceneGraph(sceneState.scene, currentTarget.object)) {
                 sceneState.transformControls.attach(currentTarget.object)
@@ -6610,7 +6707,46 @@ export default function ThatOpenIfcCanvas({
     const selectRequestedLibraryElement = async () => {
       try {
         const runtimeState = transformRuntimeStateRef.current
+        let currentTarget = selectedTargetRef.current
         if (isRuntimeTransformLocked()) {
+          const pendingTransformSessionId = runtimeState.pendingCommitSessionId ?? runtimeState.transformSessionId
+          const canReleaseFinishedCleanup = (
+            runtimeState.phase === 'cleanup'
+            && !ifcCommitInFlightRef.current
+          )
+          const canFinalizePendingIfcCommit = (
+            runtimeState.phase === 'commit'
+            && currentTarget?.source === 'ifc'
+            && Boolean(currentTarget.object)
+            && !ifcCommitInFlightRef.current
+          )
+          if (canReleaseFinishedCleanup) {
+            dispatchTransformRuntimeAction(
+              pendingTransformSessionId
+                ? { type: 'CLEANUP', transformSessionId: pendingTransformSessionId }
+                : { type: 'CLEANUP' },
+              'requested_select_library_release_cleanup',
+            )
+            logIfcMove('requested_select_library_cleanup_released', {
+              requestedLibraryElementId,
+              token: libraryElementSelectionRequestToken,
+              phase: runtimeState.phase,
+              transformSessionId: pendingTransformSessionId,
+            })
+          } else if (canFinalizePendingIfcCommit) {
+            const ifcTarget = currentTarget as Extract<Selected3DTarget, { source: 'ifc' }>
+            currentTarget = await commitActiveIfcBeforeHierarchySelection(
+              sceneState,
+              ifcTarget,
+              null,
+              'requested_select_library_locked_commit',
+              {
+                transformSessionId: pendingTransformSessionId,
+                finalizeRuntime: true,
+              },
+            )
+            if (isCancelled) return
+          } else {
           deferredHierarchySelectionRef.current = {
             kind: 'library',
             token: libraryElementSelectionRequestToken,
@@ -6624,12 +6760,12 @@ export default function ThatOpenIfcCanvas({
           })
           scheduleDeferredHierarchySelectionFlush('requested_select_library_deferred_transform_active', 120)
           return
+          }
         }
         if (isDeferredRetry) {
           deferredHierarchySelectionRef.current = null
         }
         handledLibrarySelectionRequestTokenRef.current = libraryElementSelectionRequestToken
-        let currentTarget = selectedTargetRef.current
         if (currentTarget?.source === 'library') {
           const selectedPreset = getLibraryPresetFromObject(currentTarget.object as LibraryObject3D)
           if (selectedPreset?.id === requestedLibraryElementId) return
