@@ -277,6 +277,23 @@ def test_heuristic_parser_recognizes_bare_hex_color_assignment() -> None:
     assert parsed.changes.color == "#2385DB"
 
 
+def test_heuristic_parser_recognizes_hex_color_before_korean_particle() -> None:
+    engine = LLM3DEngine()
+
+    parsed = engine._heuristic_parse("wall is #2385db로")
+
+    assert parsed.changes is not None
+    assert parsed.changes.color == "#2385DB"
+
+
+def test_heuristic_parser_does_not_truncate_seven_digit_hex_color() -> None:
+    engine = LLM3DEngine()
+
+    parsed = engine._heuristic_parse("wall is #2385dba")
+
+    assert parsed.changes is None or parsed.changes.color is None
+
+
 def test_planning_worker_stores_engine_operations_for_modify_and_delete() -> None:
     command = _with_user_instruction(_load_sample_command(), "modify and delete")
     mock_s3 = MagicMock()
