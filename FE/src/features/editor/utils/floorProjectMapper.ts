@@ -406,6 +406,9 @@ const interpolateMmPoint = (
  * BATANG 2D FloorProject를 기존 에디터의 FloorLayer[] 구조로 변환한다.
  * 목적: API 응답 연동 전에도 프론트 렌더링 경로를 고정해 두기 위함.
  */
+const buildFloorLayerIdMap = (project: FloorProject): Map<string, string> =>
+  new Map(project.floors.map((floor) => [floor.id, `floor-${floor.number}`]))
+
 export function mapFloorProjectToLayers(project: FloorProject, options: MapperOptions): FloorLayer[] {
   /** floor.id(GlobalId) → FloorProjectFloor 역참조 */
   const floorById = new Map(project.floors.map((floor) => [floor.id, floor]))
@@ -516,13 +519,16 @@ export function mapAdjacencyToConnections(adjacency: FloorProject['adjacency']):
 export function mapFloorProjectToWalls(project: FloorProject, options: MapperOptions): FloorWall[] {
   if (!project.walls || project.walls.length === 0) return []
   const { scale, offsetX, offsetY } = computeProjectTransform(project.rooms, options)
+  const floorById = new Map(project.floors.map((floor) => [floor.id, floor]))
+  const floorLayerIdByFloorId = buildFloorLayerIdMap(project)
   return project.walls.map((wall) => {
     const wallType = toFloorWallType(wall.type)
     return {
       id: wall.id,
       globalId: wall.id,
+      floorLayerId: floorLayerIdByFloorId.get(wall.floor),
       storeyGlobalId: wall.floor,
-      storeyName: project.floors.find((floor) => floor.id === wall.floor)?.name,
+      storeyName: floorById.get(wall.floor)?.name,
       sourceIfcClass: wall.ifc_class,
       start: { x: wall.start.x * scale + offsetX, y: wall.start.y * scale + offsetY },
       end: { x: wall.end.x * scale + offsetX, y: wall.end.y * scale + offsetY },

@@ -42,6 +42,7 @@ import {
   getIfcElementFromFragments,
   normalizeIfcElement,
   parseBatangDimensionProperties,
+  expandIfcStoreysForVisibility,
   parseIfcStoreys,
   type IfcPsetMetricMaps,
   type IfcStoreyInfo,
@@ -53,6 +54,7 @@ import {
   type IfcMoveLifecycleState,
   type ThatOpenSceneState,
   applyIfcSelectionVisibility,
+  buildIfcCanonicalIdMap,
   getElementDimensionSignature,
   getElementColorSignature,
   getElementMaterialSignature,
@@ -2366,31 +2368,14 @@ export default function ThatOpenIfcCanvas({
         }
         // IFC 층(IfcBuildingStorey) 파싱 및 층별 요소 ID 맵 구성
         const storeys = parseIfcStoreys(patchedIfcText)
-        const storeysWithElements = storeys.map((storey) => {
-          const expandedLocalIds = new Set<number>()
-          storey.elementLocalIds.forEach((rawId) => {
-            if (Number.isFinite(rawId)) expandedLocalIds.add(rawId)
-            const aliasIds = canonicalIdMapRef.current.localIdsByExpressId.get(rawId)
-            if (!aliasIds) return
-            aliasIds.forEach((aliasId) => expandedLocalIds.add(aliasId))
-          })
-          const elements = Array.from(expandedLocalIds).map((localId) => {
-            const parsed = ifcPsetMetricsRef.current.byId[localId]
-            return {
-              localId,
-              name: parsed?.name ?? `요소 ${localId}`,
-              ifcClass: parsed?.ifcClass ?? 'IfcElement',
-              category: parsed?.category ?? 'Element',
-            }
-          })
-          return {
-            ...storey,
-            elementLocalIds: expandedLocalIds,
-            elements,
-          }
-        })
+        const storeyVisibilityIdMap = buildIfcCanonicalIdMap(ifcPsetMetricsRef.current)
+        const storeysWithElements = expandIfcStoreysForVisibility(
+          storeys,
+          storeyVisibilityIdMap.localIdsByExpressId,
+          ifcPsetMetricsRef.current.byId,
+        )
         const storeyIdMap = new Map<number, Set<number>>(
-          storeysWithElements.map((s) => [s.expressId, s.elementLocalIds]),
+          storeysWithElements.map((s) => [s.expressId, s.visibilityLocalIds ?? s.elementLocalIds]),
         )
         elementIdsByStoreyRef.current = storeyIdMap
         const model = await ifcLoader.load(data, true, modelId)
