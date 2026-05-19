@@ -1,5 +1,5 @@
 import { Euler, Quaternion, Vector3, type Object3D } from 'three'
-import type { IfcElementInfo } from '../../types'
+import type { IfcElementInfo, Point2D } from '../../types'
 
 type ElementLike = Pick<IfcElementInfo, 'ifcClass' | 'category'>
 
@@ -12,6 +12,8 @@ type FloorPlanElementMeta = {
   lengthMm?: number
   heightMm?: number
   thicknessMm?: number
+  startMm?: Point2D
+  endMm?: Point2D
   properties?: IfcElementInfo['properties']
 }
 
@@ -86,6 +88,24 @@ export const getFloorPlanElementInfo = (object: Object3D): IfcElementInfo | null
   const scaledThicknessMm = baseWorldSize
     ? Math.round((object.scale.z * baseWorldSize.z) / FLOOR_PLAN_WORLD_UNITS_PER_MM)
     : meta.thicknessMm
+  const centerMm = {
+    x: position.x / FLOOR_PLAN_WORLD_UNITS_PER_MM,
+    y: position.z / FLOOR_PLAN_WORLD_UNITS_PER_MM,
+  }
+  const directionAngle = -euler.y
+  const halfLengthMm = (scaledLengthMm ?? 0) / 2
+  const transformedStartMm = meta.startMm && meta.endMm && halfLengthMm > 0
+    ? {
+        x: centerMm.x - Math.cos(directionAngle) * halfLengthMm,
+        y: centerMm.y - Math.sin(directionAngle) * halfLengthMm,
+      }
+    : meta.startMm
+  const transformedEndMm = meta.startMm && meta.endMm && halfLengthMm > 0
+    ? {
+        x: centerMm.x + Math.cos(directionAngle) * halfLengthMm,
+        y: centerMm.y + Math.sin(directionAngle) * halfLengthMm,
+      }
+    : meta.endMm
 
   const roofShape = (
     meta.roofShape === 'flat' || meta.roofShape === 'gable'
@@ -108,6 +128,8 @@ export const getFloorPlanElementInfo = (object: Object3D): IfcElementInfo | null
     positionX: position.x,
     positionY: position.y,
     positionZ: position.z,
+    startMm: transformedStartMm,
+    endMm: transformedEndMm,
     rotationX: (euler.x * 180) / Math.PI,
     rotationY: (euler.y * 180) / Math.PI,
     rotationZ: (euler.z * 180) / Math.PI,
@@ -119,6 +141,8 @@ export const getFloorPlanElementInfo = (object: Object3D): IfcElementInfo | null
       PositionX: Number(position.x.toFixed(3)),
       PositionY: Number(position.y.toFixed(3)),
       PositionZ: Number(position.z.toFixed(3)),
+      ...(transformedStartMm ? { StartMmX: Math.round(transformedStartMm.x), StartMmY: Math.round(transformedStartMm.y) } : {}),
+      ...(transformedEndMm ? { EndMmX: Math.round(transformedEndMm.x), EndMmY: Math.round(transformedEndMm.y) } : {}),
       RotationX: Number((((euler.x * 180) / Math.PI)).toFixed(2)),
       RotationY: Number((((euler.y * 180) / Math.PI)).toFixed(2)),
       RotationZ: Number((((euler.z * 180) / Math.PI)).toFixed(2)),
