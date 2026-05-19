@@ -6,6 +6,7 @@ dependencies = [
     "ai-common",
     "ai-domain",
     "torch",
+    "torchvision",
     "diffusers>=0.25",
     "transformers",
     "accelerate",
@@ -15,6 +16,8 @@ dependencies = [
     "numpy",
     "open3d>=0.19.0",
     "ifcopenshell>=0.8.5",
+    "realesrgan",
+    "basicsr",
 ]
 
 [project.scripts]
