@@ -681,6 +681,77 @@ def test_layout_import_v2_accepts_extended_modeling_defaults() -> None:
     assert request.modeling_defaults.roof_height_mm == 400
 
 
+def test_layout_import_v2_accepts_schema_room_metadata() -> None:
+    request = LayoutImportV2.model_validate(
+        {
+            "schema_version": "v2",
+            "id": "550e8400-e29b-41d4-a716-446655440000",
+            "name": "sample-project",
+            "rooms": [
+                {
+                    **_base_room(),
+                    "type": "entrance",
+                    "source_bubble_id": "1779068324499-d1o9",
+                    "original_label": "\ud604\uad00",
+                    "original_type": "entrance",
+                    "material": "wood",
+                    "color": "#FF5733",
+                    "wall_type": "general",
+                }
+            ],
+        }
+    )
+
+    assert request.rooms[0].type is RoomType.ENTRANCE
+    assert request.rooms[0].source_bubble_id == "1779068324499-d1o9"
+    assert request.rooms[0].original_label == "\ud604\uad00"
+    assert request.rooms[0].original_type == "entrance"
+    assert request.rooms[0].material == "wood"
+    assert request.rooms[0].color == "#FF5733"
+    assert request.rooms[0].wall_type is not None
+    assert request.rooms[0].wall_type.value == "general"
+
+
+def test_layout_import_v2_accepts_schema_adjacency_metadata() -> None:
+    request = LayoutImportV2.model_validate(
+        {
+            "schema_version": "v2",
+            "id": "550e8400-e29b-41d4-a716-446655440000",
+            "name": "sample-project",
+            "rooms": [
+                _base_room(),
+                {
+                    **_base_room(),
+                    "id": "room-bed-01",
+                    "name": "Bedroom",
+                    "type": "bedroom",
+                },
+            ],
+            "adjacency": [
+                {
+                    "id": "connection-01",
+                    "from_room_id": "room-living-01",
+                    "to_room_id": "room-bed-01",
+                    "strength": 0.6,
+                    "intent": "circulation",
+                    "connection_strength": "normal",
+                    "source_bubble_id": "bubble-living-01",
+                    "target_bubble_id": "bubble-bed-01",
+                }
+            ],
+        }
+    )
+
+    assert request.adjacency is not None
+    assert request.adjacency[0].id == "connection-01"
+    assert request.adjacency[0].intent is not None
+    assert request.adjacency[0].intent.value == "circulation"
+    assert request.adjacency[0].connection_strength is not None
+    assert request.adjacency[0].connection_strength.value == "normal"
+    assert request.adjacency[0].source_bubble_id == "bubble-living-01"
+    assert request.adjacency[0].target_bubble_id == "bubble-bed-01"
+
+
 def test_layout_import_v2_rejects_unsupported_generation_policy() -> None:
     with pytest.raises(ValidationError):
         LayoutImportV2.model_validate(

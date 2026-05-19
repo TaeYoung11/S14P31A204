@@ -55,15 +55,22 @@ def _azimuth_to_direction(deg: float) -> str:
     return "north"
 
 
+def _azimuth_to_ref_direction(deg: float) -> tuple[float, float, float]:
+    radians = math.radians(deg)
+    return (math.sin(radians), math.cos(radians), 0.0)
+
+
 def _start_end_to_length_and_direction(
     start: dict[str, float],
     end: dict[str, float],
-) -> tuple[float, str]:
+) -> tuple[float, str, tuple[float, float, float]]:
     dx = end["x"] - start["x"]
     dy = end["y"] - start["y"]
     length_mm = math.hypot(dx, dy)
+    if length_mm <= 0.0:
+        raise ValueError("wall segment length must be positive")
     azimuth = math.degrees(math.atan2(dx, dy)) % 360
-    return length_mm, _azimuth_to_direction(azimuth)
+    return length_mm, _azimuth_to_direction(azimuth), (dx / length_mm, dy / length_mm, 0.0)
 
 
 def _optional_int(value: Any, field_name: str) -> int | None:
@@ -167,11 +174,14 @@ class CreateElementHandler:
         y_mm = float(start.get("y", 0.0))
         z_mm = float(start.get("z", 0.0))
 
+        ref_direction: tuple[float, float, float] | None = None
         if end:
-            length_mm, direction = _start_end_to_length_and_direction(start, end)
+            length_mm, direction, ref_direction = _start_end_to_length_and_direction(start, end)
         elif parameters.get("length_mm") is not None:
             length_mm = float(parameters["length_mm"])
-            direction = _azimuth_to_direction(float(parameters.get("azimuth_deg", 0.0)))
+            azimuth_deg = float(parameters.get("azimuth_deg", 0.0))
+            direction = _azimuth_to_direction(azimuth_deg)
+            ref_direction = _azimuth_to_ref_direction(azimuth_deg)
         else:
             length_mm = float(dims.get("length", 3000.0))
             direction = str(parameters.get("direction") or "north").lower()
@@ -222,7 +232,7 @@ class CreateElementHandler:
                     height_mm=height_mm,
                     endpoint_connections=parameters.get("endpoint_connections") or [],
                 )
-            return create_wall(model, resolved_storey, **common)
+            return create_wall(model, resolved_storey, **common, ref_direction=ref_direction)
         if element_type == "IfcSlab":
             return create_slab(model, resolved_storey, **common)
         if element_type == "IfcRoof":
