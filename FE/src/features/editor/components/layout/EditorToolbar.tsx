@@ -14,9 +14,9 @@ interface EditorToolbarProps {
 type ToolbarMode = Exclude<EditorMode, 'view'>
 
 const MODE_LABELS: Record<ToolbarMode, string> = {
-  bubble: 'Bubble',
-  '2d': '2D Plan',
-  '3d': '3D View',
+  bubble: '버블',
+  '2d': '2D',
+  '3d': '3D',
 }
 
 const TOOLBAR_MODES: ToolbarMode[] = ['bubble', '2d', '3d']
@@ -36,7 +36,7 @@ export default function EditorToolbar({
 }: EditorToolbarProps) {
   const isView = mode === 'view'
   const displayProjectName = projectName?.trim() || '프로젝트'
-  const getModeTabClass = (tabMode: ToolbarMode) => `rounded-full px-4 py-1.5 text-[11px] font-bold transition-all ${
+  const getModeTabClass = (tabMode: ToolbarMode) => `min-h-9 min-w-[68px] rounded-full px-5 py-2 text-[13px] font-bold transition-all ${
     mode === tabMode
       ? isView
         ? 'bg-white/20 text-white shadow-sm'
@@ -67,7 +67,7 @@ export default function EditorToolbar({
 
         <div className="flex items-center gap-5 justify-self-center">
           {!isView && (
-            <div className="flex items-center gap-1 rounded-full border border-[#E4E8F3] bg-[#EEF1F8] p-1">
+            <div className="flex items-center gap-1.5 rounded-full border border-[#E4E8F3] bg-[#EEF1F8] p-1.5">
               {TOOLBAR_MODES.map((m) => (
                 <button key={m} type="button" onClick={() => onModeChange(m)} className={getModeTabClass(m)}>
                   {MODE_LABELS[m]}

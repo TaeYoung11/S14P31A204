@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { forwardRef, useMemo } from 'react'
 import { buildStaticHtmlSource } from '@/shared/utils/staticHtml'
 
 interface StaticHtmlFrameProps {
@@ -16,13 +16,13 @@ interface StaticHtmlFrameProps {
  * 정적 HTML 랜딩 산출물을 React Router 화면 안에 안전하게 표시하는 공용 iframe.
  * 페이지 컴포넌트는 HTML 원본과 제목만 넘기고, 경로 보정은 이 컴포넌트에 위임한다.
  */
-export default function StaticHtmlFrame({
+const StaticHtmlFrame = forwardRef<HTMLIFrameElement, StaticHtmlFrameProps>(function StaticHtmlFrame({
   title,
   sourceHtml,
   shouldRewriteLoginButtonScript = false,
   injectedStyle,
   className = 'block h-screen w-screen border-0',
-}: StaticHtmlFrameProps) {
+}, ref) {
   const htmlSource = useMemo(
     () => buildStaticHtmlSource(sourceHtml, { shouldRewriteLoginButtonScript, injectedStyle }),
     [sourceHtml, shouldRewriteLoginButtonScript, injectedStyle],
@@ -30,10 +30,13 @@ export default function StaticHtmlFrame({
 
   return (
     <iframe
+      ref={ref}
       title={title}
       srcDoc={htmlSource}
       sandbox="allow-scripts allow-top-navigation-by-user-activation"
       className={className}
     />
   )
-}
+})
+
+export default StaticHtmlFrame

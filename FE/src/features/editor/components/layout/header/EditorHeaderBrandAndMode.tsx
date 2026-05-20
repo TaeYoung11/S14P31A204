@@ -9,7 +9,7 @@ const TEXT_PROJECT_HOME = '프로젝트 홈'
 const TEXT_PROJECT_LIST_GO = '프로젝트 목록으로 이동'
 const TEXT_EDIT_MODE = '편집 모드'
 const TEXT_VIEWER_MODE = '뷰어 모드'
-const MODE_BUTTON_BASE_CLASS = 'rounded-full px-3 py-1.5 text-[11px] font-bold transition-all'
+const MODE_BUTTON_BASE_CLASS = 'min-h-9 rounded-full px-5 py-2 text-[13px] font-bold transition-all'
 
 interface EditorHeaderBrandAndModeProps {
   mode: EditorMode
@@ -36,7 +36,7 @@ export default function EditorHeaderBrandAndMode({
       ? 'text-white/70 hover:bg-white/10 hover:text-white'
       : 'text-[#5f6b85] hover:bg-[#EEF1FA] hover:text-[#303D9A]'
   }`
-  const modeGroupClassName = `flex items-center gap-1 rounded-full p-1 ${
+  const modeGroupClassName = `flex items-center gap-1.5 rounded-full p-1.5 ${
     isViewer ? 'bg-white/10' : 'border border-[#E4E8F3] bg-[#F7F8FC]'
   }`
 

@@ -25,7 +25,7 @@ export default function PublicLandingHeader() {
       <nav className="pointer-events-auto flex items-center">
         <Link
           to="/login"
-          className="inline-flex min-h-11 items-center rounded-full bg-gradient-to-r from-[#5b46e8] to-[#7c3aed] px-5 text-[14px] font-semibold text-white no-underline shadow-[0_12px_28px_rgba(91,70,232,0.24)] transition hover:-translate-y-px hover:shadow-[0_16px_34px_rgba(91,70,232,0.30)] sm:px-6"
+          className="inline-flex min-h-11 items-center rounded-full bg-[var(--color-primary)] px-5 text-[14px] font-semibold text-white no-underline shadow-[0_12px_28px_var(--color-primary-shadow)] transition hover:-translate-y-px hover:bg-[var(--color-primary-hover)] hover:shadow-[0_16px_34px_var(--color-primary-shadow)] sm:px-6"
         >
           로그인 →
         </Link>
