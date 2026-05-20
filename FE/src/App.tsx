@@ -1,5 +1,5 @@
 import { Suspense, lazy } from 'react'
-import { BrowserRouter, Navigate, Route, Routes, useParams } from 'react-router-dom'
+import { Navigate, Outlet, RouterProvider, createBrowserRouter, useParams } from 'react-router-dom'
 import { ProtectedRoute } from './shared/components/ProtectedRoute'
 import PublicLandingHeader from './shared/components/PublicLandingHeader'
 import RouteLoadingFallback from './shared/components/RouteLoadingFallback'
@@ -19,28 +19,43 @@ function EditorPageRoute() {
   return <EditorPage key={projectId ?? 'editor'} />
 }
 
-export default function App() {
+function AppLayout() {
   return (
-    <BrowserRouter future={{ v7_relativeSplatPath: true, v7_startTransition: true }}>
+    <>
       <PublicLandingHeader />
       <Suspense fallback={<RouteLoadingFallback />}>
-        <Routes>
-          <Route path="/" element={<IntroPage />} />
-          <Route path="/about" element={<Navigate to="/" replace />} />
-
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
-          <Route path="/view/:token" element={<ViewerPage />} />
-          <Route path="/invite/accept" element={<InviteAcceptPage />} />
-          <Route element={<ProtectedRoute />}>
-            <Route path="/projects" element={<ProjectListPage />} />
-            <Route path="/projects/:projectId/editor" element={<EditorPageRoute />} />
-            <Route path="/projects/:projectId/renders" element={<RendersPage />} />
-          </Route>
-
-          <Route path="*" element={<NotFoundPage />} />
-        </Routes>
+        <Outlet />
       </Suspense>
-    </BrowserRouter>
+    </>
   )
+}
+
+const router = createBrowserRouter(
+  [
+    {
+      element: <AppLayout />,
+      children: [
+        { path: '/', element: <IntroPage /> },
+        { path: '/about', element: <Navigate to="/" replace /> },
+        { path: '/login', element: <LoginPage /> },
+        { path: '/register', element: <RegisterPage /> },
+        { path: '/view/:token', element: <ViewerPage /> },
+        { path: '/invite/accept', element: <InviteAcceptPage /> },
+        {
+          element: <ProtectedRoute />,
+          children: [
+            { path: '/projects', element: <ProjectListPage /> },
+            { path: '/projects/:projectId/editor', element: <EditorPageRoute /> },
+            { path: '/projects/:projectId/renders', element: <RendersPage /> },
+          ],
+        },
+        { path: '*', element: <NotFoundPage /> },
+      ],
+    },
+  ],
+  { future: { v7_relativeSplatPath: true } },
+)
+
+export default function App() {
+  return <RouterProvider router={router} future={{ v7_startTransition: true }} />
 }

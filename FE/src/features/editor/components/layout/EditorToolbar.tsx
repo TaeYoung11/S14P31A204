@@ -1,5 +1,5 @@
-import { FolderKanban, Redo2, Undo2 } from 'lucide-react'
-import type { EditorMode } from '../../types'
+import { FolderKanban, Loader2, Redo2, Undo2 } from 'lucide-react'
+import type { EditorMode, SaveStatus } from '../../types'
 
 interface EditorToolbarProps {
   mode: EditorMode
@@ -9,6 +9,8 @@ interface EditorToolbarProps {
   onRedo?: () => void
   canUndo?: boolean
   canRedo?: boolean
+  saveStatus?: SaveStatus
+  hasUnsavedDbChanges?: boolean
 }
 
 type ToolbarMode = Exclude<EditorMode, 'view'>
@@ -33,9 +35,12 @@ export default function EditorToolbar({
   onRedo,
   canUndo = false,
   canRedo = false,
+  saveStatus = 'idle',
+  hasUnsavedDbChanges = false,
 }: EditorToolbarProps) {
   const isView = mode === 'view'
   const displayProjectName = projectName?.trim() || '프로젝트'
+  const shouldShowSyncingSpinner = saveStatus === 'syncing'
   const getModeTabClass = (tabMode: ToolbarMode) => `min-h-9 min-w-[68px] rounded-full px-5 py-2 text-[13px] font-bold transition-all ${
     mode === tabMode
       ? isView
@@ -62,6 +67,22 @@ export default function EditorToolbar({
             <h1 className={`max-w-[280px] truncate text-sm font-bold ${isView ? 'text-white/90' : 'text-[#1C1C1E]'}`}>
               {displayProjectName}
             </h1>
+            {hasUnsavedDbChanges && (
+              <span
+                className={`shrink-0 text-base font-black leading-none ${isView ? 'text-white/80' : 'text-[#A35F00]'}`}
+                title="DB에 저장되지 않은 변경사항이 있습니다"
+                aria-label="DB에 저장되지 않은 변경사항"
+              >
+                *
+              </span>
+            )}
+            {shouldShowSyncingSpinner && (
+              <Loader2
+                size={14}
+                className={`shrink-0 animate-spin ${isView ? 'text-white/80' : 'text-[#3B45B3]'}`}
+                aria-label="저장 중"
+              />
+            )}
           </div>
         </div>
 
