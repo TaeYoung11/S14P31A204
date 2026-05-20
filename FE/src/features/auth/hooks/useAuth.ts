@@ -1,9 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { saveWithdrawNotice } from '@/features/auth/constants/storage'
 import type { LoginDto, WithdrawDto } from '@/features/auth/services/auth.service'
 import { authService } from '@/features/auth/services/auth.service'
+import { resolveSafeInternalRedirect } from '@/features/auth/utils/redirect'
 import { useAuthStore } from '@/shared/stores/authStore'
+
+interface AuthLocationState {
+  redirectTo?: string | null
+}
 
 export const useAuth = () => {
   const queryClient = useQueryClient()
@@ -17,6 +22,8 @@ export const useAuth = () => {
     logout: storeLogout,
   } = useAuthStore()
   const navigate = useNavigate()
+  const location = useLocation()
+  const locationState = location.state as AuthLocationState | null
 
   const { data: me, isLoading: isMeLoading } = useQuery({
     queryKey: ['me', token],
@@ -32,7 +39,7 @@ export const useAuth = () => {
       setToken(access_token)
       setRefreshToken(refresh_token)
       setUser(nextUser)
-      navigate('/projects')
+      navigate(resolveSafeInternalRedirect(locationState?.redirectTo))
     },
   })
 

@@ -1,4 +1,4 @@
-import { Navigate, Outlet } from 'react-router-dom'
+import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuthSessionGuard } from '@/features/auth/hooks/useAuthSessionGuard'
 import { useProjectInvitationRealtime } from '@/features/project/hooks/useInvitation'
 import FullPageSpinner from '@/shared/components/FullPageSpinner'
@@ -10,6 +10,7 @@ import FullPageSpinner from '@/shared/components/FullPageSpinner'
  */
 export function ProtectedRoute() {
   const { status, isLoading } = useAuthSessionGuard()
+  const location = useLocation()
   useProjectInvitationRealtime(status === 'authenticated')
 
   if (isLoading) {
@@ -17,7 +18,13 @@ export function ProtectedRoute() {
   }
 
   if (status !== 'authenticated') {
-    return <Navigate to="/login" replace />
+    return (
+      <Navigate
+        to="/login"
+        replace
+        state={{ redirectTo: `${location.pathname}${location.search}${location.hash}` }}
+      />
+    )
   }
 
   return <Outlet />
