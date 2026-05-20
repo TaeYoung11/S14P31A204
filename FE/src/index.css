@@ -730,10 +730,7 @@ h6 {
    PROJECT SURFACES
    ===================== */
 .project-shell {
-  background:
-    linear-gradient(135deg, rgba(79, 70, 229, 0.075), transparent 32%),
-    linear-gradient(315deg, rgba(14, 165, 233, 0.055), transparent 42%),
-    var(--color-bg);
+  background: var(--color-bg);
 }
 
 .project-page-band {
