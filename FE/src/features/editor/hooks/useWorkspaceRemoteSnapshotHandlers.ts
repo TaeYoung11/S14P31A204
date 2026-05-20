@@ -20,10 +20,12 @@ import {
 } from '../utils/bubbleSnapshotApplyHelpers'
 import {
   isBubbleSnapshotPayload,
+  isFloorProjectPayload,
   WORKSPACE_SYNC_ACTION,
   type BubbleSnapshotPayload,
   type FloorPlanSnapshotPayload,
 } from '../utils/workspaceSyncMessage'
+import type { FloorProject } from '../types/floorProject.types'
 
 interface LatestBubbleSnapshotState {
   bubbles: BubbleData[]
@@ -72,6 +74,7 @@ interface UseWorkspaceRemoteSnapshotHandlersInput {
     replaceLayoutState: (next: FloorPlanLayoutState) => void
     fallback: FloorPlanLayoutState
   }) => void
+  applyFloorProjectSnapshot?: (project: FloorProject) => void
   replaceFloorPlanState: (next: FloorPlanLayoutState) => void
   floorPlanFallback: FloorPlanLayoutState
   traceBubbleSnapshot: (
@@ -107,6 +110,7 @@ export function useWorkspaceRemoteSnapshotHandlers({
   replaceZonesState,
   applyBubbleFloorMetaState,
   applyFloorPlanLayoutState,
+  applyFloorProjectSnapshot,
   replaceFloorPlanState,
   floorPlanFallback,
   traceBubbleSnapshot,
@@ -323,6 +327,9 @@ export function useWorkspaceRemoteSnapshotHandlers({
         fallback: floorPlanFallback,
       })
     }
+    if (isFloorProjectPayload(snapshot.floorProject)) {
+      applyFloorProjectSnapshot?.(snapshot.floorProject)
+    }
 
     setConnectingFromId(null)
     clearConnectionAndTwoDSelection()
@@ -330,10 +337,12 @@ export function useWorkspaceRemoteSnapshotHandlers({
     pendingWorkspaceSnapshotCommitRef.current = false
     floorPlanHistoryCommandInFlightRef.current = false
     awaitingServerSyncRef.current = null
-    setSaveStatus(resolveSnapshotSyncStatus())
+    const nextSaveStatus = resolveSnapshotSyncStatus()
+    setSaveStatus(nextSaveStatus)
   }, [
     applyNormalizedBubbleSnapshotState,
     applyFloorPlanLayoutState,
+    applyFloorProjectSnapshot,
     awaitingServerSyncRef,
     clearConnectionAndTwoDSelection,
     clearSelection,

@@ -9,6 +9,7 @@ import type {
   PhaseStatus,
   ZoneData,
 } from '../types'
+import type { FloorProject } from '../types/floorProject.types'
 
 export interface BubbleSnapshotPayload {
   bubbles: BubbleData[]
@@ -23,6 +24,7 @@ export interface BubbleSnapshotPayload {
 export interface FloorPlanSnapshotPayload extends BubbleSnapshotPayload {
   baseIndex?: number
   revisionId?: string | null
+  floorProject?: FloorProject | null
   layout?: {
     phaseStatus?: PhaseStatus
     floorLayers?: FloorLayer[]
@@ -323,6 +325,14 @@ export function isFloorPlanSnapshotPayload(value: unknown): value is FloorPlanSn
   if (!isBubbleSnapshotPayload(value)) return false
   const layout = (value as unknown as Record<string, unknown>).layout
   return layout == null || isObjectRecord(layout)
+}
+
+export function isFloorProjectPayload(value: unknown): value is FloorProject {
+  if (!isObjectRecord(value)) return false
+  return value.unit === 'mm' &&
+    Array.isArray(value.floors) &&
+    Array.isArray(value.rooms) &&
+    Array.isArray(value.adjacency)
 }
 
 /** FLOOR_PLAN_UPDATED 이벤트에서 동봉된 버블 스냅샷을 추출한다. */
