@@ -144,6 +144,21 @@ def apply_llm3d_create_to_ifc(
     return {"status": "error", "summary": "생성 실패"}
 
 
+def _is_broad_roof_appearance_command(command: dict[str, Any]) -> bool:
+    if str(command.get("command_type") or "") != "MODIFY":
+        return False
+    target = command.get("target") or {}
+    changes = command.get("changes") or {}
+    if target.get("element_type") != "IfcRoof" or not target.get("select_all"):
+        return False
+    if not (changes.get("color") or changes.get("material")):
+        return False
+    return not any(
+        target.get(field)
+        for field in ("global_id", "name", "storey", "space_name", "direction", "tag")
+    )
+
+
 def apply_llm3d_modify_delete_to_ifc(
     model: ifcopenshell.file,
     command: dict[str, Any],
@@ -170,6 +185,7 @@ def apply_llm3d_modify_delete_to_ifc(
     applied_count = 0
     missing_ids: list[str] = []
     failed_ids: list[str] = []
+    propagate_roof_appearance = _is_broad_roof_appearance_command(command)
 
     for item in matched:
         global_id = str(item.get("global_id") or "")
@@ -198,11 +214,26 @@ def apply_llm3d_modify_delete_to_ifc(
         height_mm = changes.get("height_mm")
         if height_mm and modify_height(element, height_mm, scale=scale):
             applied_ids.add(global_id)
+        propagate_element_roof_appearance = (
+            propagate_roof_appearance and element.is_a("IfcRoof")
+        )
         material = changes.get("material")
-        if material and modify_material(model, element, material):
+        if material and modify_material(
+            model,
+            element,
+            material,
+            propagate_mapped_sources=propagate_element_roof_appearance,
+            propagate_roof_descendants=propagate_element_roof_appearance,
+        ):
             applied_ids.add(global_id)
         color = changes.get("color")
-        if color and modify_color(model, element, str(color)):
+        if color and modify_color(
+            model,
+            element,
+            str(color),
+            propagate_mapped_sources=propagate_element_roof_appearance,
+            propagate_roof_descendants=propagate_element_roof_appearance,
+        ):
             applied_ids.add(global_id)
 
         position_mm = changes.get("position_mm")

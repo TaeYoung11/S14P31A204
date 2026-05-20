@@ -2146,7 +2146,12 @@ def rotation_targets(
     return targets + decomposed_products(element)
 
 def modify_material(
-    model: ifcopenshell.file, element: ifcopenshell.entity_instance, mat_change: dict[str, Any]
+    model: ifcopenshell.file,
+    element: ifcopenshell.entity_instance,
+    mat_change: dict[str, Any],
+    *,
+    propagate_mapped_sources: bool = False,
+    propagate_roof_descendants: bool = False,
 ) -> bool:
     try:
         new_name = _canonical_material_name(str(mat_change.get("name") or "Unknown"))
@@ -2168,7 +2173,13 @@ def modify_material(
         _set_label_property_value(model, element, "Material", new_name)
         material_color = _material_default_color(new_name)
         if material_color is not None:
-            modify_color(model, element, material_color)
+            modify_color(
+                model,
+                element,
+                material_color,
+                propagate_mapped_sources=propagate_mapped_sources,
+                propagate_roof_descendants=propagate_roof_descendants,
+            )
         return True
     except Exception as e:
         logger.error(f"재질 수정 오류: {e}")
@@ -2176,21 +2187,46 @@ def modify_material(
 
 
 def modify_color(
-    model: ifcopenshell.file, element: ifcopenshell.entity_instance, color_value: str
+    model: ifcopenshell.file,
+    element: ifcopenshell.entity_instance,
+    color_value: str,
+    *,
+    propagate_mapped_sources: bool = False,
+    propagate_roof_descendants: bool = False,
 ) -> bool:
     try:
         label_changed = _set_label_property_value(model, element, "Color", color_value)
-        items = _body_representation_items(element)
+        targets = [element]
+        if propagate_roof_descendants and element.is_a("IfcRoof"):
+            targets.extend(
+                child for child in decomposed_products(element) if child.is_a("IfcRoof")
+            )
+
+        items: list[Any] = []
+        seen_items: set[int] = set()
+        for target in targets:
+            for item in _body_representation_items(target):
+                for style_item in _styleable_representation_items(
+                    item,
+                    include_mapped_sources=propagate_mapped_sources,
+                ):
+                    item_id = int(style_item.id())
+                    if item_id in seen_items:
+                        continue
+                    seen_items.add(item_id)
+                    items.append(style_item)
         if not items:
             return label_changed
         assignment = _create_surface_style_assignment(model, color_value)
+        changed = False
         for item in items:
             styled = _styled_item_for(model, item)
             if styled:
                 styled.Styles = [assignment]
             else:
                 model.create_entity("IfcStyledItem", Item=item, Styles=[assignment])
-        return True
+            changed = True
+        return label_changed or changed
     except Exception as e:
         logger.error(f"색상 수정 오류: {e}")
         return False
@@ -2737,6 +2773,35 @@ def _body_representation_items(element: ifcopenshell.entity_instance) -> list[An
     for rep in getattr(representation, "Representations", []) or []:
         if getattr(rep, "RepresentationIdentifier", None) == "Body":
             items.extend(list(getattr(rep, "Items", []) or []))
+    return items
+
+
+def _styleable_representation_items(
+    item: ifcopenshell.entity_instance,
+    *,
+    include_mapped_sources: bool,
+    _seen: set[int] | None = None,
+) -> list[ifcopenshell.entity_instance]:
+    seen = _seen if _seen is not None else set()
+    item_id = int(item.id())
+    if item_id in seen:
+        return []
+    seen.add(item_id)
+
+    items = [item]
+    if not include_mapped_sources or not item.is_a("IfcMappedItem"):
+        return items
+
+    mapping_source = getattr(item, "MappingSource", None)
+    mapped_representation = getattr(mapping_source, "MappedRepresentation", None)
+    for source_item in getattr(mapped_representation, "Items", []) or []:
+        items.extend(
+            _styleable_representation_items(
+                source_item,
+                include_mapped_sources=include_mapped_sources,
+                _seen=seen,
+            )
+        )
     return items
 
 
