@@ -352,6 +352,10 @@ def test_repair_specific_roof_color_requests_do_not_force_select_all():
             "파란색으로 바꿔줘",
             None,
         ),
+        ("지붕 중 하나는 파란색으로 바꿔줘", None),
+        ("지붕 아래 벽은 파란색으로 바꿔줘", None),
+        ("one roof is blue", None),
+        ("wall under roof is blue", None),
     ]
 
     for raw_instruction, storey in cases:
