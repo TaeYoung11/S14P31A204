@@ -627,9 +627,14 @@ def _map_operation(
     selector = _map_selector(command.get("target") or {})
     broad_roof_appearance = _is_broad_roof_appearance_command(command)
     if broad_roof_appearance:
-        matched_ids = _matched_global_ids(matched_elements or [])
+        matched_ids = _matched_global_ids(
+            matched_elements or [],
+            expected_element_type="IfcRoof",
+        )
         if matched_ids:
             selector = {"global_ids": matched_ids, "element_type": "IfcRoof"}
+        elif matched_elements:
+            return None
     if not selector:
         return None
 
@@ -693,10 +698,19 @@ def _is_broad_roof_appearance_command(command: dict[str, Any]) -> bool:
     )
 
 
-def _matched_global_ids(matched_elements: list[dict[str, Any]]) -> list[str]:
+def _matched_global_ids(
+    matched_elements: list[dict[str, Any]],
+    *,
+    expected_element_type: str | None = None,
+) -> list[str]:
     global_ids: list[str] = []
     seen: set[str] = set()
     for item in matched_elements:
+        if (
+            expected_element_type is not None
+            and str(item.get("element_type") or "") != expected_element_type
+        ):
+            continue
         global_id = item.get("global_id")
         if not isinstance(global_id, str) or not global_id or global_id in seen:
             continue
