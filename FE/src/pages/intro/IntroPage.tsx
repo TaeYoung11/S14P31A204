@@ -361,7 +361,7 @@ export default function IntroPage() {
         setShouldMountAbout(true)
         observer.disconnect()
       },
-      { rootMargin: '900px 0px' },
+      { rootMargin: '240px 0px' },
     )
 
     observer.observe(aboutSection)
@@ -378,7 +378,7 @@ export default function IntroPage() {
           sourceHtml={introHtml}
           shouldRewriteLoginButtonScript
           injectedStyle={INTRO_INJECTED_STYLE}
-          className="pointer-events-none block h-screen w-screen select-none border-0"
+          className="block h-screen w-screen select-none border-0"
         />
       </div>
       <section
