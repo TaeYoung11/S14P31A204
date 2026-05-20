@@ -719,7 +719,11 @@ class AuthoringWorker(BaseWorker):
     ) -> list[ifcopenshell.entity_instance]:
         global_ids: list[str] = selector.get("global_ids") or []
         if global_ids:
-            return [el for gid in global_ids if (el := model.by_guid(gid)) is not None]
+            elements = [el for gid in global_ids if (el := model.by_guid(gid)) is not None]
+            element_type_filter: str | None = selector.get("element_type")
+            if element_type_filter:
+                elements = [el for el in elements if el.is_a(element_type_filter)]
+            return elements
 
         element_type: str = selector.get("element_type") or "IfcProduct"
         elements: list[ifcopenshell.entity_instance] = list(model.by_type(element_type))
