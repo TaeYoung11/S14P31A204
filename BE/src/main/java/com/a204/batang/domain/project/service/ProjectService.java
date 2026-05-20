@@ -110,11 +110,15 @@ public class ProjectService {
         String thumbnailUrl = normalizeThumbnailUrlOrThrow(request.thumbnailUrl());
         String thumbnailMode = normalizeThumbnailModeOrThrow(request.thumbnailMode());
 
-        project.updateThumbnail(thumbnailUrl, thumbnailMode);
-        Project savedProject = projectRepository.saveAndFlush(project);
+        projectRepository.updateThumbnailByProjectId(projectId, thumbnailUrl, thumbnailMode);
 
-        log.info("프로젝트 썸네일 갱신 완료. projectId={}, mode={}", savedProject.getProjectId(), thumbnailMode);
-        return UpdateProjectThumbnailResponse.from(savedProject);
+        log.info("프로젝트 썸네일 갱신 완료. projectId={}, mode={}", project.getProjectId(), thumbnailMode);
+        return new UpdateProjectThumbnailResponse(
+                project.getProjectId(),
+                thumbnailUrl,
+                thumbnailMode,
+                project.getUpdatedAt()
+        );
     }
 
     /**
