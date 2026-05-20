@@ -30,6 +30,7 @@ from ai_planning_2d import (
 )
 from ai_planning_2d.add_room_placement import suggest_add_room_start_mm
 from ai_planning_2d.engine import _apply_relative_adjustment, _infer_resize_direction
+from ai_planning_2d.planning.session_pipeline import PreviewSession2D
 from ai_planning_2d.remove_healing import build_remove_merge_plan
 from ai_planning_2d.toilet_demo import build_toilet_insertion_geometry_plan
 from ai_planning_2d.validators.batch import validate_command_batch
@@ -840,6 +841,7 @@ def _make_minimal_ifc(
 
     return {
         "ifc": ifc,
+        "building": building,
         "storey_a": storey_a,
         "storey_b": storey_b,
         "space_a": space_a,
@@ -860,6 +862,29 @@ def test_extract_storeys_sorted_by_elevation(tmp_path):
     assert [storey["floor"] for storey in context["storeys"]] == [1, 2]
     assert context["storeys"][0]["elevation"] == 0.0
     assert context["storeys"][1]["elevation"] == 3000.0
+
+
+def test_extract_storeys_prefers_named_floor_levels(tmp_path):
+    bundle = _make_minimal_ifc(storey_elevations=(0.0, 2.5))
+    foundation = ifcopenshell.api.root.create_entity(
+        bundle["ifc"], ifc_class="IfcBuildingStorey", name="T.O. Fnd. Wall"
+    )
+    foundation.Elevation = -0.82
+    ifcopenshell.api.aggregate.assign_object(
+        bundle["ifc"], products=[foundation], relating_object=bundle["building"]
+    )
+    bundle["storey_a"].Name = "1F"
+    bundle["storey_b"].Name = "2F"
+
+    context = extract_ifc_context(_write_ifc(tmp_path, bundle["ifc"]))
+
+    floor_by_id = {storey["id"]: storey["floor"] for storey in context["storeys"]}
+    # 이름 기반(1F/2F)은 파싱된 번호를 그대로 쓴다.
+    assert floor_by_id[bundle["storey_a"].GlobalId] == 1
+    assert floor_by_id[bundle["storey_b"].GlobalId] == 2
+    # 패턴(\d+F)에 맞지 않는 storey도 누락되지 않고 충돌하지 않는 번호로 포함된다.
+    assert foundation.GlobalId in floor_by_id
+    assert floor_by_id[foundation.GlobalId] not in {1, 2}
 
 
 def test_extract_space_from_pset(tmp_path):
@@ -890,6 +915,17 @@ def test_extract_space_name_prefers_long_name(tmp_path):
     space = next(space for space in context["spaces"] if space["id"] == bundle["space_a"].GlobalId)
     assert space["name"] == "嫄곗떎"
     assert space["type"] == "living"
+
+
+def test_extract_space_name_uses_numeric_name_when_long_name_is_generic(tmp_path):
+    bundle = _make_minimal_ifc()
+    bundle["space_a"].Name = "1"
+    bundle["space_a"].LongName = "공간"
+
+    context = extract_ifc_context(_write_ifc(tmp_path, bundle["ifc"]))
+
+    space = next(space for space in context["spaces"] if space["id"] == bundle["space_a"].GlobalId)
+    assert space["name"] == "1번방"
 
 
 def test_extract_space_polygon_from_footprint(tmp_path):
@@ -975,7 +1011,7 @@ def test_ifc4x3_is_accepted(tmp_path):
     assert context["storeys"] == []
 
 
-def test_non_meter_length_unit_is_rejected(tmp_path):
+def test_millimeter_length_unit_is_accepted(tmp_path):
     bundle = _make_minimal_ifc()
     project = next(iter(bundle["ifc"].by_type("IfcProject")))
     project.UnitsInContext = bundle["ifc"].create_entity(
@@ -986,6 +1022,26 @@ def test_non_meter_length_unit_is_rejected(tmp_path):
                 UnitType="LENGTHUNIT",
                 Name="METRE",
                 Prefix="MILLI",
+            )
+        ],
+    )
+
+    context = extract_ifc_context(_write_ifc(tmp_path, bundle["ifc"]))
+
+    assert context["storeys"]
+
+
+def test_unsupported_length_unit_prefix_is_rejected(tmp_path):
+    bundle = _make_minimal_ifc()
+    project = next(iter(bundle["ifc"].by_type("IfcProject")))
+    project.UnitsInContext = bundle["ifc"].create_entity(
+        "IfcUnitAssignment",
+        Units=[
+            bundle["ifc"].create_entity(
+                "IfcSIUnit",
+                UnitType="LENGTHUNIT",
+                Name="METRE",
+                Prefix="KILO",
             )
         ],
     )
@@ -2279,9 +2335,11 @@ def test_to_ifc_commands_create_door_rejects_overlap_with_existing_opening():
         ],
         "doors": [
             {
+                # position은 벽 중심 기준 오프셋이다. 벽 중앙(1250)에 두면
+                # 좌·우 어느 쪽에도 900mm 문이 들어갈 여유 구간이 없다.
                 "id": "door-1",
                 "host_wall_id": "wall-1",
-                "position": 800.0,
+                "position": 1250.0,
                 "width": 900.0,
                 "height": 2100.0,
                 "from_space_id": None,
@@ -2730,6 +2788,312 @@ def test_build_engine_request_remove_room_rejects_empty_selector():
         )
 
 
+def _picture_window_ctx() -> IFCContext:
+    return {
+        "spaces": [
+            {
+                "id": "sp-room-1",
+                "name": "1번방",
+                "type": "other",
+                "floor": 1,
+                "polygon": [(-100, 0), (2000, 0), (2000, 3000), (-100, 3000)],
+                "width": 2100,
+                "height": 3000,
+                "x": -100.0,
+                "y": 0.0,
+                "angle": 0.0,
+                "locked": False,
+                "zone_id": None,
+            }
+        ],
+        "adjacency": [],
+        "walls": [
+            {
+                "id": "wall-west",
+                "floor": 1,
+                "start": (0.0, 0.0),
+                "end": (0.0, 3000.0),
+                "thickness": 200,
+                "space_ids": [],
+                "kind": "EXTERIOR",
+                "body_class": "parametric",
+            }
+        ],
+        "doors": [],
+        "windows": [
+            {
+                "id": "window-a",
+                "floor": 1,
+                "host_wall_id": "wall-west",
+                "host_wall_body_class": "parametric",
+                "adjacent_space_id": "sp-room-1",
+                "width": 900,
+                "height": 1200,
+                "sill_height": 0,
+                "position": 500,
+            },
+            {
+                "id": "window-b",
+                "floor": 1,
+                "host_wall_id": "wall-west",
+                "host_wall_body_class": "parametric",
+                "adjacent_space_id": "sp-room-1",
+                "width": 1000,
+                "height": 1200,
+                "sill_height": 0,
+                "position": 1500,
+            },
+        ],
+        "openings": [],
+        "boundaries": [],
+        "storeys": [{"id": "storey-1", "floor": 1, "elevation": 0.0}],
+    }
+
+
+def test_to_ifc_commands_merge_windows_selects_adjacent_room_windows():
+    ctx = _picture_window_ctx()
+    command = FloorNLPCommand(
+        action="merge_windows",
+        target_room_name="1번방",
+        target_floor=1,
+        confidence=0.99,
+    )
+
+    batch = to_ifc_commands(command, ctx)
+
+    assert not batch.requires_clarification
+    assert [cmd.action for cmd in batch.commands] == [
+        ActionType.DELETE_WINDOW,
+        ActionType.DELETE_WINDOW,
+        ActionType.CREATE_WINDOW,
+    ]
+    assert [cmd.target_id for cmd in batch.commands[:2]] == ["window-a", "window-b"]
+    create = batch.commands[2]
+    assert create.params["metadata"]["host_wall_id"] == "wall-west"
+    assert create.params["metadata"]["storey_id"] == "storey-1"
+    # 통창은 방 bbox 중심(1500)이 아니라 삭제되는 두 창의 합산 구간
+    # [50, 2000]의 중심(1025)에 배치되어야 한다.
+    assert create.params["geometry"]["location"] == [0.0, 1025.0, 0.0]
+    assert create.params["geometry"]["dimensions"] == {
+        "length": 1950,
+        "width": 200,
+        "height": 1200,
+    }
+    assert create.params["properties"]["sill_height"] == 0
+    assert create.params["properties"]["window_style"] == "picture"
+
+
+def test_to_ifc_commands_merge_windows_clarifies_when_window_link_is_ambiguous():
+    """대상 방과의 명확한 근거(adjacent_space_id/host wall space_ids)가 없는 창은
+    자동 삭제 후보로 삼지 않고 clarification으로 돌린다."""
+    ctx = _picture_window_ctx()
+    for window in ctx["windows"]:
+        window["adjacent_space_id"] = None
+    for wall in ctx["walls"]:
+        wall["space_ids"] = []
+    command = FloorNLPCommand(
+        action="merge_windows",
+        target_room_name="1번방",
+        target_floor=1,
+        confidence=0.99,
+    )
+
+    batch = to_ifc_commands(command, ctx)
+
+    assert batch.requires_clarification is True
+    assert batch.commands == []
+
+
+def test_build_engine_request_merge_windows_emits_delete_then_create_window():
+    ctx = _picture_window_ctx()
+    command = FloorNLPCommand(
+        action="merge_windows",
+        target_room_name="1번방",
+        target_floor=1,
+        confidence=0.99,
+    )
+    batch = to_ifc_commands(command, ctx)
+
+    request = build_engine_request(
+        mode="preview",
+        request_id="req-picture-window",
+        project_id="proj-picture-window",
+        command=command,
+        command_batch=batch,
+        policy_plan=None,
+        ifc_context=ctx,
+    )
+
+    assert [operation.type for operation in request.operations] == [
+        "delete_elements",
+        "create_element",
+    ]
+    assert request.operations[0].selector == {"global_ids": ["window-a", "window-b"]}
+    create_parameters = request.operations[1].parameters
+    assert create_parameters["element_type"] == "IfcWindow"
+    assert create_parameters["host_wall_global_id"] == "wall-west"
+    assert create_parameters["storey_id"] == "storey-1"
+    assert create_parameters["dimensions_mm"] == {
+        "length": 1950,
+        "width": 200,
+        "height": 1200,
+    }
+    assert create_parameters["sill_height_mm"] == 0
+    assert create_parameters["window_style"] == "picture"
+
+
+def _ambiguous_picture_window_ctx():
+    ctx = _picture_window_ctx()
+    primary_space = dict(ctx["spaces"][0])
+    primary_space["id"] = "space-primary-1f"
+    primary_space["name"] = "안방"
+    primary_space["floor"] = 1
+    second_space = dict(primary_space)
+    second_space["id"] = "space-primary-2f"
+    second_space["floor"] = 2
+    ctx["spaces"] = [primary_space, second_space]
+    ctx["storeys"] = [
+        {"id": "storey-1", "floor": 1, "elevation": 0.0},
+        {"id": "storey-2", "floor": 2, "elevation": 3000.0},
+    ]
+    return ctx
+
+
+@pytest.mark.asyncio
+async def test_engine_parse_picture_window_command_uses_merge_windows_action():
+    engine = FloorPlanEngine()
+    result = await engine.parse_command(
+        "1번방 창문 2개를 통창으로 바꿔줘",
+        _picture_window_ctx(),
+    )
+
+    assert result.action == "merge_windows"
+    assert result.target_room_name == "1번방"
+    assert result.target_floor == 1
+
+
+@pytest.mark.asyncio
+async def test_engine_parse_picture_window_command_keeps_duplicate_room_floor_ambiguous():
+    engine = FloorPlanEngine()
+    result = await engine.parse_command(
+        "안방에 있는 창문 2개 통창으로 바꿔줘",
+        _ambiguous_picture_window_ctx(),
+    )
+
+    assert result.action == "merge_windows"
+    assert result.target_room_name == "안방"
+    assert result.target_floor is None
+    # 층이 명시되지 않았고 안방이 1·2층에 모두 있으므로 엔진이 직접 재질문을 강제한다.
+    assert result.needs_clarification is True
+
+
+def _merge_windows_command_batch() -> CommandBatch:
+    """delete_window 2개 + create_window 1개로 구성된 통창 변환 배치."""
+    delete_commands = [
+        IFCCommand(
+            action=ActionType.DELETE_WINDOW,
+            target_id=window_id,
+            params={"metadata": {"target_kind": "window", "host_wall_id": "wall-1"}},
+            confidence=0.99,
+        )
+        for window_id in ("window-a", "window-b")
+    ]
+    create_command = IFCCommand(
+        action=ActionType.CREATE_WINDOW,
+        target_id=None,
+        params={
+            "entity_type": "Window",
+            "metadata": {
+                "storey_id": "storey-1",
+                "host_wall_id": "wall-1",
+                "merged_window_ids": ["window-a", "window-b"],
+            },
+            "geometry": {
+                "location": [1000.0, 0.0, 0.0],
+                "dimensions": {"length": 1950, "width": 200, "height": 1200},
+            },
+            "properties": {"sill_height": 0, "window_style": "picture"},
+        },
+        confidence=0.99,
+    )
+    return CommandBatch(
+        commands=[*delete_commands, create_command],
+        requires_clarification=False,
+    )
+
+
+def _seed_merge_windows_session(pipeline: LLM2DPipeline) -> str:
+    command = FloorNLPCommand(
+        action="merge_windows",
+        target_room_name="1번방",
+        target_floor=1,
+        confidence=0.99,
+    )
+    session = PreviewSession2D(
+        session_id="merge-windows-apply",
+        command=command,
+        command_batch=_merge_windows_command_batch(),
+        policy_plan=None,
+        validation_warnings=[],
+    )
+    pipeline.store[session.session_id] = session
+    return session.session_id
+
+
+@pytest.mark.asyncio
+async def test_pipeline_apply_merge_windows_fails_when_picture_window_not_created(
+    tmp_path, monkeypatch
+):
+    """통창 생성이 실패(created_ids 비어 있음)하면 apply 전체를 실패 처리해야 한다."""
+    pipeline = LLM2DPipeline(
+        ifc_path=str(tmp_path / "in.ifc"),
+        ifc_context=_picture_window_ctx(),
+    )
+    session_id = _seed_merge_windows_session(pipeline)
+
+    def _fake_apply(*, ifc_path, output_path, payload):
+        return {"status": "applied", "created_ids": [], "affected_ids": ["window-a", "window-b"]}
+
+    monkeypatch.setattr(
+        "ai_planning_2d.planning.session_pipeline.apply_ifc_edit_payload",
+        _fake_apply,
+    )
+
+    result = await pipeline.execute_apply(session_id, output_path=str(tmp_path / "out.ifc"))
+
+    assert result["status"] == "apply_failed"
+    assert result["apply_mode"] == "shared_authoring"
+    assert "picture window was not created" in result["summary"]
+
+
+@pytest.mark.asyncio
+async def test_pipeline_apply_merge_windows_succeeds_when_picture_window_created(
+    tmp_path, monkeypatch
+):
+    """통창 생성이 성공하면 apply가 정상적으로 applied 처리되어야 한다."""
+    pipeline = LLM2DPipeline(
+        ifc_path=str(tmp_path / "in.ifc"),
+        ifc_context=_picture_window_ctx(),
+    )
+    session_id = _seed_merge_windows_session(pipeline)
+
+    def _fake_apply(*, ifc_path, output_path, payload):
+        return {
+            "status": "applied",
+            "created_ids": ["window-merged"],
+            "affected_ids": ["window-a", "window-b", "window-merged"],
+        }
+
+    monkeypatch.setattr(
+        "ai_planning_2d.planning.session_pipeline.apply_ifc_edit_payload",
+        _fake_apply,
+    )
+
+    result = await pipeline.execute_apply(session_id, output_path=str(tmp_path / "out.ifc"))
+
+    assert result["status"] == "applied"
+    assert result["apply_mode"] == "shared_authoring"
+    assert result["created_ids"] == ["window-merged"]
 
 
 

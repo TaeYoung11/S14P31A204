@@ -2569,6 +2569,96 @@ def _box_representation(
     return model.create_entity("IfcProductDefinitionShape", Representations=[shape]), solid
 
 
+def _box_solid(
+    model: ifcopenshell.file,
+    length_m: float,
+    width_m: float,
+    height_m: float,
+    loc: tuple[float, float, float] = (0.0, 0.0, 0.0),
+) -> ifcopenshell.entity_instance:
+    profile = model.create_entity(
+        "IfcRectangleProfileDef",
+        ProfileType="AREA",
+        XDim=float(length_m),
+        YDim=float(width_m),
+        Position=model.create_entity(
+            "IfcAxis2Placement2D",
+            Location=model.create_entity(
+                "IfcCartesianPoint",
+                Coordinates=(float(length_m / 2.0), float(width_m / 2.0)),
+            ),
+        ),
+    )
+    return model.create_entity(
+        "IfcExtrudedAreaSolid",
+        SweptArea=profile,
+        Position=_axis_placement_3d(model, location=loc),
+        ExtrudedDirection=model.create_entity("IfcDirection", DirectionRatios=(0.0, 0.0, 1.0)),
+        Depth=float(height_m),
+    )
+
+
+def _style_item(
+    model: ifcopenshell.file,
+    item: ifcopenshell.entity_instance,
+    color_value: str,
+    *,
+    transparency: float | None = None,
+) -> None:
+    model.create_entity(
+        "IfcStyledItem",
+        Item=item,
+        Styles=[_create_surface_style_assignment(model, color_value, transparency=transparency)],
+    )
+
+
+def _window_frame_representation(
+    model: ifcopenshell.file,
+    length_m: float,
+    width_m: float,
+    height_m: float,
+    *,
+    include_mullion: bool = True,
+) -> ifcopenshell.entity_instance:
+    frame = max(min(length_m, height_m) * 0.055, _mm_to_model_units(model, 55.0, 55.0))
+    frame = min(frame, max(min(length_m, height_m) * 0.18, _mm_to_model_units(model, 90.0, 90.0)))
+    mullion = max(frame * 0.72, _mm_to_model_units(model, 40.0, 40.0))
+    glass_depth = min(width_m * 0.35, _mm_to_model_units(model, 45.0, 45.0))
+    glass_depth = max(glass_depth, _mm_to_model_units(model, 20.0, 20.0))
+    inner_length = max(length_m - (frame * 2.0), frame)
+    inner_height = max(height_m - (frame * 2.0), frame)
+
+    frame_items = [
+        _box_solid(model, length_m, width_m, frame, (0.0, 0.0, 0.0)),
+        _box_solid(model, length_m, width_m, frame, (0.0, 0.0, max(height_m - frame, 0.0))),
+        _box_solid(model, frame, width_m, height_m, (0.0, 0.0, 0.0)),
+        _box_solid(model, frame, width_m, height_m, (max(length_m - frame, 0.0), 0.0, 0.0)),
+    ]
+    if include_mullion:
+        center_x = max((length_m - mullion) / 2.0, frame)
+        frame_items.append(_box_solid(model, mullion, width_m, height_m, (center_x, 0.0, 0.0)))
+    glass = _box_solid(
+        model,
+        inner_length,
+        glass_depth,
+        inner_height,
+        (frame, max((width_m - glass_depth) / 2.0, 0.0), frame),
+    )
+
+    for item in frame_items:
+        _style_item(model, item, "#B77A3D")
+    _style_item(model, glass, "#8FD3FF", transparency=0.55)
+
+    shape = model.create_entity(
+        "IfcShapeRepresentation",
+        ContextOfItems=_body_context(model),
+        RepresentationIdentifier="Body",
+        RepresentationType="SweptSolid",
+        Items=[*frame_items, glass],
+    )
+    return model.create_entity("IfcProductDefinitionShape", Representations=[shape])
+
+
 def _stair_preset_representation(
     model: ifcopenshell.file,
     length_m: float,
@@ -2884,10 +2974,18 @@ def _styleable_representation_items(
     return items
 
 
-def _create_surface_style_assignment(model: ifcopenshell.file, color_value: str):
+def _create_surface_style_assignment(
+    model: ifcopenshell.file,
+    color_value: str,
+    *,
+    transparency: float | None = None,
+):
     r, g, b = _color_to_rgb(color_value)
     color = model.create_entity("IfcColourRgb", Name=color_value, Red=r, Green=g, Blue=b)
-    rendering = model.create_entity("IfcSurfaceStyleRendering", SurfaceColour=color)
+    rendering_kwargs: dict[str, Any] = {"SurfaceColour": color}
+    if transparency is not None:
+        rendering_kwargs["Transparency"] = float(max(0.0, min(1.0, transparency)))
+    rendering = model.create_entity("IfcSurfaceStyleRendering", **rendering_kwargs)
     style = model.create_entity(
         "IfcSurfaceStyle", Name=f"Style_{color_value}", Side="BOTH", Styles=[rendering]
     )
@@ -3815,7 +3913,7 @@ def create_door_with_template_reuse(
 def create_window_with_opening(
     model, storey, *, length_mm=1200, width_mm=200, height_mm=1200,
     x_mm=0, y_mm=0, z_mm=0, direction="north", color=None, material_name=None,
-    host_wall=None, sill_height_mm=900,
+    host_wall=None, sill_height_mm=900, window_style=None,
 ):
     try:
         if not host_wall:
@@ -3867,15 +3965,28 @@ def create_window_with_opening(
         _assign_to_storey(model, window, storey)
         window.ObjectPlacement = placement
         wt = _mm_to_model_units(model, 100, 100)
+        window_length = _mm_to_model_units(model, length_mm, 1200)
+        window_height = _mm_to_model_units(model, height_mm, 1200)
+        window.OverallWidth = window_length
+        window.OverallHeight = window_height
         bx, by = (
-            (_mm_to_model_units(model, length_mm, 1200), wt)
+            (window_length, wt)
             if ew_wall
-            else (wt, _mm_to_model_units(model, length_mm, 1200))
+            else (wt, window_length)
         )
-        window.Representation, _ = _box_representation(
-            model, bx, by, _mm_to_model_units(model, height_mm, 1200), center_origin=False
-        )
-        _apply_color_and_material(model, window, color or "#AADDFF", material_name)
+        if color or material_name:
+            window.Representation, _ = _box_representation(
+                model, bx, by, window_height, center_origin=False
+            )
+            _apply_color_and_material(model, window, color, material_name)
+        else:
+            window.Representation = _window_frame_representation(
+                model,
+                bx,
+                by,
+                window_height,
+                include_mullion=window_style != "picture",
+            )
         if opening:
             model.create_entity(
                 "IfcRelFillsElement",
@@ -3905,6 +4016,7 @@ def create_window_with_template_reuse(
     material_name=None,
     host_wall=None,
     sill_height_mm=900,
+    window_style=None,
 ):
     del direction, color, material_name
     created_entities: list[ifcopenshell.entity_instance] = []
@@ -4014,22 +4126,31 @@ def create_window_with_template_reuse(
             fallback_width_m=host_thickness,
             fallback_height_m=window.OverallHeight,
         )
-        _resize_box_like_representation(
+        did_resize_representation = _resize_box_like_representation(
             window.Representation,
             length=window.OverallWidth,
             width=host_thickness,
             height=window.OverallHeight,
         )
+        if not did_resize_representation:
+            window.Representation = _window_frame_representation(
+                model,
+                window.OverallWidth,
+                host_thickness,
+                window.OverallHeight,
+                include_mullion=window_style != "picture",
+            )
         _copy_product_type_relation(
             model,
             template_product=template_window,
             product=window,
         )
-        _copy_material_associations_from_template(
-            model,
-            template_product=template_window,
-            product=window,
-        )
+        if did_resize_representation:
+            _copy_material_associations_from_template(
+                model,
+                template_product=template_window,
+                product=window,
+            )
         fill_rel = model.create_entity(
             "IfcRelFillsElement",
             GlobalId=ifcopenshell.guid.new(),

@@ -107,14 +107,122 @@ def _resolve_space_for_user_text(
         return None
 
     spaces = ifc_context.get("spaces", [])
+    target_floor = _extract_target_floor(user_text)
+
+    def _unique_match(candidates: list[SpaceContext]) -> SpaceContext | None:
+        if target_floor is not None:
+            candidates = [space for space in candidates if space.get("floor") == target_floor]
+        if len(candidates) == 1:
+            return candidates[0]
+        return None
+
     exact_matches = [space for space in spaces if space.get("name") and space["name"] in user_text]
-    if len(exact_matches) == 1:
-        return exact_matches[0]
+    exact_match = _unique_match(exact_matches)
+    if exact_match is not None:
+        return exact_match
+    if exact_matches:
+        return None
 
     inferred_name, _ = _infer_room_name_and_type(user_text)
     if inferred_name is None:
         return None
-    return next((space for space in spaces if space.get("name") == inferred_name), None)
+    return _unique_match([space for space in spaces if space.get("name") == inferred_name])
+
+
+def _floors_for_room_reference(
+    target_room_name: str,
+    room_type: str | None,
+    ifc_context: IFCContext,
+) -> set[int]:
+    """대상 방 이름(또는 유형)에 해당하는 공간이 분포한 층 번호 집합을 반환한다."""
+    spaces = ifc_context.get("spaces", [])
+    by_name = [space for space in spaces if space.get("name") == target_room_name]
+    candidates = by_name
+    if len(by_name) < 2 and room_type:
+        by_type = [space for space in spaces if space.get("type") == room_type]
+        if len(by_type) > len(by_name):
+            candidates = by_type
+    return {space["floor"] for space in candidates if isinstance(space.get("floor"), int)}
+
+
+def _maybe_parse_merge_windows_command(
+    user_text: str,
+    ifc_context: IFCContext | None,
+) -> FloorNLPCommand | None:
+    lowered = user_text.casefold()
+    if not any(
+        keyword in user_text or keyword in lowered
+        for keyword in ("통창", "picture window")
+    ):
+        return None
+    if not any(
+        keyword in user_text or keyword in lowered
+        for keyword in ("창문", "창", "window")
+    ):
+        return None
+
+    explicit_floor = _extract_target_floor(user_text)
+    target_space = _resolve_space_for_user_text(user_text, ifc_context)
+
+    # 대상 방 이름과 유형을 확정한다.
+    target_room_name: str | None
+    room_type: str | None
+    if target_space is not None:
+        target_room_name = target_space["name"]
+        room_type = target_space.get("type")
+    else:
+        mentioned_names: set[str] = set()
+        if ifc_context is not None:
+            mentioned_names = {
+                str(space["name"])
+                for space in ifc_context.get("spaces", [])
+                if space.get("name") and str(space["name"]) in user_text
+            }
+        inferred_name, room_type = _infer_room_name_and_type(user_text)
+        target_room_name = (
+            next(iter(mentioned_names)) if len(mentioned_names) == 1 else inferred_name
+        )
+
+    # 대상 방을 전혀 식별하지 못하면 방 이름부터 되묻는다.
+    if target_room_name is None:
+        return FloorNLPCommand(
+            action="merge_windows",
+            target_room_name=None,
+            target_floor=explicit_floor,
+            confidence=0.35,
+            needs_clarification=True,
+            clarification_question=(
+                "통창으로 바꿀 방을 찾지 못했습니다. 예: 1번방 창문 2개를 통창으로 바꿔줘"
+            ),
+        )
+
+    # 층을 명시하지 않았는데 같은 방이 여러 층에 있으면 어느 층인지 되묻는다.
+    if explicit_floor is None and ifc_context is not None:
+        floors = _floors_for_room_reference(target_room_name, room_type, ifc_context)
+        if len(floors) >= 2:
+            return FloorNLPCommand(
+                action="merge_windows",
+                target_room_name=target_room_name,
+                target_floor=None,
+                confidence=0.5,
+                needs_clarification=True,
+                clarification_question=(
+                    f"어느 층 {target_room_name}의 창문을 통창으로 바꿀까요?"
+                ),
+            )
+
+    resolved_floor = explicit_floor
+    if resolved_floor is None and target_space is not None:
+        resolved_floor = target_space.get("floor")
+
+    return FloorNLPCommand(
+        action="merge_windows",
+        target_room_name=target_room_name,
+        target_floor=resolved_floor,
+        confidence=0.99 if target_space is not None else 0.9,
+        needs_clarification=False,
+        clarification_question=None,
+    )
 
 
 def _extract_target_floor(user_text: str) -> int | None:
@@ -957,6 +1065,10 @@ class FloorPlanEngine:
         )
         if clarification_followup_remove is not None:
             return clarification_followup_remove
+
+        merge_windows = _maybe_parse_merge_windows_command(user_text, ifc_context)
+        if merge_windows is not None:
+            return merge_windows
 
         generic_room_change = _maybe_parse_generic_room_change_clarification(user_text)
         if generic_room_change is not None:

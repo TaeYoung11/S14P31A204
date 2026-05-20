@@ -11,7 +11,7 @@ class ClarificationFill(BaseModel):
 
     target_floor: int | None = Field(default=None, ge=1)
     target_room_name: str | None = Field(default=None, min_length=1)
-    action: Literal["insert_toilet"] | None = None
+    action: Literal["insert_toilet", "merge_windows"] | None = None
 
     @model_serializer(mode="wrap")
     def serialize_without_none(self, handler):
@@ -23,11 +23,16 @@ class ClarificationAlternative(BaseModel):
 
     alternative_id: str = Field(min_length=1)
     title: str = Field(min_length=1)
+    prompt: str | None = Field(default=None, min_length=1)
     description: str = Field(min_length=1)
     fill: ClarificationFill
     affected_entities: list[str] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     metrics: list[str] = Field(default_factory=list)
+
+    @model_serializer(mode="wrap")
+    def serialize_without_none(self, handler):
+        return {key: value for key, value in handler(self).items() if value is not None}
 
 
 class ClarificationArtifact(BaseModel):

@@ -17,6 +17,7 @@ export type LlmEditStatus = 'idle' | 'loading' | 'running' | 'preview' | 'ambigu
 export interface ClarificationAlternative {
   alternative_id: string
   title: string
+  prompt?: string | null
   description: string
   fill: Record<string, unknown>
   affected_entities: string[]
