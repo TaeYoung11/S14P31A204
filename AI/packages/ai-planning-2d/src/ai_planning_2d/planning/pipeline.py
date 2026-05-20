@@ -330,10 +330,10 @@ def _find_merge_windows_plan(
     if merge_length <= 0.0:
         return None
 
-    space_interval = _space_axis_interval_for_wall(wall, space)
-    if space_interval is None:
-        return None
-    center_offset = (space_interval[0] + space_interval[1]) / 2.0
+    # 새 통창은 삭제되는 두 창이 차지하던 구간의 중심에 배치한다.
+    # 방 bbox 중심으로 잡으면 창이 벽 한쪽에 몰려 있을 때 통창이 엉뚱한 위치에
+    # 생기거나, 선택하지 않은 다른 창과 겹칠 수 있다.
+    center_offset = (merge_start + merge_end) / 2.0
     wall_length = _wall_length_mm(wall)
     if wall_length > 0.0:
         half_length = merge_length / 2.0

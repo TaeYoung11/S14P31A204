@@ -2869,7 +2869,9 @@ def test_to_ifc_commands_merge_windows_selects_adjacent_room_windows():
     create = batch.commands[2]
     assert create.params["metadata"]["host_wall_id"] == "wall-west"
     assert create.params["metadata"]["storey_id"] == "storey-1"
-    assert create.params["geometry"]["location"] == [0.0, 1500.0, 0.0]
+    # 통창은 방 bbox 중심(1500)이 아니라 삭제되는 두 창의 합산 구간
+    # [50, 2000]의 중심(1025)에 배치되어야 한다.
+    assert create.params["geometry"]["location"] == [0.0, 1025.0, 0.0]
     assert create.params["geometry"]["dimensions"] == {
         "length": 1950,
         "width": 200,
