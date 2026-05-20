@@ -24,9 +24,10 @@
   --color-text-tertiary: #9ca3af;
 
   /* Primary */
-  --color-primary: #2563eb;
-  --color-primary-hover: #1d4ed8;
-  --color-primary-light: #eff6ff;
+  --color-primary: #3b45b3;
+  --color-primary-hover: #2d3691;
+  --color-primary-light: #eef0ff;
+  --color-primary-shadow: rgba(59, 69, 179, 0.2);
 
   /* Semantic */
   --color-success: #16a34a;
@@ -131,8 +132,8 @@ h6 {
    BUTTONS
    ===================== */
 .btn-primary {
-  @apply bg-[#2563eb] text-white px-3.5 py-1.5 rounded-md text-sm font-medium
-         hover:bg-[#1d4ed8] transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  @apply bg-[#3B45B3] text-white px-3.5 py-1.5 rounded-md text-sm font-medium
+         hover:bg-[#2D3691] transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
 }
 
 .btn-secondary {
@@ -156,16 +157,16 @@ h6 {
 .input-base {
   @apply w-full bg-white border border-[#e5e7eb] rounded-md px-3 py-2 text-sm text-[#111827]
          placeholder-[#9ca3af]
-         focus:outline-none focus:border-[#2563eb]
-         focus:ring-2 focus:ring-[#2563eb]/10
+         focus:outline-none focus:border-[#3B45B3]
+         focus:ring-2 focus:ring-[#3B45B3]/10
          transition-colors;
 }
 
 .input-auth {
   @apply w-full bg-white/90 border border-[#dbe3ef] rounded-xl px-3.5 py-2.5
          text-sm text-[#0f172a] placeholder-[#94a3b8]
-         focus:outline-none focus:border-[#2563eb]
-         focus:ring-4 focus:ring-[#2563eb]/10
+         focus:outline-none focus:border-[#3B45B3]
+         focus:ring-4 focus:ring-[#3B45B3]/10
          transition-all duration-200;
   box-shadow: 0 1px 0 rgba(15, 23, 42, 0.03);
 }
@@ -712,7 +713,7 @@ h6 {
 }
 .badge-success { @apply bg-[#dcfce7] text-[#16a34a]; }
 .badge-danger  { @apply bg-[#fef2f2] text-[#dc2626]; }
-.badge-primary { @apply bg-[#eff6ff] text-[#2563eb]; }
+.badge-primary { @apply bg-[#EEF0FF] text-[#3B45B3]; }
 .badge-neutral { @apply bg-[#f3f4f6] text-[#374151]; }
 
 /* =====================
@@ -724,7 +725,7 @@ h6 {
          transition-colors cursor-pointer;
 }
 .sidebar-icon.active {
-  @apply bg-[#eff6ff] text-[#2563eb];
+  @apply bg-[#EEF0FF] text-[#3B45B3];
 }
 
 /* =====================
@@ -801,8 +802,8 @@ h6 {
 }
 
 .project-primary-button {
-  @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#4f46e5] px-4 text-sm font-bold text-white
-         shadow-[0_10px_22px_rgba(79,70,229,0.18)] transition-colors hover:bg-[#4338ca]
+  @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#3B45B3] px-4 text-sm font-bold text-white
+         shadow-[0_10px_22px_rgba(59,69,179,0.18)] transition-colors hover:bg-[#2D3691]
          disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0;
 }
 
