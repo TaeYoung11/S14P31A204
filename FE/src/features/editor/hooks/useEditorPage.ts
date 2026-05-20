@@ -6098,19 +6098,21 @@ export function useEditorPage() {
     let cancelled = false
     threeDIfcSourceHydrationInFlightRef.current = projectId
 
-    const hydrateLatestIfcSource = async () => {
+    const hydrateLatestIfcSource = async (): Promise<{ fetchFailed: boolean }> => {
+      let fetchFailed = false
       const source = await projectService.getIfcSource(projectId).catch((error: unknown) => {
+        fetchFailed = true
         if (import.meta.env.DEV) {
           console.warn('[ifc-source][hydrate-failed]', { projectId, mode, error })
         }
         return null
       })
-      if (cancelled) return
+      if (cancelled) return { fetchFailed }
       if (!source?.currentIfcUrl) {
-        if (import.meta.env.DEV) {
+        if (import.meta.env.DEV && !fetchFailed) {
           console.warn('[ifc-source][hydrate-empty]', { projectId, mode })
         }
-        return
+        return { fetchFailed }
       }
       if (import.meta.env.DEV) {
         console.log('[ifc-source][hydrate]', {
@@ -6128,7 +6130,7 @@ export function useEditorPage() {
           source.currentIfcAssetId,
           source.currentRevision,
         )
-        return
+        return { fetchFailed: false }
       }
       // 2D: floor project를 IFC로 덮지 않도록 state만 채운다.
       const resolvedUrl = source.currentIfcUrl
@@ -6146,18 +6148,25 @@ export function useEditorPage() {
           [projectId]: source.currentRevision ?? null,
         }))
       }
+      return { fetchFailed: false }
     }
 
-    void hydrateLatestIfcSource().finally(() => {
-      if (threeDIfcSourceHydrationInFlightRef.current === projectId) {
-        threeDIfcSourceHydrationInFlightRef.current = null
-      }
-      if (!cancelled) {
-        setIfcSourceHydrationAttemptedProjectIds((prev) =>
-          prev.includes(projectId) ? prev : [...prev, projectId],
-        )
-      }
-    })
+    void hydrateLatestIfcSource()
+      .then(({ fetchFailed }) => {
+        // IFC source 조회 실패는 attempted로 기록하지 않는다.
+        // 일시적 실패로 자동 생성 버튼이 다시 열려 기존 IFC가 덮이는 것을 막고,
+        // 의존성이 바뀌면 재시도할 여지를 남긴다.
+        if (!cancelled && !fetchFailed) {
+          setIfcSourceHydrationAttemptedProjectIds((prev) =>
+            prev.includes(projectId) ? prev : [...prev, projectId],
+          )
+        }
+      })
+      .finally(() => {
+        if (threeDIfcSourceHydrationInFlightRef.current === projectId) {
+          threeDIfcSourceHydrationInFlightRef.current = null
+        }
+      })
 
     return () => {
       cancelled = true
