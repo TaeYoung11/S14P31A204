@@ -5,6 +5,7 @@ requires-python = ">=3.11,<3.12"
 dependencies = [
     "ai-common",
     "ai-domain",
+    "ai-planning-2d",
 ]
 
 [project.scripts]

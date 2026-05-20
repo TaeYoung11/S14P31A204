@@ -31,6 +31,7 @@ from ai_authoring.engine_3d import (
     rotation_targets,
 )
 # operations/__init__ 경유 → create_element @register 실행
+from ai_authoring.floor_plan_project import floor_project_from_ifc_path
 from ai_authoring.operations.registry import get as get_op_handler
 from ai_authoring.operations.transform_elements import (
     LEGACY_ROTATION_XY_ERROR,
@@ -218,6 +219,7 @@ class AuthoringWorker(BaseWorker):
             model.write(str(out))
             result_bytes = out.read_bytes()
             sha256 = hashlib.sha256(result_bytes).hexdigest()
+            floor_plan_project = self._extract_floor_plan_project(out, command)
 
             ifc_url = self._upload_ifc(result_bytes, command, ctx)
             manifest_url = self._upload_manifest(
@@ -234,13 +236,31 @@ class AuthoringWorker(BaseWorker):
             validationIssueCount=_validation_issue_count(validation_report_dict),
             ifcUrl=ifc_url,
         )
+        output: dict[str, Any] = {
+            "storage_url": ifc_url,
+            "validation_report_storage_url": manifest_url,
+        }
+        if floor_plan_project is not None:
+            output["floor_plan_project"] = floor_plan_project
         return CompletedResult(
-            output={
-                "storage_url": ifc_url,
-                "validation_report_storage_url": manifest_url,
-            }
+            output=output
         )
 
+    def _extract_floor_plan_project(
+        self,
+        ifc_path: Path,
+        command: CommandMessage,
+    ) -> dict[str, Any] | None:
+        try:
+            return floor_project_from_ifc_path(ifc_path, command.projectId)
+        except Exception as exc:
+            _logger.warning(
+                "floor_plan_project_extract_failed",
+                jobId=command.jobId,
+                projectId=command.projectId,
+                error=str(exc),
+            )
+            return None
     # ── Engine request 결정 ─────────────────────────────────────────────────
 
     def _resolve_engine_request(self, payload: IfcEditCommandPayload) -> dict[str, Any]:

@@ -20,10 +20,12 @@ import {
 } from '../utils/bubbleSnapshotApplyHelpers'
 import {
   isBubbleSnapshotPayload,
+  isFloorProjectPayload,
   WORKSPACE_SYNC_ACTION,
   type BubbleSnapshotPayload,
   type FloorPlanSnapshotPayload,
 } from '../utils/workspaceSyncMessage'
+import type { FloorProject } from '../types/floorProject.types'
 
 interface LatestBubbleSnapshotState {
   bubbles: BubbleData[]
@@ -42,6 +44,14 @@ interface FloorPlanLayoutState {
 interface ApplyRemoteFloorPlanSnapshotMeta {
   action?: string | null
   layoutOnly?: boolean
+  payloadBaseIndex?: number | null
+  revisionId?: string | null
+}
+
+interface AwaitingServerSyncRecordLike {
+  projectId: string
+  historyDomain: 'bubble' | 'floorPlan'
+  baseIndex: number
 }
 
 interface UseWorkspaceRemoteSnapshotHandlersInput {
@@ -50,7 +60,7 @@ interface UseWorkspaceRemoteSnapshotHandlersInput {
   isBubbleDragTransactionActiveRef: MutableRefObject<boolean>
   workspaceEditTransactionDepthRef: MutableRefObject<number>
   pendingWorkspaceSnapshotCommitRef: MutableRefObject<boolean>
-  awaitingServerSyncRef: MutableRefObject<unknown | null>
+  awaitingServerSyncRef: MutableRefObject<AwaitingServerSyncRecordLike | null>
   floorPlanHistoryCommandInFlightRef: MutableRefObject<boolean>
   suppressNextAutosaveRef: MutableRefObject<boolean>
   setSelectedConnectionPair: (pair: { from: string; to: string } | null) => void
@@ -72,6 +82,7 @@ interface UseWorkspaceRemoteSnapshotHandlersInput {
     replaceLayoutState: (next: FloorPlanLayoutState) => void
     fallback: FloorPlanLayoutState
   }) => void
+  applyFloorProjectSnapshot?: (project: FloorProject) => void
   replaceFloorPlanState: (next: FloorPlanLayoutState) => void
   floorPlanFallback: FloorPlanLayoutState
   traceBubbleSnapshot: (
@@ -107,6 +118,7 @@ export function useWorkspaceRemoteSnapshotHandlers({
   replaceZonesState,
   applyBubbleFloorMetaState,
   applyFloorPlanLayoutState,
+  applyFloorProjectSnapshot,
   replaceFloorPlanState,
   floorPlanFallback,
   traceBubbleSnapshot,
@@ -285,9 +297,24 @@ export function useWorkspaceRemoteSnapshotHandlers({
       meta?.action === WORKSPACE_SYNC_ACTION.floorPlanUpdated ||
       meta?.action === WORKSPACE_SYNC_ACTION.floorPlanUndo ||
       meta?.action === WORKSPACE_SYNC_ACTION.floorPlanRedo
+    const awaitingSync = awaitingServerSyncRef.current
+    const awaitingFloorPlanSync =
+      awaitingSync !== null &&
+      awaitingSync.projectId === projectId &&
+      awaitingSync.historyDomain === 'floorPlan'
+    const isExpectedFloorPlanAck =
+      isAuthoritativeFloorPlanEvent &&
+      awaitingFloorPlanSync &&
+      awaitingSync !== null &&
+      typeof meta?.payloadBaseIndex === 'number' &&
+      (
+        meta.payloadBaseIndex > awaitingSync.baseIndex ||
+        (awaitingSync.baseIndex >= 9 && meta.payloadBaseIndex === 9)
+      )
     const hasLocalFloorPlanEditInFlight =
       workspaceEditTransactionDepthRef.current > 0 ||
-      (pendingWorkspaceSnapshotCommitRef.current && !isAuthoritativeFloorPlanEvent)
+      (pendingWorkspaceSnapshotCommitRef.current && !isExpectedFloorPlanAck) ||
+      (awaitingFloorPlanSync && !isExpectedFloorPlanAck)
 
     if (hasLocalFloorPlanEditInFlight) {
       floorPlanHistoryCommandInFlightRef.current = false
@@ -323,17 +350,26 @@ export function useWorkspaceRemoteSnapshotHandlers({
         fallback: floorPlanFallback,
       })
     }
+    if (isFloorProjectPayload(snapshot.floorProject)) {
+      applyFloorProjectSnapshot?.(snapshot.floorProject)
+    }
 
     setConnectingFromId(null)
     clearConnectionAndTwoDSelection()
     clearSelection()
-    pendingWorkspaceSnapshotCommitRef.current = false
+    if (!pendingWorkspaceSnapshotCommitRef.current || isExpectedFloorPlanAck) {
+      pendingWorkspaceSnapshotCommitRef.current = false
+    }
     floorPlanHistoryCommandInFlightRef.current = false
-    awaitingServerSyncRef.current = null
-    setSaveStatus(resolveSnapshotSyncStatus())
+    if (awaitingSync?.historyDomain === 'floorPlan' && isExpectedFloorPlanAck) {
+      awaitingServerSyncRef.current = null
+    }
+    const nextSaveStatus = resolveSnapshotSyncStatus()
+    setSaveStatus(nextSaveStatus)
   }, [
     applyNormalizedBubbleSnapshotState,
     applyFloorPlanLayoutState,
+    applyFloorProjectSnapshot,
     awaitingServerSyncRef,
     clearConnectionAndTwoDSelection,
     clearSelection,
