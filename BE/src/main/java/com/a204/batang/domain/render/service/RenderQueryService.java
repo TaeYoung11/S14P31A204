@@ -66,7 +66,7 @@ public class RenderQueryService {
                 .orElseThrow(() -> new CustomException(ErrorCode.PROJECT_NOT_FOUND));
 
         UUID currentUserId = projectAccessService.resolveCurrentUserId();
-        projectAccessService.validateProjectOwnerOrThrow(project, currentUserId);
+        projectAccessService.validateProjectMemberOrThrow(project, currentUserId);
 
         List<RenderJob> jobs = renderJobRepository.findByProjectIdAndJobTypeOrderByCreatedAtDescJobIdDesc(
                 projectId,
