@@ -81,6 +81,15 @@ class LLM2DPipeline:
 
         batch = to_ifc_commands(command, self.ifc_context)
         if batch.requires_clarification:
+            floor_alts = self._build_floor_alternatives(command)
+            if floor_alts:
+                return {
+                    "status": "alternatives",
+                    "summary": batch.clarification_question,
+                    "command": command.model_dump(),
+                    "command_batch": batch.model_dump(),
+                    "alternatives": floor_alts,
+                }
             return {
                 "status": "needs_clarification",
                 "summary": batch.clarification_question,
@@ -593,24 +602,34 @@ class LLM2DPipeline:
 
     def _build_floor_alternatives(self, command: FloorNLPCommand) -> list[dict[str, Any]]:
         """동일 이름 방이 복수 층에 있을 때 층 선택 alternatives를 생성한다."""
-        if command.action not in {"remove_room", "resize_room"}:
+        if command.action not in {"remove_room", "resize_room", "merge_windows"}:
             return []
         target_name = command.target_room_name
         if not target_name or self.ifc_context is None:
             return []
         spaces = self.ifc_context.get("spaces", [])
         target_type = resolve_space_type_from_name(target_name)
-        matching = [
+        exact_matching = [
             s for s in spaces
-            if s.get("name") == target_name or (target_type and s.get("type") == target_type)
+            if s.get("name") == target_name
         ]
+        matching = exact_matching
+        if len(matching) < 2 and target_type:
+            type_matching = [s for s in spaces if s.get("type") == target_type]
+            if len(type_matching) >= 2:
+                matching = type_matching
         if len(matching) < 2:
             return []
         # 모든 매칭 공간이 같은 층이면 층으로 구분할 수 없다 → alternatives 미생성
         floors = {s.get("floor", 0) for s in matching}
         if len(floors) < 2:
             return []
-        action_label = "삭제" if command.action == "remove_room" else "변경"
+        action_label_by_action = {
+            "remove_room": "삭제",
+            "resize_room": "변경",
+            "merge_windows": "창문 2개 통창으로 변경",
+        }
+        action_label = action_label_by_action[command.action]
         alternatives = []
         seen_floors: set[int] = set()
         for space in sorted(matching, key=lambda s: s.get("floor", 0)):
@@ -618,6 +637,15 @@ class LLM2DPipeline:
             if floor in seen_floors:
                 continue
             seen_floors.add(floor)
+            fill: dict[str, Any] = {"target_floor": floor, "target_room_name": target_name}
+            title = f"{floor}층 {target_name} {action_label}"
+            prompt = None
+            description = f"{floor}층 {target_name}에 대해 작업합니다."
+            if command.action == "merge_windows":
+                fill["action"] = "merge_windows"
+                title = f"{floor}층 {target_name}"
+                prompt = f"{floor}층 {target_name} 창문 2개 통창으로 변경"
+                description = prompt
             alternatives.append(
                 {
                     "alternative_id": (
@@ -625,9 +653,10 @@ class LLM2DPipeline:
                         if space.get("id")
                         else f"{command.action}-{target_name}-{floor}f"
                     ),
-                    "title": f"{floor}층 {target_name} {action_label}",
-                    "description": f"{floor}층 {target_name}에 대해 작업합니다.",
-                    "fill": {"target_floor": floor, "target_room_name": target_name},
+                    "title": title,
+                    "prompt": prompt,
+                    "description": description,
+                    "fill": fill,
                     "affected_entities": [space["id"]] if space.get("id") else [],
                     "warnings": [],
                     "metrics": [],
