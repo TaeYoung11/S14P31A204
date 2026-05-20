@@ -45,7 +45,7 @@ declare global {
 
 export interface UseIfcLoadingLayerParams {
   importFloorProjectFromIfc: (ifcText: string, sourceName: string) => Promise<void>
-  importFloorProjectFromWebIfc?: (ifcApi: unknown, modelId: number, sourceName: string) => Promise<boolean>
+  importFloorProjectFromWebIfc?: (ifcApi: unknown, modelId: number, sourceName: string, ifcText?: string) => Promise<boolean>
   loadFragments?: IfcFragmentsLoader
   extractIfcContext?: (ifcApi: WebIfcApiLike, modelId: number, sourceUrl: string) => Promise<Partial<IfcContext> | null> | Partial<IfcContext> | null
 }
@@ -146,7 +146,7 @@ export function useIfcLoadingLayer({
           modelId = ifcApi.OpenModel(ifcArray)
 
           if (!skipFloorProjectImport && importFloorProjectFromWebIfc) {
-            webIfcParseCompleted = await importFloorProjectFromWebIfc(ifcApi, modelId, sourceName)
+            webIfcParseCompleted = await importFloorProjectFromWebIfc(ifcApi, modelId, sourceName, ifcText)
           }
 
           const extracted = extractIfcContext

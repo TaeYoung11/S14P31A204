@@ -4,7 +4,6 @@ import { hexToRgba } from '../../utils/bubbleCalc'
 import type { AxisAlignedRect } from '../../utils/geometry2d'
 
 const OPENING_MIN_PX = 16
-const OPENING_MAX_PX = 56
 const ROOM_ADJACENT_SNAP_DISTANCE = 14
 const ROOM_EDGE_ALIGN_SNAP_DISTANCE = 14
 
@@ -32,7 +31,7 @@ export function wallThicknessMmToPx(thicknessMm: number): number {
 
 /** 개구부 폭(mm)을 화면 표시용 폭(px)로 변환한다. */
 export function openingWidthMmToPx(widthMm: number): number {
-  return Math.min(Math.max(Math.round(widthMm / FLOOR_MM_PER_PX), OPENING_MIN_PX), OPENING_MAX_PX)
+  return Math.max(Math.round(widthMm / FLOOR_MM_PER_PX), OPENING_MIN_PX)
 }
 
 /** 벽 선분의 t(0~1) 위치 좌표를 반환한다. */
