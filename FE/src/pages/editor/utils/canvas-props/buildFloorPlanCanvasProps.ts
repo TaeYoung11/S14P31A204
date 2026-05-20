@@ -29,6 +29,7 @@ const FLOOR_PLAN_CANVAS_KEYS = [
   'localFloorData',
   'activeIfcStoreyExpressId',
   'overlayIfcStoreyExpressIds',
+  'hiddenIfcElementLocalIds',
   'requestedIfcElementLocalId',
   'ifcElementSelectionRequestToken',
   'requestedLibraryElementId',
@@ -68,6 +69,7 @@ export function buildFloorPlanCanvasProps(
   | 'localFloorData'
   | 'activeIfcStoreyExpressId'
   | 'overlayIfcStoreyExpressIds'
+  | 'hiddenIfcElementLocalIds'
   | 'requestedIfcElementLocalId'
   | 'ifcElementSelectionRequestToken'
   | 'requestedLibraryElementId'

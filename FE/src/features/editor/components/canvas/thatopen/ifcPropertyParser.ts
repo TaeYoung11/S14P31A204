@@ -254,6 +254,7 @@ const PRODUCT_TYPE_BY_STEP_ENTITY: Record<string, string> = {
   STAIRFLIGHT: 'IfcStairFlight',
   COLUMN: 'IfcColumn',
   BEAM: 'IfcBeam',
+  SPACE: 'IfcSpace',
 }
 
 const splitIfcStepArguments = (text: string): string[] => {
@@ -309,7 +310,7 @@ export const parseBatangDimensionProperties = (ifcText: string): IfcPsetMetricMa
   const metricsByElementId: Record<number, ParsedIfcElementInfo> = {}
   const metricsByElementName: Record<string, ParsedIfcElementInfo> = {}
 
-  Array.from(ifcText.matchAll(/#(\d+)=IFC(WALLSTANDARDCASE|WALL|SLAB|ROOF|DOOR|WINDOW|STAIRFLIGHT|STAIR|COLUMN|BEAM)\(([^;]*)\);/gi)).forEach((match) => {
+  Array.from(ifcText.matchAll(/#(\d+)=IFC(WALLSTANDARDCASE|WALL|SLAB|ROOF|DOOR|WINDOW|STAIRFLIGHT|STAIR|COLUMN|BEAM|SPACE)\(([^;]*)\);/gi)).forEach((match) => {
     const productId = Number(match[1])
     const ifcClass = PRODUCT_TYPE_BY_STEP_ENTITY[match[2].toUpperCase()]
     if (!ifcClass) return
@@ -319,6 +320,8 @@ export const parseBatangDimensionProperties = (ifcText: string): IfcPsetMetricMa
     const decodedName = parseIfcStepStringArgument(args[2])
     const category = IFC_CATEGORY_LABELS.find(([candidate]) => candidate.toLowerCase() === ifcClass.toLowerCase())?.[1]
       ?? ifcClass.replace(/^Ifc/i, '')
+    const objectPlacementId = parseIfcReferenceId(args[5])
+    const representationId = parseIfcReferenceId(args[6])
     productById[productId] = {
       expressId: productId,
       globalId,
@@ -327,8 +330,6 @@ export const parseBatangDimensionProperties = (ifcText: string): IfcPsetMetricMa
       category,
     }
     aliasToProductId[productId] = productId
-    const objectPlacementId = parseIfcReferenceId(args[5])
-    const representationId = parseIfcReferenceId(args[6])
     if (objectPlacementId !== undefined) aliasToProductId[objectPlacementId] = productId
     if (representationId !== undefined) aliasToProductId[representationId] = productId
   })

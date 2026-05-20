@@ -113,6 +113,9 @@ function LibraryPresetCard({ preset, onAdd, isEditingLocked }: LibraryPresetCard
   const previewSrc = preset.previewImageUrl ?? fallbackPreviewSrc
   const categoryLabel = LIBRARY_CATEGORIES.find((c) => c.id === preset.type)?.label
   const displayName = getLibraryPresetDisplayName(preset)
+  const displayPreset = useMemo(() => (
+    preset.name === displayName ? preset : { ...preset, name: displayName }
+  ), [displayName, preset])
   const suppressNextClickRef = useRef(false)
 
   return (
@@ -125,11 +128,11 @@ function LibraryPresetCard({ preset, onAdd, isEditingLocked }: LibraryPresetCard
           suppressNextClickRef.current = false
           return
         }
-        onAdd(preset)
+        onAdd(displayPreset)
       }}
       onDragStart={(event) => {
         if (isEditingLocked) return
-        writeLibraryPresetToDataTransfer(event.dataTransfer, preset)
+        writeLibraryPresetToDataTransfer(event.dataTransfer, displayPreset)
         event.dataTransfer.effectAllowed = 'copy'
       }}
       onDragEnd={() => {

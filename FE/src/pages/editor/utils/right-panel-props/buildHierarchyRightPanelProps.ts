@@ -20,11 +20,40 @@ function pickIfcElementHierarchy(lastIfcContext: unknown): unknown {
  */
 export function buildHierarchyRightPanelProps(
   vm: RightPanelViewModel,
-): RightPanelPropsSubset<'floorRooms' | 'floorWalls' | 'floorOpenings' | 'ifcElementHierarchy'> {
+): RightPanelPropsSubset<
+  | 'floorRooms'
+  | 'floorWalls'
+  | 'floorOpenings'
+  | 'elementRegistry'
+  | 'elementHierarchyTree'
+  | 'selectedElementId'
+  | 'hiddenElementIds'
+  | 'onSelectRegistryElement'
+  | 'onToggleElementVisibility'
+  | 'selectedRoomId'
+  | 'selectedFloorWallId'
+  | 'selectedFloorOpeningId'
+  | 'onSelectRoom'
+  | 'onSelectWall'
+  | 'onSelectOpening'
+  | 'ifcElementHierarchy'
+> {
   return {
     floorRooms: vm.floorRooms,
     floorWalls: vm.floorWallsForHierarchy,
     floorOpenings: vm.floorOpenings,
+    elementRegistry: vm.elementRegistry,
+    elementHierarchyTree: vm.elementHierarchyTree,
+    selectedElementId: vm.selectedElementId,
+    hiddenElementIds: vm.hiddenElementIds,
+    onSelectRegistryElement: vm.handleSelectRegistryElement,
+    onToggleElementVisibility: vm.handleToggleElementVisibility,
+    selectedRoomId: vm.selectedId,
+    selectedFloorWallId: vm.selectedFloorWallId,
+    selectedFloorOpeningId: vm.selectedFloorOpeningId,
+    onSelectRoom: vm.handleBubbleSelect,
+    onSelectWall: vm.handleSelectFloorWall,
+    onSelectOpening: vm.handleSelectFloorOpening,
     ifcElementHierarchy: pickIfcElementHierarchy(vm.lastIfcContext),
   }
 }

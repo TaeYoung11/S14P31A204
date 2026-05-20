@@ -74,6 +74,25 @@ class FloorPlanIfcEditEngineRequestMapperTest {
     }
 
     @Test
+    void toEngineRequest_mapsDeleteIfcElementToDeleteElementsWithNonEmptyParameters() throws Exception {
+        UUID projectId = UUID.randomUUID();
+        UUID baseRevisionId = UUID.randomUUID();
+
+        JsonNode engineRequest = mapper.toEngineRequest(
+                "request-delete",
+                projectId,
+                baseRevisionId,
+                List.of(envelope(projectId, baseRevisionId, "delete", "ifcElement", "17B4sESiv3WOFTlv2yRwCZ", null, null))
+        );
+
+        JsonNode operation = engineRequest.get("operations").get(0);
+        assertThat(operation.get("type").asText()).isEqualTo("delete_elements");
+        assertThat(operation.get("selector").get("global_ids").get(0).asText()).isEqualTo("17B4sESiv3WOFTlv2yRwCZ");
+        assertThat(operation.get("parameters").get("reason").asText()).isEqualTo("workspace-command-delete");
+        assertValidEngineRequestV2(engineRequest);
+    }
+
+    @Test
     void toEngineRequest_mapsRoomTranslationAffectedElementsToTransformSelector() throws Exception {
         UUID projectId = UUID.randomUUID();
         UUID baseRevisionId = UUID.randomUUID();

@@ -1,5 +1,5 @@
 import type { Client, IMessage, StompSubscription } from '@stomp/stompjs'
-import { hasStompAccessToken } from '@/shared/lib/stomp'
+import { ensureStompConnected, hasStompAccessToken } from '@/shared/lib/stomp'
 
 export interface StompTopicSubscription {
   destination: string
@@ -14,57 +14,120 @@ export interface SubscribeStompTopicsWithPollingParams {
 
 const DEFAULT_POLL_INTERVAL_MS = 200
 
-/**
- * STOMP 클라이언트 활성화 및 연결 지연 상황을 고려해 토픽 구독을 시도한다.
- * - 연결 전에는 polling으로 재시도한다.
- * - cleanup 시 구독과 타이머를 함께 해제한다.
- */
+interface SharedTopicSubscription {
+  subscription: StompSubscription | null
+  listeners: Set<(message: IMessage) => void>
+}
+
+const sharedTopicSubscriptionsByClient = new WeakMap<Client, Map<string, SharedTopicSubscription>>()
+
+const getSharedTopicSubscriptions = (client: Client): Map<string, SharedTopicSubscription> => {
+  let subscriptions = sharedTopicSubscriptionsByClient.get(client)
+  if (!subscriptions) {
+    subscriptions = new Map<string, SharedTopicSubscription>()
+    sharedTopicSubscriptionsByClient.set(client, subscriptions)
+  }
+  return subscriptions
+}
+
+const detachSharedTopicListener = (
+  subscriptions: Map<string, SharedTopicSubscription>,
+  destination: string,
+  listener: (message: IMessage) => void,
+) => {
+  const sharedSubscription = subscriptions.get(destination)
+  if (!sharedSubscription) return
+
+  sharedSubscription.listeners.delete(listener)
+  if (sharedSubscription.listeners.size > 0) return
+
+  sharedSubscription.subscription?.unsubscribe()
+  subscriptions.delete(destination)
+}
+
 export const subscribeStompTopicsWithPolling = ({
   client,
   topics,
   pollIntervalMs = DEFAULT_POLL_INTERVAL_MS,
 }: SubscribeStompTopicsWithPollingParams): (() => void) => {
   let isDisposed = false
-  const subscriptions: Array<StompSubscription | null> = topics.map(() => null)
   let connectPollTimer: number | null = null
+
+  if (!hasStompAccessToken()) {
+    return () => {
+      isDisposed = true
+    }
+  }
+
+  const sharedSubscriptions = getSharedTopicSubscriptions(client)
+  const attachedTopics = topics.map((topic) => {
+    let sharedSubscription = sharedSubscriptions.get(topic.destination)
+    if (!sharedSubscription) {
+      sharedSubscription = {
+        subscription: null,
+        listeners: new Set<(message: IMessage) => void>(),
+      }
+      sharedSubscriptions.set(topic.destination, sharedSubscription)
+    }
+    sharedSubscription.listeners.add(topic.onMessage)
+    return {
+      ...topic,
+      sharedSubscription,
+    }
+  })
+
+  const clearConnectPollTimer = () => {
+    if (connectPollTimer === null) return
+    window.clearInterval(connectPollTimer)
+    connectPollTimer = null
+  }
+
+  const allSubscribed = () =>
+    attachedTopics.every((topic) => topic.sharedSubscription.subscription !== null)
 
   const subscribeIfConnected = () => {
     if (isDisposed || !client.connected) return
 
-    topics.forEach((topic, index) => {
-      if (subscriptions[index]) return
-      subscriptions[index] = client.subscribe(topic.destination, topic.onMessage)
+    attachedTopics.forEach((topic) => {
+      if (topic.sharedSubscription.subscription) return
+
+      topic.sharedSubscription.subscription = client.subscribe(topic.destination, (message) => {
+        Array.from(topic.sharedSubscription.listeners).forEach((listener) => {
+          try {
+            listener(message)
+          } catch (error) {
+            console.error('[stomp-subscription] listener failed', {
+              destination: topic.destination,
+              error,
+            })
+          }
+        })
+      })
     })
+
+    if (allSubscribed()) clearConnectPollTimer()
   }
 
-  if (!client.active) {
-    if (!hasStompAccessToken()) {
-      return () => {
-        isDisposed = true
-      }
-    }
-    client.activate()
-  }
+  void ensureStompConnected()
+    .then((connectedClient) => {
+      if (connectedClient !== client) return
+      subscribeIfConnected()
+    })
+    .catch(() => undefined)
 
   subscribeIfConnected()
 
-  if (subscriptions.some((subscription) => !subscription)) {
+  if (!allSubscribed()) {
     connectPollTimer = window.setInterval(() => {
       subscribeIfConnected()
-
-      const allSubscribed = subscriptions.every((subscription) => !!subscription)
-      if (allSubscribed && connectPollTimer !== null) {
-        window.clearInterval(connectPollTimer)
-        connectPollTimer = null
-      }
     }, pollIntervalMs)
   }
 
   return () => {
     isDisposed = true
-    subscriptions.forEach((subscription) => subscription?.unsubscribe())
-    if (connectPollTimer !== null) {
-      window.clearInterval(connectPollTimer)
-    }
+    attachedTopics.forEach((topic) => {
+      detachSharedTopicListener(sharedSubscriptions, topic.destination, topic.onMessage)
+    })
+    clearConnectPollTimer()
   }
 }

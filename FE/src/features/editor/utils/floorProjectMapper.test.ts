@@ -49,6 +49,7 @@ describe('floorProjectMapper storey metadata', () => {
   it('preserves wall storey name and global id', () => {
     const [wall] = mapFloorProjectToWalls(project, { width: 1000, height: 1000 })
 
+    expect(wall.floorLayerId).toBe('floor-2')
     expect(wall.storeyGlobalId).toBe('2FStoreyGlobalId00002')
     expect(wall.storeyName).toBe('2F')
   })

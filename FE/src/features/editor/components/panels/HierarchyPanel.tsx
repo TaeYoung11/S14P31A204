@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
-import { Box, ChevronDown, ChevronRight, Eye, EyeOff, SlidersHorizontal } from 'lucide-react'
+import { Box, ChevronDown, ChevronRight, Eye, EyeOff, Search, SlidersHorizontal } from 'lucide-react'
 import type {
+  ElementHierarchyNode,
+  ElementRegistryState,
   FloorLayer,
   FloorOpening,
   FloorRoom,
@@ -86,7 +88,42 @@ interface HierarchyPanelProps {
   floorLayers?: FloorLayer[]
   activeFloorLayerId?: string | null
   ifcElementHierarchy?: unknown
+  elementRegistry?: ElementRegistryState
+  elementHierarchyTree?: ElementHierarchyNode[]
+  selectedElementId?: string | null
+  hiddenElementIds?: string[]
   groups?: HierarchyGroup[]
+  onSelectRegistryElement?: (elementId: string) => void
+  onToggleElementVisibility?: (elementId: string) => void
+  onSelectFloor?: (id: string) => void
+}
+
+const filterHierarchyTree = (
+  nodes: ElementHierarchyNode[],
+  query: string,
+): ElementHierarchyNode[] => {
+  const normalizedQuery = query.trim().toLowerCase()
+  if (!normalizedQuery) return nodes
+
+  const visit = (node: ElementHierarchyNode): ElementHierarchyNode | null => {
+    const selfMatches = [
+      node.label,
+      node.category,
+      node.elementId,
+      node.floorId,
+      node.sourceType,
+    ].some((value) => String(value ?? '').toLowerCase().includes(normalizedQuery))
+    const children = node.children.map(visit).filter((child): child is ElementHierarchyNode => child != null)
+    if (!selfMatches && children.length === 0) return null
+    return { ...node, children }
+  }
+
+  return nodes.map(visit).filter((node): node is ElementHierarchyNode => node != null)
+}
+
+const getNodeCount = (node: ElementHierarchyNode): number => {
+  if (node.kind === 'element') return 1
+  return node.children.reduce((sum, child) => sum + getNodeCount(child), 0)
 }
 
 /**
@@ -121,7 +158,14 @@ export function HierarchyPanel(props: HierarchyPanelProps) {
     floorLayers,
     activeFloorLayerId,
     ifcElementHierarchy,
+    elementRegistry,
+    elementHierarchyTree,
+    selectedElementId,
+    hiddenElementIds = [],
     groups,
+    onSelectRegistryElement,
+    onToggleElementVisibility,
+    onSelectFloor,
   } = props
 
   const hierarchyGroups = useMemo(
@@ -154,7 +198,14 @@ export function HierarchyPanel(props: HierarchyPanelProps) {
   const [expandedGroupIds, setExpandedGroupIds] = useState<Record<string, boolean>>({})
   const [isHierarchyMenuOpen, setIsHierarchyMenuOpen] = useState(false)
   const [showSelectedRoomOnly, setShowSelectedRoomOnly] = useState(false)
+  const [hierarchySearchQuery, setHierarchySearchQuery] = useState('')
   const hierarchyMenuRef = useRef<HTMLDivElement | null>(null)
+  const hasElementHierarchyTree = (elementHierarchyTree?.length ?? 0) > 0
+  const filteredElementHierarchyTree = useMemo(
+    () => filterHierarchyTree(elementHierarchyTree ?? [], hierarchySearchQuery),
+    [elementHierarchyTree, hierarchySearchQuery],
+  )
+  const hiddenElementIdSet = useMemo(() => new Set(hiddenElementIds), [hiddenElementIds])
 
   const visibleIfcStoreys = useMemo(() => {
     if (!showSelectedRoomOnly) return ifcStoreys
@@ -180,6 +231,18 @@ export function HierarchyPanel(props: HierarchyPanelProps) {
   const handleExpandAll = () => {
     setShowSelectedRoomOnly(false)
 
+    if (hasElementHierarchyTree) {
+      const expandedEntries: Array<[string, boolean]> = []
+      const collectNode = (node: ElementHierarchyNode) => {
+        expandedEntries.push([node.id, true])
+        node.children.forEach(collectNode)
+      }
+      ;(elementHierarchyTree ?? []).forEach(collectNode)
+      setExpandedGroupIds(Object.fromEntries(expandedEntries))
+      setIsHierarchyMenuOpen(false)
+      return
+    }
+
     if (hasIfcStoreys) {
       setIsIfcRootExpanded(true)
       setExpandedStoreyIds(
@@ -199,6 +262,18 @@ export function HierarchyPanel(props: HierarchyPanelProps) {
 
   const handleCollapseAll = () => {
     setShowSelectedRoomOnly(false)
+
+    if (hasElementHierarchyTree) {
+      const expandedEntries: Array<[string, boolean]> = []
+      const collectNode = (node: ElementHierarchyNode) => {
+        expandedEntries.push([node.id, false])
+        node.children.forEach(collectNode)
+      }
+      ;(elementHierarchyTree ?? []).forEach(collectNode)
+      setExpandedGroupIds(Object.fromEntries(expandedEntries))
+      setIsHierarchyMenuOpen(false)
+      return
+    }
 
     if (hasIfcStoreys) {
       setExpandedStoreyIds({})
@@ -239,6 +314,95 @@ export function HierarchyPanel(props: HierarchyPanelProps) {
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [isHierarchyMenuOpen])
+
+  const handleSelectTreeNode = (node: ElementHierarchyNode) => {
+    if (node.kind === 'element' && node.elementId) {
+      onSelectRegistryElement?.(node.elementId)
+      return
+    }
+    if (!node.floorId) return
+    if (node.sourceType === 'IFC_MOCK') {
+      onSelectIfcStorey?.(node.floorId)
+      return
+    }
+    onSelectFloor?.(node.floorId)
+  }
+
+  const renderTreeNode = (node: ElementHierarchyNode, depth = 0): JSX.Element => {
+    const isExpanded = hierarchySearchQuery.trim()
+      ? true
+      : (expandedGroupIds[node.id] ?? depth < 2)
+    const hasChildren = node.children.length > 0
+    const isSelected = Boolean(node.isSelected || (node.elementId && selectedElementId === node.elementId))
+    const isElementHidden = Boolean(node.elementId && hiddenElementIdSet.has(node.elementId))
+    const isVisible = node.isVisible !== false && !isElementHidden
+    const count = getNodeCount(node)
+    const leftPadding = Math.min(depth * 12, 36)
+
+    return (
+      <div key={node.id} className="flex flex-col gap-1">
+        <div
+          className={`flex items-center gap-1 rounded-md px-1.5 py-1 transition-colors ${
+            isSelected
+              ? 'bg-[#EEF2FF] text-[#3B45B3]'
+              : 'text-[#4E5C73] hover:bg-[#F8F9FD]'
+          }`}
+          style={{ paddingLeft: `${leftPadding + 6}px` }}
+        >
+          <button
+            type="button"
+            onClick={() => hasChildren && toggleGroupExpanded(node.id)}
+            className={`shrink-0 rounded p-0.5 ${
+              hasChildren ? 'text-[#9AA4BA] hover:bg-[#EEF1F8] hover:text-[#3B45B3]' : 'text-transparent'
+            }`}
+            aria-label={`${node.label} 상세 토글`}
+          >
+            {hasChildren
+              ? (isExpanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />)
+              : <ChevronRight size={11} />}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleSelectTreeNode(node)}
+            className="min-w-0 flex-1 text-left"
+          >
+            <p className={`truncate text-[10px] ${isSelected ? 'font-black' : 'font-bold'}`}>
+              {node.label}
+            </p>
+            {node.kind !== 'element' && (
+              <p className="text-[9px] text-[#9AA4BA]">
+                {count}개 요소
+              </p>
+            )}
+          </button>
+
+          {node.kind === 'element' && (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation()
+                if (node.elementId) onToggleElementVisibility?.(node.elementId)
+              }}
+              className={`shrink-0 rounded p-0.5 ${
+                isVisible ? 'text-[#3B45B3] hover:bg-[#EEF1F8]' : 'text-[#C0C8D8] hover:bg-[#EEF1F8] hover:text-[#3B45B3]'
+              }`}
+              title={isVisible ? '요소 숨기기' : '요소 표시'}
+              aria-label={isVisible ? `${node.label} 숨기기` : `${node.label} 표시`}
+            >
+              {isVisible ? <Eye size={11} /> : <EyeOff size={11} />}
+            </button>
+          )}
+        </div>
+
+        {hasChildren && isExpanded && (
+          <div className="flex flex-col gap-1">
+            {node.children.map((child) => renderTreeNode(child, depth + 1))}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <PanelFrame
@@ -305,7 +469,32 @@ export function HierarchyPanel(props: HierarchyPanelProps) {
       onToggle={onToggle}
     >
       <div className="flex flex-col gap-3 p-4">
-        {hasIfcStoreys ? (
+        {hasElementHierarchyTree ? (
+          <div className="flex flex-col gap-2">
+            <div className="flex h-8 items-center gap-1.5 rounded-md border border-[#E1E7F3] bg-white px-2">
+              <Search size={12} className="shrink-0 text-[#9AA4BA]" />
+              <input
+                value={hierarchySearchQuery}
+                onChange={(event) => setHierarchySearchQuery(event.target.value)}
+                placeholder="요소 검색"
+                className="min-w-0 flex-1 bg-transparent text-[10px] font-semibold text-[#2F3D55] outline-none placeholder:text-[#ADB5BD]"
+              />
+              {elementRegistry && (
+                <span className="shrink-0 text-[9px] font-bold text-[#8FA0BA]">
+                  {elementRegistry.elements.length}
+                </span>
+              )}
+            </div>
+
+            <div className="flex max-h-[420px] flex-col gap-1 overflow-y-auto pr-1">
+              {filteredElementHierarchyTree.length > 0 ? (
+                filteredElementHierarchyTree.map((node) => renderTreeNode(node))
+              ) : (
+                <p className="px-2 py-3 text-center text-[10px] text-[#ADB5BD]">검색 결과가 없습니다.</p>
+              )}
+            </div>
+          </div>
+        ) : hasIfcStoreys ? (
           <div className="flex flex-col gap-1">
             <button
               type="button"
@@ -503,7 +692,10 @@ export function HierarchyPanel(props: HierarchyPanelProps) {
                     {group.children.map((child) => (
                       <div
                         key={`${group.id}-${child.id}`}
-                        className="flex items-center justify-between rounded-sm px-2 py-0.5 transition-colors hover:bg-[#F8F9FD]"
+                        onClick={() => {
+                          if (group.id === 'floors') onSelectFloor?.(child.id)
+                        }}
+                        className="flex cursor-pointer items-center justify-between rounded-sm px-2 py-0.5 transition-colors hover:bg-[#F8F9FD]"
                       >
                         <span className="text-[10px] font-bold text-[#6B7A99]">{child.label}</span>
                         <Eye size={10} className="text-[#E2E6EF]" />
