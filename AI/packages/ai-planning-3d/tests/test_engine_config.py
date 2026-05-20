@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import ai_planning_3d.engine as engine_module
 from ai_planning_3d.command import (
     LLM3DChanges,
     LLM3DCommand,
@@ -59,6 +60,31 @@ def _raw_json_response(content: str):
             )
         ],
     )
+
+
+class _FakeLogger:
+    def __init__(
+        self,
+        records: list[tuple[str, str, dict[str, object]]] | None = None,
+        context: dict[str, object] | None = None,
+    ) -> None:
+        self.records = records if records is not None else []
+        self.context = context or {}
+
+    def bind(self, **fields: object) -> _FakeLogger:
+        return _FakeLogger(self.records, {**self.context, **fields})
+
+    def info(self, event: str, *args: object, **fields: object) -> None:
+        del args
+        self.records.append(("info", event, {**self.context, **fields}))
+
+    def warning(self, event: str, *args: object, **fields: object) -> None:
+        del args
+        self.records.append(("warning", event, {**self.context, **fields}))
+
+    def error(self, event: str, *args: object, **fields: object) -> None:
+        del args
+        self.records.append(("error", event, {**self.context, **fields}))
 
 
 def test_llm_3d_engine_uses_llm_env(monkeypatch):
@@ -205,6 +231,32 @@ def test_pipeline_model_name_none_uses_llm_model_env(monkeypatch):
     pipeline = LLM3DPipeline(model_name=None)
 
     assert pipeline.engine.model == "qwen2.5:7b"
+
+
+def test_llm_3d_engine_logs_config_without_api_key(monkeypatch):
+    fake_logger = _FakeLogger()
+    monkeypatch.setattr(engine_module, "logger", fake_logger)
+    monkeypatch.setenv("LLM_API_KEY", "secret-local-key")
+
+    LLM3DEngine(
+        model="log-model",
+        base_url="http://ollama:11434/v1",
+        timeout=12,
+        log_context={"jobId": "job-log-1"},
+    )
+
+    [record] = [
+        fields
+        for _, event, fields in fake_logger.records
+        if event == "llm3d_engine_configured"
+    ]
+    assert record["jobId"] == "job-log-1"
+    assert record["model"] == "log-model"
+    assert record["baseUrl"] == "http://ollama:11434/v1"
+    assert record["timeoutSeconds"] == 12
+    assert "apiKey" not in record
+    assert "api_key" not in record
+    assert "secret-local-key" not in repr(fake_logger.records)
 
 
 def test_llm_3d_engine_extracts_raw_json_object():

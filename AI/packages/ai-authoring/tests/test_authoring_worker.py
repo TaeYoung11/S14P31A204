@@ -9,12 +9,40 @@ import ifcopenshell.api.root
 import ifcopenshell.guid
 import pytest
 
+import ai_authoring.worker as worker_module
 from ai_authoring.worker import AuthoringWorker
 from ai_authoring.engine_3d import create_wall, create_window_with_opening
 from ai_authoring.operations.registry import get as get_op_handler
 from ai_common.errors import NonRetryableWorkerError
+from ai_common.worker_sdk.context import WorkerContext
 from ai_common.worker_sdk.event_factory import CompletedResult
 from ai_domain.worker_messages.command import CommandMessage
+
+
+class _FakeLogger:
+    def __init__(
+        self,
+        records: list[tuple[str, str, dict[str, object]]] | None = None,
+        context: dict[str, object] | None = None,
+    ) -> None:
+        self.records = records if records is not None else []
+        self.context = context or {}
+
+    def bind(self, **fields: object) -> "_FakeLogger":
+        return _FakeLogger(self.records, {**self.context, **fields})
+
+    def info(self, event: str, *args: object, **fields: object) -> None:
+        del args
+        self.records.append(("info", event, {**self.context, **fields}))
+
+    def warning(self, event: str, *args: object, **fields: object) -> None:
+        del args
+        self.records.append(("warning", event, {**self.context, **fields}))
+
+    def error(self, event: str, *args: object, **fields: object) -> None:
+        del args
+        self.records.append(("error", event, {**self.context, **fields}))
+
 
 # 테스트용 engine request — IfcWall 전체 삭제
 _ENGINE_REQUEST = {
@@ -180,6 +208,62 @@ def test_authoring_worker_accepts_inline_engine_request_v1():
     assert isinstance(result, CompletedResult)
     mock_s3.read_text.assert_not_called()
     assert mock_run_ops.call_args[0][1] == _ENGINE_REQUEST
+
+
+def test_authoring_worker_logs_engine_request_and_completion(monkeypatch):
+    root_dir = Path(__file__).resolve().parents[3]
+    message_path = root_dir / "sample_messages" / "command_ifc_edit.json"
+    ifc_path = root_dir / "tests" / "sample_batang.ifc"
+    fake_logger = _FakeLogger()
+    monkeypatch.setattr(worker_module, "_logger", fake_logger)
+
+    with open(message_path, encoding="utf-8") as f:
+        command = CommandMessage.model_validate(json.load(f))
+
+    worker, _ = _make_worker(ifc_path.read_bytes())
+    with patch.object(worker, "_run_operations", return_value=_APPLIED_OP_RESULTS):
+        worker.process(command)
+
+    resolved = next(
+        fields
+        for _, event, fields in fake_logger.records
+        if event == "authoring_engine_request_resolved"
+    )
+    assert resolved["jobId"] == command.jobId
+    assert resolved["jobStepId"] == command.jobStepId
+    assert resolved["correlationId"] == command.correlationId
+    assert resolved["workerId"] == "test-authoring-worker"
+    assert resolved["operationCount"] == 1
+    assert resolved["operationTypes"] == ["delete_elements"]
+    completed = next(
+        fields
+        for _, event, fields in fake_logger.records
+        if event == "ifc_edit_apply_completed"
+    )
+    assert completed["validationIssueCount"] == 0
+    assert "operations" not in repr(fake_logger.records)
+
+
+def test_authoring_worker_logs_operation_batch(monkeypatch):
+    command = _command_with_inline_engine_request(_ENGINE_REQUEST)
+    ctx = WorkerContext.from_command(command)
+    fake_logger = _FakeLogger()
+    monkeypatch.setattr(worker_module, "_logger", fake_logger)
+    worker, _ = _make_worker(b"")
+
+    with patch.object(worker, "_apply_operation", return_value=_APPLIED_OP_RESULTS[0]):
+        worker._run_operations(MagicMock(), _ENGINE_REQUEST, ctx)
+
+    applied = next(
+        fields
+        for _, event, fields in fake_logger.records
+        if event == "authoring_operation_applied"
+    )
+    assert applied["operationId"] == "op-delete-walls"
+    assert applied["operationType"] == "delete_elements"
+    assert applied["targetCount"] == 1
+    assert applied["targetIds"] == ["testGlobalId123456789012"]
+    assert applied["issueCodes"] == []
 
 
 def test_authoring_worker_applies_space_and_direction_selector(tmp_path: Path):

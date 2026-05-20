@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
 
+import ai_planning_3d.worker as worker_module
 from ai_common.adapters.rabbitmq.kombu_client import get_command_queue
 from ai_common.worker_sdk.event_factory import ClarificationResult, CompletedResult
 from ai_domain.worker_messages.command import CommandMessage
@@ -23,6 +24,31 @@ from ai_planning_3d.worker import (
     _resolve_effective_instruction,
 )
 from ai_planning_3d.worker_app import WORKER_TYPE
+
+
+class _FakeLogger:
+    def __init__(
+        self,
+        records: list[tuple[str, str, dict[str, object]]] | None = None,
+        context: dict[str, object] | None = None,
+    ) -> None:
+        self.records = records if records is not None else []
+        self.context = context or {}
+
+    def bind(self, **fields: object) -> "_FakeLogger":
+        return _FakeLogger(self.records, {**self.context, **fields})
+
+    def info(self, event: str, *args: object, **fields: object) -> None:
+        del args
+        self.records.append(("info", event, {**self.context, **fields}))
+
+    def warning(self, event: str, *args: object, **fields: object) -> None:
+        del args
+        self.records.append(("warning", event, {**self.context, **fields}))
+
+    def error(self, event: str, *args: object, **fields: object) -> None:
+        del args
+        self.records.append(("error", event, {**self.context, **fields}))
 
 
 def test_three_d_worker_queue_is_registered() -> None:
@@ -177,6 +203,42 @@ def test_planning_worker_returns_completed_event_for_preview_ready_chat() -> Non
         "width": 200.0,
         "height": 2800.0,
     }
+
+
+def test_planning_worker_logs_request_context_and_operation_summary(monkeypatch) -> None:
+    command = _load_sample_command()
+    fake_logger = _FakeLogger()
+    monkeypatch.setattr(worker_module, "_logger", fake_logger)
+    mock_s3 = MagicMock()
+    mock_s3.read_bytes.return_value = _sample_ifc_bytes()
+    mock_s3.write_text.return_value = "s3://mock-bucket/output.json"
+    worker = PlanningWorker(
+        worker_id="test-worker-1",
+        event_publisher=MagicMock(),
+        s3=mock_s3,
+    )
+
+    with patch(
+        "ai_planning_3d.worker.LLM3DPipeline.execute_preview",
+        new_callable=AsyncMock,
+    ) as mock_execute:
+        mock_execute.return_value = _preview_ready_create("roof is #E8808B", "IfcRoof")
+
+        worker.process(command)
+
+    payload_event = next(
+        fields
+        for _, event, fields in fake_logger.records
+        if event == "planning_3d_result_payload_built"
+    )
+    assert payload_event["jobId"] == command.jobId
+    assert payload_event["jobStepId"] == command.jobStepId
+    assert payload_event["correlationId"] == command.correlationId
+    assert payload_event["workerId"] == "test-worker-1"
+    assert payload_event["commandId"] == command.jobStepId
+    assert payload_event["operationCount"] == 1
+    assert payload_event["operationTypes"] == ["create_element"]
+    assert _sample_ifc_bytes() not in repr(fake_logger.records).encode("utf-8")
 
 
 def test_planning_worker_stores_split_chat_as_multiple_schema_commands() -> None:
