@@ -1,5 +1,6 @@
-import { Check, Pencil } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import ProjectCardEditButton from '@/features/project/components/ProjectCardEditButton'
+import ProjectCardSelectionButton from '@/features/project/components/ProjectCardSelectionButton'
 import ProjectFallbackThumbnail from '@/features/project/components/ProjectFallbackThumbnail'
 import ProjectWorkspaceThumbnail from '@/features/project/components/ProjectWorkspaceThumbnail'
 import type { EditorMode } from '@/features/editor/types'
@@ -67,55 +68,15 @@ export default function ProjectCardMedia({
         )}
 
         {isSelectionMode ? (
-          <SelectionButton isSelected={isSelected} onToggleSelect={onToggleSelect} />
+          <ProjectCardSelectionButton
+            isSelected={isSelected}
+            variant="media"
+            onToggleSelect={onToggleSelect}
+          />
         ) : (
-          isDesigner && <EditButton project={project} onEdit={onEdit} />
+          isDesigner && <ProjectCardEditButton project={project} variant="media" onEdit={onEdit} />
         )}
       </div>
     </Link>
-  )
-}
-
-function SelectionButton({
-  isSelected,
-  onToggleSelect,
-}: {
-  isSelected: boolean
-  onToggleSelect: (event: React.MouseEvent) => void
-}) {
-  return (
-    <button
-      type="button"
-      className={`absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full border transition-colors ${
-        isSelected
-          ? 'border-[#4f46e5] bg-[#4f46e5] text-white'
-          : 'border-white/80 bg-white/90 text-transparent backdrop-blur-sm hover:border-[#4f46e5] hover:text-[#4f46e5]'
-      }`}
-      onClick={onToggleSelect}
-      title={isSelected ? '선택 해제' : '선택'}
-    >
-      <Check className="h-4 w-4" />
-    </button>
-  )
-}
-
-function EditButton({
-  project,
-  onEdit,
-}: {
-  project: Project
-  onEdit: (project: Project) => void
-}) {
-  return (
-    <button
-      className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-xl bg-white/90 opacity-0 shadow-sm backdrop-blur-sm transition-opacity duration-200 hover:bg-white group-hover:opacity-100"
-      onClick={(event) => {
-        event.preventDefault()
-        onEdit(project)
-      }}
-      title="수정"
-    >
-      <Pencil className="h-3.5 w-3.5 text-[#374151]" />
-    </button>
   )
 }

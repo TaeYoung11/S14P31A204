@@ -21,6 +21,7 @@ import type {
 import { FLOOR_MM_PER_PX } from '../../constants'
 import { patchIfcTextForMaterialDefaults } from '../../services/ifcChange.service'
 import { captureCanvasWithBackground } from '../../utils/canvasPreviewCapture'
+import { captureFocusedThreePreview } from '../../utils/threePreviewCapture'
 import type { ThreeDLibraryDropRequest, ThreeDLibraryPreset } from './threeDLibrary.types'
 import {
   PRESETS,
@@ -400,144 +401,15 @@ const updateTransformControlsIfSupported = (transformControls: unknown) => {
   }
 }
 
-const PREVIEW_CAMERA_FOV = 45
-const PREVIEW_CAMERA_MARGIN = 1.08
-const PREVIEW_CAMERA_MIN_DISTANCE = 1
-
-const getPreviewCanvasAspect = (canvas: HTMLCanvasElement): number => {
-  const width = canvas.width || canvas.clientWidth || 1
-  const height = canvas.height || canvas.clientHeight || 1
-  return Math.max(width / height, 0.01)
-}
-
-const getPreviewCameraFit = (
-  THREE: ThreeModule,
-  box: import('three').Box3,
-  aspect: number,
-  fovDegrees: number,
-): {
-  center: import('three').Vector3
-  direction: import('three').Vector3
-  up: import('three').Vector3
-  distance: number
-  fitSize: number
-} => {
-  const center = new THREE.Vector3()
-  const size = new THREE.Vector3()
-  box.getCenter(center)
-  box.getSize(size)
-
-  const direction = new THREE.Vector3(1, 0.65, 1).normalize()
-  const worldUp = new THREE.Vector3(0, 1, 0)
-  const right = new THREE.Vector3().crossVectors(worldUp, direction)
-  if (right.lengthSq() < 0.000001) {
-    right.set(1, 0, 0)
-  } else {
-    right.normalize()
-  }
-  const up = new THREE.Vector3().crossVectors(direction, right).normalize()
-
-  const halfVerticalFov = (fovDegrees * Math.PI) / 360
-  const halfHorizontalFov = Math.atan(Math.tan(halfVerticalFov) * Math.max(aspect, 0.01))
-  const tanVertical = Math.max(Math.tan(halfVerticalFov), 0.000001)
-  const tanHorizontal = Math.max(Math.tan(halfHorizontalFov), 0.000001)
-  const min = box.min
-  const max = box.max
-  const corners = [
-    new THREE.Vector3(min.x, min.y, min.z),
-    new THREE.Vector3(min.x, min.y, max.z),
-    new THREE.Vector3(min.x, max.y, min.z),
-    new THREE.Vector3(min.x, max.y, max.z),
-    new THREE.Vector3(max.x, min.y, min.z),
-    new THREE.Vector3(max.x, min.y, max.z),
-    new THREE.Vector3(max.x, max.y, min.z),
-    new THREE.Vector3(max.x, max.y, max.z),
-  ]
-
-  let distance = PREVIEW_CAMERA_MIN_DISTANCE
-  corners.forEach((corner) => {
-    const relative = corner.sub(center)
-    const depthTowardCamera = relative.dot(direction)
-    distance = Math.max(
-      distance,
-      Math.abs(relative.dot(right)) / tanHorizontal + depthTowardCamera,
-      Math.abs(relative.dot(up)) / tanVertical + depthTowardCamera,
-    )
-  })
-
-  const fitSize = Math.max(size.x, size.y, size.z, size.length(), PREVIEW_CAMERA_MIN_DISTANCE)
-  return {
-    center,
-    direction,
-    up,
-    distance: Math.max(distance * PREVIEW_CAMERA_MARGIN, PREVIEW_CAMERA_MIN_DISTANCE),
-    fitSize,
-  }
-}
-
 const captureFocusedIfcPreview = (sceneState: ThatOpenSceneState, focusObjects: Object3D[]): string | null => {
   const { three: THREE, camera, renderer, scene } = sceneState
-  if (focusObjects.length === 0) return null
-  const previewCamera = camera as typeof camera & {
-    lookAt?: (target: import('three').Vector3) => void
-    position: import('three').Vector3
-    rotation: import('three').Euler
-    up: import('three').Vector3
-    near?: number
-    far?: number
-    fov?: number
-    aspect?: number
-    updateProjectionMatrix?: () => void
-  }
-
-  const previousPosition = previewCamera.position.clone()
-  const previousRotation = previewCamera.rotation.clone()
-  const previousUp = previewCamera.up.clone()
-  const previousNear = previewCamera.near
-  const previousFar = previewCamera.far
-  const previousFov = previewCamera.fov
-  const previousAspect = previewCamera.aspect
-
-  try {
-    const box = new THREE.Box3()
-    focusObjects.forEach((object) => {
-      object.updateMatrixWorld(true)
-      box.expandByObject(object)
-    })
-    if (box.isEmpty()) return null
-
-    const previewFov = PREVIEW_CAMERA_FOV
-    const fit = getPreviewCameraFit(THREE, box, getPreviewCanvasAspect(renderer.domElement), previewFov)
-
-    previewCamera.position.copy(fit.center).addScaledVector(fit.direction, fit.distance)
-    previewCamera.up.copy(fit.up)
-    if (typeof previewCamera.fov === 'number') {
-      previewCamera.fov = previewFov
-    }
-    if (typeof previewCamera.aspect === 'number') {
-      previewCamera.aspect = getPreviewCanvasAspect(renderer.domElement)
-    }
-    previewCamera.near = 0.01
-    previewCamera.far = Math.max(fit.distance + fit.fitSize * 3, 1000)
-    previewCamera.lookAt?.(fit.center)
-    previewCamera.updateProjectionMatrix?.()
-    renderer.setClearColor('#f0f2f9', 1)
-    renderer.render(scene, camera as import('three').PerspectiveCamera)
-    return captureCanvasWithBackground(renderer.domElement, {
-      backgroundColor: '#f0f2f9',
-      quality: 0.92,
-    })
-  } finally {
-    previewCamera.position.copy(previousPosition)
-    previewCamera.rotation.copy(previousRotation)
-    previewCamera.up.copy(previousUp)
-    if (typeof previousNear === 'number') previewCamera.near = previousNear
-    if (typeof previousFar === 'number') previewCamera.far = previousFar
-    if (typeof previousFov === 'number') previewCamera.fov = previousFov
-    if (typeof previousAspect === 'number') previewCamera.aspect = previousAspect
-    previewCamera.updateProjectionMatrix?.()
-    renderer.render(scene, camera as import('three').PerspectiveCamera)
-  }
+  return captureFocusedThreePreview({
+    THREE,
+    scene,
+    camera: camera as import('three').PerspectiveCamera,
+    renderer,
+    focusObjects,
+  })
 }
 
 const canUpdateLibraryPresetInPlace = (

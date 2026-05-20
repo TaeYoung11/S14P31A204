@@ -2,8 +2,9 @@ import { useState } from 'react'
 import type { MouseEvent } from 'react'
 import { Link } from 'react-router-dom'
 import ProjectCardActionMenu from '@/features/project/components/ProjectCardActionMenu'
-import { ListEditButton, ListSelectionButton } from '@/features/project/components/ProjectCardListControls'
+import ProjectCardEditButton from '@/features/project/components/ProjectCardEditButton'
 import ProjectCardMedia from '@/features/project/components/ProjectCardMedia'
+import ProjectCardSelectionButton from '@/features/project/components/ProjectCardSelectionButton'
 import ProjectMemberAvatars from '@/features/project/components/ProjectMemberAvatars'
 import { useProjectCardThumbnail } from '@/features/project/hooks/useProjectCardThumbnail'
 import { useProjectStore } from '@/features/project/stores/projectStore'
@@ -92,7 +93,11 @@ export default function ProjectCard({
         <div className="mb-1 flex items-start justify-between gap-3">
           <div className="flex min-w-0 flex-1 items-start gap-3">
             {isListView && isSelectionMode && (
-              <ListSelectionButton isSelected={isSelected} onToggleSelect={handleToggleSelect} />
+              <ProjectCardSelectionButton
+                isSelected={isSelected}
+                variant="list"
+                onToggleSelect={handleToggleSelect}
+              />
             )}
 
             <Link
@@ -107,7 +112,7 @@ export default function ProjectCard({
           </div>
 
           {isListView && isDesigner && !isSelectionMode && (
-            <ListEditButton project={project} onEdit={onEdit} />
+            <ProjectCardEditButton project={project} variant="list" onEdit={onEdit} />
           )}
         </div>
 
