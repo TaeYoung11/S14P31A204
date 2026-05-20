@@ -34,7 +34,7 @@ export default function LoginPage() {
       <div className="auth-form-shell auth-appear">
         <div className="auth-switch-row mb-5 flex justify-end text-xs text-[#6b7280] xl:mb-6">
           <span>처음 오셨나요?</span>
-          <Link to="/register" className="ml-1 font-semibold text-[#4f46e5] hover:underline">
+          <Link to="/register" className="ml-1 font-semibold text-[#3B45B3] hover:underline">
             회원가입
           </Link>
         </div>

@@ -52,7 +52,7 @@ export default function RegisterPage() {
       <div className="auth-form-shell auth-register-shell auth-appear">
         <div className="auth-switch-row mb-4 flex justify-end text-xs text-[#6b7280]">
           <span>이미 계정이 있나요?</span>
-          <Link to="/login" className="ml-1 font-semibold text-[#4f46e5] hover:underline">
+          <Link to="/login" className="ml-1 font-semibold text-[#3B45B3] hover:underline">
             로그인
           </Link>
         </div>
@@ -74,7 +74,7 @@ export default function RegisterPage() {
                   onClick={() => selectUserType(type)}
                   className={`auth-type-option ${
                     form.userType === type
-                      ? 'bg-white text-[#111827] shadow-[0_10px_24px_rgba(79,70,229,0.16)]'
+                      ? 'bg-white text-[#111827] shadow-[0_10px_24px_rgba(59,69,179,0.16)]'
                       : 'text-[#64748b] hover:text-[#111827]'
                   }`}
                 >
@@ -280,7 +280,7 @@ export default function RegisterPage() {
               <button
                 type="button"
                 onClick={handleOpenEmailVerification}
-                className="email-verify-button border-[#e6e8f2] bg-white text-[#334155] hover:border-[#c7d2fe] hover:text-[#4f46e5]"
+                className="email-verify-button border-[#e6e8f2] bg-white text-[#334155] hover:border-[#C8CDF2] hover:text-[#3B45B3]"
                 disabled={isSendingEmailCode}
               >
                 {isSendingEmailCode ? '재전송 중...' : '재전송'}
@@ -288,7 +288,7 @@ export default function RegisterPage() {
               <button
                 type="button"
                 onClick={handleConfirmEmailVerification}
-                className="email-verify-button border-[#4f46e5] bg-[#4f46e5] text-white shadow-[0_14px_30px_rgba(79,70,229,0.20)] hover:bg-[#4338ca]"
+                className="email-verify-button border-[#3B45B3] bg-[#3B45B3] text-white shadow-[0_14px_30px_rgba(59,69,179,0.20)] hover:bg-[#2D3691]"
                 disabled={isVerifyingEmailCode || isEmailCodeExpired}
               >
                 {isVerifyingEmailCode ? '확인 중...' : '확인'}

@@ -61,7 +61,7 @@ export default function EmailDomainField<T extends string>({
             <button
               type="button"
               onClick={() => onSelectDomain(domainOptions[0])}
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md px-1.5 py-1 text-[11px] font-medium text-[#64748b] transition-colors hover:bg-[#f3f4f6] hover:text-[#4f46e5]"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md px-1.5 py-1 text-[11px] font-medium text-[#64748b] transition-colors hover:bg-[#f3f4f6] hover:text-[#3B45B3]"
               aria-label="도메인 선택으로 돌아가기"
             >
               선택
