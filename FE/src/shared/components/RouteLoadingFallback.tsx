@@ -6,7 +6,7 @@ import Spinner from './Spinner'
  */
 export default function RouteLoadingFallback() {
   return (
-    <div className="min-h-screen w-full bg-[#F0F2F9] flex items-center justify-center">
+    <div className="min-h-screen w-full bg-[var(--color-bg)] flex items-center justify-center">
       <div className="flex items-center gap-3 text-[#4B5563]">
         <Spinner size="md" />
         <span className="text-sm font-medium">화면을 불러오는 중입니다...</span>

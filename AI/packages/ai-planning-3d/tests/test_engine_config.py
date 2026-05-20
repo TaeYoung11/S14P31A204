@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import ai_planning_3d.engine as engine_module
 from ai_planning_3d.command import (
     LLM3DChanges,
     LLM3DCommand,
@@ -59,6 +60,31 @@ def _raw_json_response(content: str):
             )
         ],
     )
+
+
+class _FakeLogger:
+    def __init__(
+        self,
+        records: list[tuple[str, str, dict[str, object]]] | None = None,
+        context: dict[str, object] | None = None,
+    ) -> None:
+        self.records = records if records is not None else []
+        self.context = context or {}
+
+    def bind(self, **fields: object) -> _FakeLogger:
+        return _FakeLogger(self.records, {**self.context, **fields})
+
+    def info(self, event: str, *args: object, **fields: object) -> None:
+        del args
+        self.records.append(("info", event, {**self.context, **fields}))
+
+    def warning(self, event: str, *args: object, **fields: object) -> None:
+        del args
+        self.records.append(("warning", event, {**self.context, **fields}))
+
+    def error(self, event: str, *args: object, **fields: object) -> None:
+        del args
+        self.records.append(("error", event, {**self.context, **fields}))
 
 
 def test_llm_3d_engine_uses_llm_env(monkeypatch):
@@ -207,6 +233,32 @@ def test_pipeline_model_name_none_uses_llm_model_env(monkeypatch):
     assert pipeline.engine.model == "qwen2.5:7b"
 
 
+def test_llm_3d_engine_logs_config_without_api_key(monkeypatch):
+    fake_logger = _FakeLogger()
+    monkeypatch.setattr(engine_module, "logger", fake_logger)
+    monkeypatch.setenv("LLM_API_KEY", "secret-local-key")
+
+    LLM3DEngine(
+        model="log-model",
+        base_url="http://ollama:11434/v1",
+        timeout=12,
+        log_context={"jobId": "job-log-1"},
+    )
+
+    [record] = [
+        fields
+        for _, event, fields in fake_logger.records
+        if event == "llm3d_engine_configured"
+    ]
+    assert record["jobId"] == "job-log-1"
+    assert record["model"] == "log-model"
+    assert record["baseUrl"] == "http://ollama:11434/v1"
+    assert record["timeoutSeconds"] == 12
+    assert "apiKey" not in record
+    assert "api_key" not in record
+    assert "secret-local-key" not in repr(fake_logger.records)
+
+
 def test_llm_3d_engine_extracts_raw_json_object():
     content = """
     ```json
@@ -234,6 +286,85 @@ def test_llm_3d_engine_detects_explicit_target_reference():
         "\uc120\ud0dd\ud55c \uc694\uc18c \uc0c9 \ubc14\uafd4\uc918",
         LLM3DTarget(element_type=LLM3DElementType.DOOR),
     )
+
+
+def _roof_color_command(
+    raw_instruction: str,
+    *,
+    storey: str | None = None,
+    direction: str | None = None,
+) -> LLM3DCommand:
+    return LLM3DCommand(
+        command_type=LLM3DCommandType.MODIFY,
+        target=LLM3DTarget(
+            element_type=LLM3DElementType.ROOF,
+            storey=storey,
+            direction=direction,
+            select_all=False,
+        ),
+        changes=LLM3DChanges(color="#3B82F6"),
+        create_info=None,
+        confidence=0.8,
+        raw_instruction=raw_instruction,
+    )
+
+
+def test_repair_broad_roof_color_request_forces_select_all():
+    engine = LLM3DEngine()
+    raw_instruction = "지붕은 파란색으로 바꿔줘"
+
+    repaired = engine._repair_or_replace(
+        raw_instruction,
+        _roof_color_command(raw_instruction),
+    )
+
+    assert repaired.target.element_type == LLM3DElementType.ROOF
+    assert repaired.target.select_all is True
+    assert repaired.target.storey is None
+    assert repaired.target.space_name is None
+    assert repaired.target.direction is None
+    assert repaired.target.global_id is None
+    assert repaired.changes is not None
+    assert repaired.changes.color == "#3B82F6"
+
+
+def test_repair_broad_roof_color_request_clears_hallucinated_selectors():
+    engine = LLM3DEngine()
+    raw_instruction = "지붕은 파란색으로 바꿔줘"
+
+    repaired = engine._repair_or_replace(
+        raw_instruction,
+        _roof_color_command(raw_instruction, storey="RF", direction="North"),
+    )
+
+    assert repaired.target.select_all is True
+    assert repaired.target.storey is None
+    assert repaired.target.direction is None
+
+
+def test_repair_specific_roof_color_requests_do_not_force_select_all():
+    engine = LLM3DEngine()
+    cases = [
+        ("RF 지붕은 파란색으로 바꿔줘", "RF"),
+        ("#4122 지붕을 파란색으로 바꿔줘", None),
+        (
+            "선택한 지붕을 "
+            "파란색으로 바꿔줘",
+            None,
+        ),
+        ("지붕 중 하나는 파란색으로 바꿔줘", None),
+        ("지붕 아래 벽은 파란색으로 바꿔줘", None),
+        ("one roof is blue", None),
+        ("wall under roof is blue", None),
+    ]
+
+    for raw_instruction, storey in cases:
+        repaired = engine._repair_or_replace(
+            raw_instruction,
+            _roof_color_command(raw_instruction, storey=storey),
+        )
+
+        assert repaired.target.select_all is False
 
 
 def test_llm_3d_engine_detects_multiple_target_value_pairs():

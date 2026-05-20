@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
 
+import ai_planning_3d.worker as worker_module
 from ai_common.adapters.rabbitmq.kombu_client import get_command_queue
 from ai_common.worker_sdk.event_factory import ClarificationResult, CompletedResult
 from ai_domain.worker_messages.command import CommandMessage
@@ -23,6 +24,31 @@ from ai_planning_3d.worker import (
     _resolve_effective_instruction,
 )
 from ai_planning_3d.worker_app import WORKER_TYPE
+
+
+class _FakeLogger:
+    def __init__(
+        self,
+        records: list[tuple[str, str, dict[str, object]]] | None = None,
+        context: dict[str, object] | None = None,
+    ) -> None:
+        self.records = records if records is not None else []
+        self.context = context or {}
+
+    def bind(self, **fields: object) -> "_FakeLogger":
+        return _FakeLogger(self.records, {**self.context, **fields})
+
+    def info(self, event: str, *args: object, **fields: object) -> None:
+        del args
+        self.records.append(("info", event, {**self.context, **fields}))
+
+    def warning(self, event: str, *args: object, **fields: object) -> None:
+        del args
+        self.records.append(("warning", event, {**self.context, **fields}))
+
+    def error(self, event: str, *args: object, **fields: object) -> None:
+        del args
+        self.records.append(("error", event, {**self.context, **fields}))
 
 
 def test_three_d_worker_queue_is_registered() -> None:
@@ -77,6 +103,68 @@ def _validate_authoring_operations_contract(
             "base_revision_id": command.sourceRevisionId,
             "operations": operations,
         }
+    )
+
+
+def _engine_request_with_update_parameters(parameters: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "schema_version": "v2",
+        "request_id": "req-schema-update-propagation",
+        "mode": "apply",
+        "project_id": "project-layout-001",
+        "base_revision_id": "rev-layout-001",
+        "operations": [
+            {
+                "id": "op-update-roof",
+                "type": "update_element_properties",
+                "selector": {"global_ids": ["0123456789ABCDEFGHIJKL"]},
+                "parameters": parameters,
+            }
+        ],
+    }
+
+
+def test_engine_request_schema_constrains_roof_propagation_flag() -> None:
+    validator = Draft202012Validator(_authoring_engine_request_schema())
+
+    assert not list(
+        validator.iter_errors(_engine_request_with_update_parameters({"color": "#AABBCC"}))
+    )
+    assert not list(
+        validator.iter_errors(
+            _engine_request_with_update_parameters(
+                {"color": "#3B82F6", "propagate_roof_appearance": True}
+            )
+        )
+    )
+    assert not list(
+        validator.iter_errors(
+            _engine_request_with_update_parameters(
+                {
+                    "dimensions_mm": {
+                        "length": {"mode": "ABSOLUTE", "value": 3000.0}
+                    },
+                    "propagate_roof_appearance": False,
+                }
+            )
+        )
+    )
+    assert list(
+        validator.iter_errors(
+            _engine_request_with_update_parameters({"propagate_roof_appearance": True})
+        )
+    )
+    assert list(
+        validator.iter_errors(
+            _engine_request_with_update_parameters(
+                {
+                    "dimensions_mm": {
+                        "length": {"mode": "ABSOLUTE", "value": 3000.0}
+                    },
+                    "propagate_roof_appearance": True,
+                }
+            )
+        )
     )
 
 
@@ -177,6 +265,42 @@ def test_planning_worker_returns_completed_event_for_preview_ready_chat() -> Non
         "width": 200.0,
         "height": 2800.0,
     }
+
+
+def test_planning_worker_logs_request_context_and_operation_summary(monkeypatch) -> None:
+    command = _load_sample_command()
+    fake_logger = _FakeLogger()
+    monkeypatch.setattr(worker_module, "_logger", fake_logger)
+    mock_s3 = MagicMock()
+    mock_s3.read_bytes.return_value = _sample_ifc_bytes()
+    mock_s3.write_text.return_value = "s3://mock-bucket/output.json"
+    worker = PlanningWorker(
+        worker_id="test-worker-1",
+        event_publisher=MagicMock(),
+        s3=mock_s3,
+    )
+
+    with patch(
+        "ai_planning_3d.worker.LLM3DPipeline.execute_preview",
+        new_callable=AsyncMock,
+    ) as mock_execute:
+        mock_execute.return_value = _preview_ready_create("roof is #E8808B", "IfcRoof")
+
+        worker.process(command)
+
+    payload_event = next(
+        fields
+        for _, event, fields in fake_logger.records
+        if event == "planning_3d_result_payload_built"
+    )
+    assert payload_event["jobId"] == command.jobId
+    assert payload_event["jobStepId"] == command.jobStepId
+    assert payload_event["correlationId"] == command.correlationId
+    assert payload_event["workerId"] == "test-worker-1"
+    assert payload_event["commandId"] == command.jobStepId
+    assert payload_event["operationCount"] == 1
+    assert payload_event["operationTypes"] == ["create_element"]
+    assert _sample_ifc_bytes() not in repr(fake_logger.records).encode("utf-8")
 
 
 def test_planning_worker_stores_split_chat_as_multiple_schema_commands() -> None:
@@ -356,6 +480,90 @@ def test_planning_worker_stores_engine_operations_for_modify_and_delete() -> Non
         "translation_mm": {"x": 100.0, "y": 0.0, "z": 0.0},
         "rotation_deg": {"x": 0.0, "y": 0.0, "z": 15.0},
     }
+
+
+def test_map_operations_broad_roof_appearance_uses_preview_global_ids() -> None:
+    command = _load_sample_command()
+    roof_id_1 = "0123456789ABCDEFGHIJKL"
+    roof_id_2 = "ABCDEFGHIJKL0123456789"
+    wall_id = "ZYXWVUTSRQ9876543210__"
+    operations = worker_module._map_operations(
+        [
+            {
+                "command_type": "MODIFY",
+                "target": {"element_type": "IfcRoof", "select_all": True},
+                "changes": {"color": "#3B82F6"},
+                "confidence": 1.0,
+                "raw_instruction": "roof is blue",
+            }
+        ],
+        [
+            [
+                {"global_id": roof_id_1, "element_type": "IfcRoof"},
+                {"global_id": wall_id, "element_type": "IfcWall"},
+                {"global_id": roof_id_2, "element_type": "IfcRoof"},
+                {"global_id": roof_id_1, "element_type": "IfcRoof"},
+            ]
+        ],
+    )
+
+    _validate_authoring_operations_contract(command, operations)
+    [operation] = operations
+    assert operation["type"] == "update_element_properties"
+    assert operation["selector"] == {
+        "global_ids": [roof_id_1, roof_id_2],
+        "element_type": "IfcRoof",
+    }
+    assert operation["parameters"] == {
+        "color": "#3B82F6",
+        "propagate_roof_appearance": True,
+    }
+
+
+def test_build_result_payload_keeps_split_preview_matches_per_operation() -> None:
+    command = _load_sample_command()
+    roof_id = "0123456789ABCDEFGHIJKL"
+    wall_id = "ZYXWVUTSRQ9876543210__"
+    result = {
+        "status": "preview_ready",
+        "split_results": [
+            {
+                "command": {
+                    "command_type": "MODIFY",
+                    "target": {"element_type": "IfcRoof", "select_all": True},
+                    "changes": {"color": "#3B82F6"},
+                    "confidence": 1.0,
+                    "raw_instruction": "roof is blue",
+                },
+                "matched_elements": [{"global_id": roof_id, "element_type": "IfcRoof"}],
+            },
+            {
+                "command": {
+                    "command_type": "MODIFY",
+                    "target": {"element_type": "IfcWall", "select_all": True},
+                    "changes": {"color": "#AABBCC"},
+                    "confidence": 1.0,
+                    "raw_instruction": "walls are gray",
+                },
+                "matched_elements": [{"global_id": wall_id, "element_type": "IfcWall"}],
+            },
+        ],
+    }
+
+    payload = worker_module._build_result_payload(result, command)
+
+    _validate_authoring_operations_contract(command, payload["operations"])
+    roof_operation, wall_operation = payload["operations"]
+    assert roof_operation["selector"] == {
+        "global_ids": [roof_id],
+        "element_type": "IfcRoof",
+    }
+    assert roof_operation["parameters"]["propagate_roof_appearance"] is True
+    assert wall_operation["selector"] == {
+        "element_type": "IfcWall",
+        "select_all": True,
+    }
+    assert "propagate_roof_appearance" not in wall_operation["parameters"]
 
 
 def test_planning_worker_split_chat_fails_fast_without_partial_commands() -> None:

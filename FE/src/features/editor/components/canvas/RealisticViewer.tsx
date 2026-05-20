@@ -63,6 +63,7 @@ export function RealisticViewer({ projectId }: RealisticViewerProps) {
     renderUrls,
     renders,
     selectedRenderId,
+    status,
     errorMessage,
     isRequesting,
     requestRender,
@@ -74,7 +75,13 @@ export function RealisticViewer({ projectId }: RealisticViewerProps) {
     activeRenderView === 'frontRight'
       ? renderUrls?.frontDiagonalRightUrl
       : renderUrls?.frontDiagonalLeftUrl
-  ) ?? imageUrl ?? '/mock/rendering_mock.png'
+  ) ?? imageUrl
+  const hasDisplayedImage = Boolean(displayedImageUrl)
+  const emptyMessage = renders.length === 0
+    ? '작업한 프로젝트를 실제 조감도로 변환해보세요'
+    : status === 'loading'
+      ? '렌더링 이미지를 불러오는 중입니다'
+      : '완료된 렌더링 이미지를 선택해주세요'
   const canUseFrontLeftView = Boolean(renderUrls?.frontDiagonalLeftUrl)
   const canUseFrontRightView = Boolean(renderUrls?.frontDiagonalRightUrl)
   const canRequestRender = Boolean(projectId && !isRequesting)
@@ -170,6 +177,7 @@ export function RealisticViewer({ projectId }: RealisticViewerProps) {
       ref={rootRef}
       className="absolute inset-0 flex items-center justify-center overflow-hidden bg-[#0A0A0B] animate-in fade-in duration-700"
     >
+      {displayedImageUrl ? (
       <div
         className={`absolute inset-0 ${isPanEnabled ? 'cursor-grab active:cursor-grabbing' : ''}`}
         onPointerDown={handleImageDragStart}
@@ -186,6 +194,13 @@ export function RealisticViewer({ projectId }: RealisticViewerProps) {
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/20 pointer-events-none" />
       </div>
+      ) : (
+      <div className="absolute inset-0 flex items-center justify-center px-6 text-center">
+        <p className="max-w-[520px] text-[clamp(1.35rem,3vw,2.1rem)] font-black leading-tight text-white/85">
+          {emptyMessage}
+        </p>
+      </div>
+      )}
 
       <RenderHistorySidebar
         panelRef={renderPanelRef}
@@ -206,6 +221,7 @@ export function RealisticViewer({ projectId }: RealisticViewerProps) {
         onDragStart={startRenderPanelDrag}
       />
 
+      {hasDisplayedImage && (
       <div className="absolute bottom-12 left-1/2 flex -translate-x-1/2 items-center gap-3">
         <button
           type="button"
@@ -234,7 +250,9 @@ export function RealisticViewer({ projectId }: RealisticViewerProps) {
           <ArrowRight size={22} />
         </button>
       </div>
+      )}
 
+      {hasDisplayedImage && (
       <div className="absolute bottom-12 left-12 flex flex-col gap-4 animate-in slide-in-from-bottom-4 duration-500 delay-300">
         <div className="flex flex-col overflow-hidden rounded-[20px] border border-white/10 bg-[#1C1C1E]/60 shadow-2xl backdrop-blur-xl">
           <button
@@ -257,6 +275,7 @@ export function RealisticViewer({ projectId }: RealisticViewerProps) {
           </button>
         </div>
       </div>
+      )}
     </div>
   )
 }

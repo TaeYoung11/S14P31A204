@@ -19,12 +19,12 @@ export default function AuthBrandPanel({ fitViewport }: AuthBrandPanelProps) {
 
       <div className="relative z-10 flex shrink-0 items-center justify-between">
         <Link to="/" className="inline-flex items-center gap-2.5 no-underline" aria-label="바탕 홈으로 이동">
-          <BrandLogo textClassName="text-[13px] drop-shadow-sm" />
+          <BrandLogo textClassName="text-[13px] text-[#3B45B3] drop-shadow-sm" />
         </Link>
       </div>
 
       <div
-        className={`relative z-10 flex min-h-0 flex-1 flex-col justify-center ${
+        className={`relative z-10 flex min-h-0 flex-1 flex-col items-center justify-center text-center ${
           fitViewport ? 'gap-7 py-5 xl:gap-8' : 'gap-8 py-8'
         }`}
       >
@@ -33,7 +33,7 @@ export default function AuthBrandPanel({ fitViewport }: AuthBrandPanelProps) {
             fitViewport ? 'text-[clamp(34px,4.2vw,62px)]' : 'text-[clamp(40px,4vw,64px)]'
           }`}
         >
-          AI로 완성하는 <span className="text-[#4f46e5]">설계 협업</span>
+          AI로 완성하는 <span className="text-[#3B45B3]">설계 협업</span>
         </h1>
         <BlueprintPreview compact={fitViewport} />
       </div>
@@ -44,7 +44,7 @@ export default function AuthBrandPanel({ fitViewport }: AuthBrandPanelProps) {
         }`}
       >
         <div />
-        <span className="select-none text-[clamp(32px,3.4vw,56px)] font-bold leading-none text-[#111827]/5">
+        <span className="select-none text-[clamp(32px,3.4vw,56px)] font-bold leading-none text-[#3B45B3]/10">
           BATANG
         </span>
       </div>

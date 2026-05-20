@@ -91,6 +91,7 @@ export type FloorPlanCanvasProps = Pick<
   | 'localFloorData'
   | 'activeIfcStoreyExpressId'
   | 'overlayIfcStoreyExpressIds'
+  | 'hiddenIfcElementLocalIds'
   | 'requestedIfcElementLocalId'
   | 'ifcElementSelectionRequestToken'
   | 'requestedLibraryElementId'

@@ -9,6 +9,7 @@ interface AwaitingServerSyncRecordLike {
   historyDomain: 'bubble' | 'floorPlan'
   baseIndex: number
   startedAt: number
+  unsavedDbChangeVersion?: number
 }
 
 interface PendingServerPublishRecordLike {
@@ -37,6 +38,7 @@ interface UseWorkspaceHistorySyncControllerInput {
   loadHistorySnapshot: (projectId: string) => Promise<WorkspaceHistorySnapshotResponse>
   isCursorInvalidCode: (code: string | undefined) => boolean
   isNonRetriableServerErrorCode?: (code: string | undefined) => boolean
+  onHistorySyncSuccess?: (awaitingSync: AwaitingServerSyncRecordLike) => void
   maxHistoryIndex?: number
 }
 
@@ -67,6 +69,7 @@ export function useWorkspaceHistorySyncController({
   loadHistorySnapshot,
   isCursorInvalidCode,
   isNonRetriableServerErrorCode,
+  onHistorySyncSuccess,
   maxHistoryIndex = 9,
 }: UseWorkspaceHistorySyncControllerInput) {
   const refreshHistoryCursorFromServer = useCallback(async (options?: {
@@ -114,6 +117,7 @@ export function useWorkspaceHistorySyncController({
     ) {
       previousSnapshotRef.current = awaitingSync.serializedSnapshot
       pendingServerPublishRef.current = null
+      onHistorySyncSuccess?.(awaitingSync)
       setSaveStatus('synced')
       return
     }
@@ -138,6 +142,7 @@ export function useWorkspaceHistorySyncController({
     setBubbleHistoryCursor,
     setFloorPlanHistoryCursor,
     setSaveStatus,
+    onHistorySyncSuccess,
   ])
 
   const updateBubbleHistoryCursor = useCallback((baseIndex: number, redoDepth: number) => {
@@ -156,6 +161,7 @@ export function useWorkspaceHistorySyncController({
       previousSnapshotRef.current = awaitingSync.serializedSnapshot
       pendingServerPublishRef.current = null
       awaitingServerSyncRef.current = null
+      onHistorySyncSuccess?.(awaitingSync)
       setSaveStatus('synced')
     }
   }, [
@@ -169,6 +175,7 @@ export function useWorkspaceHistorySyncController({
     setBubbleHistoryCursor,
     setSaveStatus,
     workspaceEditTransactionDepthRef,
+    onHistorySyncSuccess,
   ])
 
   const updateFloorPlanHistoryCursor = useCallback((baseIndex: number, redoDepth: number) => {
@@ -196,6 +203,7 @@ export function useWorkspaceHistorySyncController({
         requestRepublishSnapshotCommit()
         return
       }
+      onHistorySyncSuccess?.(awaitingSync)
       setSaveStatus('synced')
     }
   }, [
@@ -211,6 +219,7 @@ export function useWorkspaceHistorySyncController({
     setFloorPlanHistoryCursor,
     setSaveStatus,
     workspaceEditTransactionDepthRef,
+    onHistorySyncSuccess,
   ])
 
   const handleWorkspaceServerError = useCallback((error: { code?: string }) => {

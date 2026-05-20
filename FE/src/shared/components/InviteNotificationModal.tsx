@@ -131,20 +131,20 @@ export function InviteNotificationModal({ isOpen, onClose }: InviteNotificationM
   return (
     <div className="fixed inset-0 z-[100] flex items-start justify-end pt-16 pr-6">
       <div className="absolute inset-0" onClick={onClose} />
-      <div className="relative w-[380px] overflow-hidden rounded-2xl bg-white shadow-[0_8px_40px_rgba(0,0,0,0.16)] animate-in fade-in slide-in-from-top-2 duration-200">
-        <div className="flex items-center justify-between border-b border-[#F0F2F9] px-5 py-4">
+      <div className="relative w-[380px] overflow-hidden rounded-2xl border border-white/80 bg-white shadow-[0_20px_60px_rgba(15,23,42,0.18)] animate-in fade-in slide-in-from-top-2 duration-200">
+        <div className="flex items-center justify-between border-b border-[#eef2f7] bg-white px-5 py-4">
           <div className="flex items-center gap-2">
-            <Bell size={18} className="text-[#3B45B3]" />
+            <Bell size={18} className="text-[#4f46e5]" />
             <h3 className="text-[15px] font-black text-[#1C1C1E]">{INVITATION_MODAL_TITLE}</h3>
             {unreadCount > 0 && (
-              <span className="rounded-full bg-[#3B45B3] px-2 py-0.5 text-[10px] font-black text-white">
+              <span className="rounded-full bg-[#4f46e5] px-2 py-0.5 text-[10px] font-black text-white">
                 {unreadCount}
               </span>
             )}
           </div>
           <button
             onClick={onClose}
-            className="p-1 text-[#ADB5BD] transition-colors hover:text-[#1C1C1E]"
+            className="project-icon-button h-8 w-8"
             title={INVITATION_CLOSE_TITLE}
           >
             <X size={18} />
@@ -167,12 +167,12 @@ export function InviteNotificationModal({ isOpen, onClose }: InviteNotificationM
                 key={notification.notificationId}
                 onClick={() => void handleNotificationClick(notification.notificationId, notification.projectId)}
                 className={`flex w-full items-start gap-3 border-b border-[#F8F9FD] px-5 py-4 text-left transition-colors hover:bg-[#F8F9FD] ${
-                  !notification.isRead ? 'bg-[#F0F2FF]/30' : ''
+                  !notification.isRead ? 'bg-[#eef2ff]/45' : ''
                 }`}
               >
                 <div
                   className={`mt-1.5 h-2 w-2 flex-shrink-0 rounded-full ${
-                    !notification.isRead ? 'bg-[#3B45B3]' : 'bg-transparent'
+                    !notification.isRead ? 'bg-[#4f46e5]' : 'bg-transparent'
                   }`}
                 />
                 <div className="min-w-0 flex-1">

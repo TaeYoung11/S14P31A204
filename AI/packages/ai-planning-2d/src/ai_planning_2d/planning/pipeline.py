@@ -430,9 +430,9 @@ def _find_delete_wall_void_target(
 
 
 _MSG_DELETE_WALL_VOID_FILLED_OPENING_UNSUPPORTED = (
-    "?ì¢ê¹®??openingì— door/window fillerê°€ ì—°ê²°ëœ ê²½ìš°ì—ëŠ” "
-    "?ê·¸ filler ìš”ì†Œë¥¼ ì§€ì •í•´ ì‚­ì œí•´ì•¼ í•©ë‹ˆë‹¤. "
-    "?ì´ ë™ìž‘ì€ í˜„ìž¬ ë°ëª¨ì—ì„œ opening ì§ì ‘ ì‚­ì œë¡œëŠ” ì§€ì›í•˜ì§€ ì•ŠìŠµë‹ˆë‹¤."
+    "벽 void opening에 door/window filler가 연결된 경우에는 "
+    "그 filler 요소를 지정해 삭제해야 합니다. "
+    "이 동작은 현재 데모에서 opening 직접 삭제로는 지원하지 않습니다."
 )
 
 

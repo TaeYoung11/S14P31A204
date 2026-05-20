@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 import json
-import logging
+import hashlib
 import os
 import re
+from typing import Any
 
 import instructor
 from instructor.core.exceptions import InstructorRetryException
 from openai import AsyncOpenAI
+
+from ai_common.logging import get_logger
 
 from .command import (
     COLOR_ALIASES,
@@ -27,7 +30,9 @@ from .command import (
     UNSUPPORTED_MATERIAL_ALIASES,
 )
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
+
+_TEXT_PREVIEW_LIMIT = 160
 
 DEFAULT_LLM_MODEL = "gemma3:4b"
 DEFAULT_LLM_BASE_URL = "http://localhost:11434/v1"
@@ -37,6 +42,40 @@ DEFAULT_RAW_JSON_FALLBACK_ENABLED = True
 DEFAULT_RAW_JSON_FALLBACK_TIMEOUT_SECONDS = 10.0
 DEFAULT_LLM_REASONING_EFFORT = "none"
 DISABLED_LLM_REASONING_EFFORT_VALUES = {"", "off", "false", "disabled"}
+
+
+def _bind_logger(log_context: dict[str, Any] | None) -> Any:
+    if log_context and hasattr(logger, "bind"):
+        return logger.bind(**log_context)
+    return logger
+
+
+def _text_summary_fields(text: str | None, prefix: str) -> dict[str, Any]:
+    value = text or ""
+    compact = " ".join(value.split())
+    return {
+        f"{prefix}Len": len(value),
+        f"{prefix}Sha256": hashlib.sha256(value.encode("utf-8")).hexdigest(),
+        f"{prefix}Preview": compact[:_TEXT_PREVIEW_LIMIT],
+    }
+
+
+def _command_summary_fields(command: LLM3DCommand) -> dict[str, Any]:
+    target = command.target
+    changes = command.changes.model_dump(exclude_none=True) if command.changes else {}
+    create_info = command.create_info
+    return {
+        "commandType": str(command.command_type),
+        "targetElementType": str(target.element_type),
+        "targetStorey": target.storey,
+        "targetSpaceName": target.space_name,
+        "targetDirection": target.direction,
+        "selectAll": target.select_all,
+        "changeKeys": sorted(changes.keys()),
+        "createElementType": str(create_info.element_type) if create_info else None,
+        "confidence": command.confidence,
+        "hasAmbiguityQuestion": bool(command.ambiguity_question),
+    }
 
 
 def _env_float(name: str, default: float) -> float:
@@ -152,7 +191,9 @@ class LLM3DEngine:
         base_url: str | None = None,
         api_key: str | None = None,
         timeout: float | None = None,
+        log_context: dict[str, Any] | None = None,
     ):
+        self._logger = _bind_logger(log_context)
         resolved_model = model or os.getenv("LLM_MODEL_NAME") or DEFAULT_LLM_MODEL
         resolved_base_url = base_url or os.getenv("LLM_BASE_URL") or DEFAULT_LLM_BASE_URL
         resolved_api_key = api_key or os.getenv("LLM_API_KEY") or DEFAULT_LLM_API_KEY
@@ -184,6 +225,14 @@ class LLM3DEngine:
         self.client = instructor.from_openai(self._raw_client, mode=instructor.Mode.JSON)
         self.model = resolved_model
         self.base_url = resolved_base_url
+        self._logger.info(
+            "llm3d_engine_configured",
+            model=self.model,
+            baseUrl=self.base_url,
+            timeoutSeconds=resolved_timeout,
+            rawJsonFallbackEnabled=self.raw_json_fallback_enabled,
+            rawJsonFallbackTimeoutSeconds=self.raw_json_fallback_timeout,
+        )
 
     async def aclose(self) -> None:
         await self._raw_client.close()
@@ -214,9 +263,23 @@ class LLM3DEngine:
             kwargs["extra_body"] = extra_body
         return await self.client.chat.completions.create(**kwargs)
 
-    async def parse_command(self, user_text: str, ifc_context: str | None = None) -> LLM3DCommand:
-        system_content = SYSTEM_PROMPT + "\n\n" + ifc_context if ifc_context else SYSTEM_PROMPT
+    async def parse_command(
+        self,
+        user_text: str,
+        ifc_context: str | None = None,
+    ) -> LLM3DCommand:
+        system_content = (
+            SYSTEM_PROMPT + "\n\n" + ifc_context if ifc_context else SYSTEM_PROMPT
+        )
         extra_body = self._reasoning_extra_body()
+        text_fields = _text_summary_fields(user_text, "instruction")
+        self._logger.info(
+            "llm3d_parse_started",
+            model=self.model,
+            ifcContextLen=len(ifc_context or ""),
+            reasoningExtraBodyEnabled=extra_body is not None,
+            **text_fields,
+        )
         try:
             try:
                 command = await self._create_structured_completion(
@@ -226,11 +289,14 @@ class LLM3DEngine:
                 )
             except InstructorRetryException:
                 raise
-            except Exception:
+            except Exception as exc:
                 if extra_body is None:
                     raise
-                logger.warning(
-                    "[LLM3DEngine] structured_completion_reasoning_retry_without_extra_body",
+                self._logger.warning(
+                    "llm3d_structured_completion_reasoning_retry_without_extra_body",
+                    errorClass=type(exc).__name__,
+                    errorMessage=str(exc),
+                    **text_fields,
                     exc_info=True,
                 )
                 command = await self._create_structured_completion(
@@ -238,16 +304,52 @@ class LLM3DEngine:
                     system_content,
                     extra_body=None,
                 )
-            return self._repair_or_replace(user_text, command)
+            repaired = self._repair_or_replace(user_text, command)
+            self._logger.info(
+                "llm3d_parse_completed",
+                parseMode="instructor",
+                **text_fields,
+                **_command_summary_fields(repaired),
+            )
+            return repaired
         except InstructorRetryException:
+            self._logger.warning(
+                "llm3d_parse_instructor_retry",
+                model=self.model,
+                rawJsonFallbackEnabled=self.raw_json_fallback_enabled,
+                **text_fields,
+            )
             if self.raw_json_fallback_enabled:
                 raw_command = await self._parse_command_raw_json(user_text, system_content)
                 if raw_command is not None:
+                    self._logger.info(
+                        "llm3d_parse_completed",
+                        parseMode="raw_json",
+                        **text_fields,
+                        **_command_summary_fields(raw_command),
+                    )
                     return raw_command
-            logger.warning(f"[LLM3DEngine] 파싱 실패 → 재질문 응답으로 대체: {user_text!r}")
-            return self.parse_command_heuristic(user_text)
+            self._logger.warning(
+                "llm3d_heuristic_fallback_used",
+                reason="instructor_retry",
+                **text_fields,
+            )
+            command = self.parse_command_heuristic(user_text)
+            self._logger.info(
+                "llm3d_parse_completed",
+                parseMode="heuristic",
+                **text_fields,
+                **_command_summary_fields(command),
+            )
+            return command
         except Exception as exc:
-            logger.error(f"[LLM3DEngine] 파싱 실패: {exc}", exc_info=True)
+            self._logger.error(
+                "llm3d_parse_failed",
+                errorClass=type(exc).__name__,
+                errorMessage=str(exc),
+                **text_fields,
+                exc_info=True,
+            )
             raise
 
     def parse_command_heuristic(self, user_text: str) -> LLM3DCommand:
@@ -284,6 +386,14 @@ class LLM3DEngine:
         system_content: str,
     ) -> LLM3DCommand | None:
         extra_body = self._reasoning_extra_body()
+        text_fields = _text_summary_fields(user_text, "instruction")
+        self._logger.info(
+            "llm3d_raw_json_fallback_started",
+            model=self.model,
+            timeoutSeconds=self.raw_json_fallback_timeout,
+            reasoningExtraBodyEnabled=extra_body is not None,
+            **text_fields,
+        )
         try:
             try:
                 response = await self._create_raw_json_completion(
@@ -291,11 +401,14 @@ class LLM3DEngine:
                     system_content,
                     extra_body=extra_body,
                 )
-            except Exception:
+            except Exception as exc:
                 if extra_body is None:
                     raise
-                logger.warning(
-                    "[LLM3DEngine] raw_json_reasoning_retry_without_extra_body",
+                self._logger.warning(
+                    "llm3d_raw_json_reasoning_retry_without_extra_body",
+                    errorClass=type(exc).__name__,
+                    errorMessage=str(exc),
+                    **text_fields,
                     exc_info=True,
                 )
                 response = await self._create_raw_json_completion(
@@ -305,9 +418,22 @@ class LLM3DEngine:
                 )
             content = response.choices[0].message.content or ""
             command = LLM3DCommand.model_validate(self._json_object_from_text(content))
-            return self._repair_or_replace(user_text, command)
-        except Exception:
-            logger.warning("[LLM3DEngine] raw_json_fallback_failed", exc_info=True)
+            repaired = self._repair_or_replace(user_text, command)
+            self._logger.info(
+                "llm3d_raw_json_fallback_completed",
+                responseLen=len(content),
+                **text_fields,
+                **_command_summary_fields(repaired),
+            )
+            return repaired
+        except Exception as exc:
+            self._logger.warning(
+                "llm3d_raw_json_fallback_failed",
+                errorClass=type(exc).__name__,
+                errorMessage=str(exc),
+                **text_fields,
+                exc_info=True,
+            )
             return None
 
     @staticmethod
@@ -401,6 +527,33 @@ class LLM3DEngine:
                 return self._ambiguous(user_text, "수정할 대상 요소가 명확하지 않습니다.")
             heuristic_target: LLM3DTarget | None = None
             target = command.target
+            if target.element_type == LLM3DElementType.WALL:
+                heuristic_target = heuristic_target or self._target(user_text)
+                target = target.model_copy(update={"element_type": heuristic_target.element_type})
+            if self._is_unqualified_roof_appearance_request(
+                user_text,
+                target,
+                command.changes,
+            ):
+                target = target.model_copy(
+                    update={
+                        "element_type": LLM3DElementType.ROOF,
+                        "global_id": None,
+                        "name": None,
+                        "storey": None,
+                        "space_name": None,
+                        "direction": None,
+                        "tag": None,
+                        "select_all": True,
+                    }
+                )
+                return command.model_copy(
+                    update={
+                        "target": target,
+                        "ambiguity_question": None,
+                        "confidence": max(command.confidence, 1.0),
+                    }
+                )
             if target.storey is None:
                 heuristic_target = heuristic_target or self._target(user_text)
                 target = target.model_copy(update={"storey": heuristic_target.storey})
@@ -490,6 +643,51 @@ class LLM3DEngine:
             "this",
         )
         return any(re.search(pattern, text, re.IGNORECASE) for pattern in contextual_patterns)
+
+    @staticmethod
+    def _is_unqualified_roof_appearance_request(
+        text: str,
+        target: LLM3DTarget,
+        changes: LLM3DChanges,
+    ) -> bool:
+        if target.element_type != LLM3DElementType.ROOF:
+            return False
+        if changes.color is None and changes.material is None:
+            return False
+        if not re.search(r"\uc9c0\ubd95|\broof\b", text, re.IGNORECASE):
+            return False
+        if LLM3DEngine._has_contextual_target_reference(text):
+            return False
+
+        partial_context_patterns = (
+            r"\ud558\ub098|\uc77c\ubd80|\uba87\s*\uac1c|\ud2b9\uc815|\ubd80\ubd84",
+            r"\uc544\ub798|\ubc11|\ud558\ubd80|\uadfc\ucc98|\uc8fc\ubcc0|\uc606|\uc704",
+            r"\ubcbd|\bwall\b",
+            r"\bone\b|\bsome\b|\bpartial\b|\bspecific\b",
+            r"\bunder\b|\bbelow\b|\bnear\b|\bnext\s+to\b",
+        )
+        if any(re.search(pattern, text, re.IGNORECASE) for pattern in partial_context_patterns):
+            return False
+
+        selector_patterns = (
+            r"\bRF\b",
+            r"\brooftop\b",
+            r"\broof\s*floor\b",
+            r"\uc625\uc0c1",
+            r"\ub8e8\ud504\ud0d1",
+            r"\d+\s*\uce35",
+            r"\b(?:B\d+|\d+\s*F)\b",
+            r"\b\d+(?:st|nd|rd|th)\s*floor\b",
+            r"\uc9c0\ud558",
+            r"\ubd81\ucabd|\ub0a8\ucabd|\ub3d9\ucabd|\uc11c\ucabd",
+            r"\uc67c\ucabd|\uc624\ub978\ucabd",
+            r"\bnorth\b|\bsouth\b|\beast\b|\bwest\b",
+            r"\uac70\uc2e4|\uc548\ubc29|\uce68\uc2e4|\ud654\uc7a5\uc2e4|\uc695\uc2e4|\uc8fc\ubc29|\ud604\uad00",
+            r"\bliving\s*room\b|\bbedroom\b|\bbathroom\b|\bkitchen\b|\bentrance\b",
+            r"#[0-9]+\b",
+            r"\b[0-9A-Za-z_$]{22}\b",
+        )
+        return not any(re.search(pattern, text, re.IGNORECASE) for pattern in selector_patterns)
 
     @staticmethod
     def _has_multiple_target_value_pairs(text: str) -> bool:

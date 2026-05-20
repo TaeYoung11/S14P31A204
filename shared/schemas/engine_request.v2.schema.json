@@ -732,6 +732,10 @@
         "face_offset_mm": {
           "type": "number"
         },
+        "propagate_roof_appearance": {
+          "type": "boolean",
+          "description": "IfcRoof color/material appearance propagation only. When true, roof appearance updates also style aggregate roof descendants and mapped source geometry."
+        },
         "segment_mm": {
           "type": "object",
           "additionalProperties": false,
@@ -750,7 +754,49 @@
           "minLength": 1,
           "maxLength": 255
         }
-      }
+      },
+      "anyOf": [
+        {
+          "required": ["dimensions_mm"]
+        },
+        {
+          "required": ["material"]
+        },
+        {
+          "required": ["color"]
+        },
+        {
+          "required": ["face_offset_mm"]
+        },
+        {
+          "required": ["segment_mm"]
+        },
+        {
+          "required": ["name"]
+        }
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "propagate_roof_appearance": {
+                "const": true
+              }
+            },
+            "required": ["propagate_roof_appearance"]
+          },
+          "then": {
+            "anyOf": [
+              {
+                "required": ["color"]
+              },
+              {
+                "required": ["material"]
+              }
+            ]
+          }
+        }
+      ]
     },
     "transformElementsParameters": {
       "type": "object",
