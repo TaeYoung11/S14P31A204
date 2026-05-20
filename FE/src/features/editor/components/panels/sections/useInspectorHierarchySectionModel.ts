@@ -25,6 +25,7 @@ export function useInspectorHierarchySectionModel(panelProps: HierarchySectionPr
   const [expandedRoomIds, setExpandedRoomIds] = useState<string[]>([])
   const [expandedFallbackRoomIds, setExpandedFallbackRoomIds] = useState<string[]>([])
   const [expandedElementNodeIds, setExpandedElementNodeIds] = useState<string[]>([])
+  const [collapsedElementNodeIds, setCollapsedElementNodeIds] = useState<string[]>([])
   const [showSelectedRoomOnly, setShowSelectedRoomOnly] = useState(false)
   const [elementSearchQuery, setElementSearchQuery] = useState('')
 
@@ -156,10 +157,14 @@ export function useInspectorHierarchySectionModel(panelProps: HierarchySectionPr
     panelProps?.onSelectRoom?.(room.bubbleId || room.id)
   }, [panelProps, roomByEitherId])
 
-  const handleToggleElementNodeExpand = useCallback((nodeId: string) => {
-    setExpandedElementNodeIds((prev) => (
-      prev.includes(nodeId) ? prev.filter((id) => id !== nodeId) : [...prev, nodeId]
-    ))
+  const handleToggleElementNodeExpand = useCallback((nodeId: string, isExpanded: boolean) => {
+    if (isExpanded) {
+      setExpandedElementNodeIds((prev) => prev.filter((id) => id !== nodeId))
+      setCollapsedElementNodeIds((prev) => (prev.includes(nodeId) ? prev : [...prev, nodeId]))
+      return
+    }
+    setCollapsedElementNodeIds((prev) => prev.filter((id) => id !== nodeId))
+    setExpandedElementNodeIds((prev) => (prev.includes(nodeId) ? prev : [...prev, nodeId]))
   }, [])
 
   const handleToggleFallbackRoomExpand = useCallback((roomId: string) => {
@@ -182,6 +187,7 @@ export function useInspectorHierarchySectionModel(panelProps: HierarchySectionPr
     expandedRoomIds,
     expandedFallbackRoomIds,
     expandedElementNodeIds,
+    collapsedElementNodeIds,
     showSelectedRoomOnly,
     elementSearchQuery,
     hierarchyRooms,

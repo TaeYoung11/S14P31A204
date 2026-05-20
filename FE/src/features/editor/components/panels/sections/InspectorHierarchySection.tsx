@@ -30,6 +30,7 @@ export function InspectorHierarchySection({ panelProps }: InspectorHierarchySect
         selectedElementId={model.selectedElementId}
         hiddenElementIdSet={model.hiddenElementIdSet}
         expandedNodeIds={model.expandedElementNodeIds}
+        collapsedNodeIds={model.collapsedElementNodeIds}
         onSearchQueryChange={model.setElementSearchQuery}
         onToggleExpand={model.handleToggleElementNodeExpand}
       />

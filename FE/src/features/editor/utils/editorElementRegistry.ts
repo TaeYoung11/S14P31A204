@@ -13,6 +13,7 @@ import type {
 } from '../types'
 import type { IfcStoreyInfo } from '../components/canvas/thatopen/ifcPropertyParser'
 import type { ThreeDLibraryPreset } from '../components/canvas/threeDLibrary.types'
+import { getLibraryPresetDisplayName } from '../components/canvas/threeDLibraryPresets'
 
 interface BuildElementRegistryInput {
   ifcStoreys?: IfcStoreyInfo[]
@@ -253,7 +254,7 @@ const createLibraryElement = (preset: ThreeDLibraryPreset): ElementRegistryItem 
       ? `floor:${preset.floorLayerId}`
       : 'unassigned',
   category: preset.type,
-  name: preset.name,
+  name: getLibraryPresetDisplayName(preset),
   geometryId: preset.sourceAssetId ?? preset.assetIfc ?? preset.id,
   libraryId: preset.id,
   properties: normalizeProperties({

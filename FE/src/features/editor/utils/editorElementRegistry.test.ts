@@ -48,6 +48,23 @@ describe('editorElementRegistry floor and hierarchy sync', () => {
     expect(resolveRegistryElementSelectionTarget(libraryElement!)).toEqual({ kind: 'library', id: 'chair-1' })
   })
 
+  it('uses mapped display names for IFC library assets in the hierarchy', () => {
+    const registry = buildElementRegistry({
+      libraryElements: [{
+        id: 'roof-178223-instance',
+        type: 'roof',
+        sourceAssetId: 'roof-178223',
+        name: 'IFC 지붕 178223',
+        description: '',
+        dimensions: '',
+        color: '#ffffff',
+      }] as ThreeDLibraryPreset[],
+    })
+
+    const libraryElement = registry.elements.find((element) => element.elementId === 'library:roof-178223-instance')
+    expect(libraryElement?.name).toBe('기본 박공지붕')
+  })
+
   it('computes hierarchy visibility from floor visibility and element hidden state', () => {
     const registry = buildElementRegistry({
       floorLayers: [

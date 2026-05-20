@@ -35,7 +35,6 @@ import {
 import { resolveThreeDPinMarkerHit, syncThreeDPinMarkers } from './threeDPinMarkers'
 import type { ThreeDCameraViewPresetCommand } from '@/pages/editor/components/canvas-content/buildCanvasSectionProps'
 import {
-  DEFAULT_LIBRARY_MATERIAL_BY_TYPE,
   applyObjectColor,
   applyObjectMaterial,
   getMaterialDefaultColor,
@@ -2064,6 +2063,7 @@ export default function ThatOpenIfcCanvas({
     },
   ) => {
     const requestedSessionId = options?.transformSessionId ?? null
+    const keepProxyVisibleAfterCommit = options?.keepProxyVisibleAfterCommit === true
     const runtimeStateAtStart = transformRuntimeStateRef.current
     if (isStalePendingCommitSession(runtimeStateAtStart, requestedSessionId)) {
       logIfcMove('commit_stale_session_ignored', {
@@ -2293,12 +2293,54 @@ export default function ThatOpenIfcCanvas({
     const visibilityLocalIds = visibilityLocalIdsRaw.length > 0
       ? visibilityLocalIdsRaw
       : Array.from(affectedLocalIds).slice(0, 1)
+    const continuousProxyLocalIds = Array.from(new Set<number>([
+      ...editability.editableLocalIds,
+      ...moveScopeLocalIds,
+      ...proxyLocalIds,
+      ...itemMappedLocalIds,
+      target.hitLocalId,
+      target.localId,
+    ].filter(Number.isFinite)))
+    const maintainProxyVisibilityDuringCommit = async (
+      reason: string,
+      modelIds: string[] = [editableModelId],
+    ) => {
+      if (!keepProxyVisibleAfterCommit || !target.object) return
+      target.object.visible = true
+      const localIds = continuousProxyLocalIds.length > 0
+        ? continuousProxyLocalIds
+        : visibilityLocalIds
+      for (const modelId of modelIds) {
+        try {
+          await applyIfcSelectionVisibility(sceneState, {
+            modelId,
+            localIds,
+            proxyObject: target.object,
+            mode: 'proxy',
+            proxyOpacity: 1,
+            reason,
+            persistModelHidden: true,
+            skipCoreUpdate: true,
+            forceRender: false,
+          })
+        } catch (error) {
+          logIfcMove('commit_proxy_visibility_maintain_failed', {
+            targetKey,
+            reason,
+            modelId,
+            localIds,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
+      }
+    }
     logIfcMove('commit_visibility_scope', {
       targetKey,
       affectedCount: affectedLocalIds.size,
       affectedSample: Array.from(affectedLocalIds).slice(0, 12),
       visibilityCount: visibilityLocalIds.length,
       visibilityLocalIds,
+      continuousProxyLocalIds,
     })
     if (affectedLocalIds.size > 12) {
       logIfcMove('visibility_scope_suspicious', {
@@ -2421,6 +2463,7 @@ export default function ThatOpenIfcCanvas({
       editableModelId,
       elementCount: elementsForApply.length,
     })
+    await maintainProxyVisibilityDuringCommit('commit_before_apply_changes')
     const appliedChangeIds = await editor.applyChanges(editableModelId, elementsForApply)
     logIfcMove('commit_apply_changes_done', {
       targetKey,
@@ -2445,6 +2488,7 @@ export default function ThatOpenIfcCanvas({
         modelIdsBefore: modelIdsBeforeUpdate,
       })
       try {
+        await maintainProxyVisibilityDuringCommit('commit_before_apply_changes_update')
         await sceneState.fragments.core.update(false)
       } catch (error) {
         logIfcMove('commit_core_update_failed', {
@@ -2454,9 +2498,18 @@ export default function ThatOpenIfcCanvas({
           error: String(error),
           fallback: 'retry_force_true',
         })
+        await maintainProxyVisibilityDuringCommit('commit_before_apply_changes_force_update')
         await sceneState.fragments.core.update(true)
       }
+      await maintainProxyVisibilityDuringCommit('commit_after_apply_changes_update')
       const modelIdsAfterUpdate = Array.from((sceneState.fragments.core.models.list as Map<string, unknown>).keys())
+      const relatedModelIdsAfterUpdate = modelIdsAfterUpdate.filter((candidateId) => (
+        normalizeRootModelId(candidateId, editableModelId) === normalizeRootModelId(editableModelId, sceneState.modelId)
+      ))
+      await maintainProxyVisibilityDuringCommit(
+        'commit_after_apply_changes_update_related',
+        relatedModelIdsAfterUpdate.length > 0 ? relatedModelIdsAfterUpdate : [editableModelId],
+      )
       logIfcMove('commit_core_update_done', {
         targetKey,
         reason: 'apply_changes',
@@ -2552,6 +2605,7 @@ export default function ThatOpenIfcCanvas({
           requestCount: transformRequestsToPersist.length,
           source: manualTransformRequests.length > 0 ? 'manual_transform' : 'element_requests_replay',
         })
+        await maintainProxyVisibilityDuringCommit('commit_before_manual_transform_edit')
         await editor.edit(editableModelId, transformRequestsToPersist)
         const coreUpdateStartedAt = performance.now()
         const modelIdsBeforeUpdate = Array.from((sceneState.fragments.core.models.list as Map<string, unknown>).keys())
@@ -2563,6 +2617,7 @@ export default function ThatOpenIfcCanvas({
           modelIdsBefore: modelIdsBeforeUpdate,
         })
         try {
+          await maintainProxyVisibilityDuringCommit('commit_before_manual_transform_update')
           await sceneState.fragments.core.update(false)
         } catch (error) {
           logIfcMove('commit_core_update_failed', {
@@ -2572,9 +2627,18 @@ export default function ThatOpenIfcCanvas({
             error: error instanceof Error ? error.message : String(error),
             fallback: 'retry_force_true',
           })
+          await maintainProxyVisibilityDuringCommit('commit_before_manual_transform_force_update')
           await sceneState.fragments.core.update(true)
         }
+        await maintainProxyVisibilityDuringCommit('commit_after_manual_transform_update')
         const modelIdsAfterUpdate = Array.from((sceneState.fragments.core.models.list as Map<string, unknown>).keys())
+        const relatedModelIdsAfterUpdate = modelIdsAfterUpdate.filter((candidateId) => (
+          normalizeRootModelId(candidateId, editableModelId) === normalizeRootModelId(editableModelId, sceneState.modelId)
+        ))
+        await maintainProxyVisibilityDuringCommit(
+          'commit_after_manual_transform_update_related',
+          relatedModelIdsAfterUpdate.length > 0 ? relatedModelIdsAfterUpdate : [editableModelId],
+        )
         logIfcMove('commit_core_update_done', {
           targetKey,
           reason: 'manual_transform_replay',
@@ -2639,7 +2703,6 @@ export default function ThatOpenIfcCanvas({
     ))
     const deltaModelIdsAfterCommit = relatedModelIdsAfterCommit.filter((candidateId) => isDeltaModelId(candidateId))
     const unpersistedDeltaExists = !didPersistToRootModel && deltaModelIdsAfterCommit.length > 0
-    const keepProxyVisibleAfterCommit = options?.keepProxyVisibleAfterCommit === true
     const shouldKeepModelHiddenAfterCommit = keepProxyVisibleAfterCommit || unpersistedDeltaExists
     const visibilityModeAfterCommit: 'proxy' | 'model' = keepProxyVisibleAfterCommit ? 'proxy' : 'model'
     logIfcMove('commit_visibility_strategy', {
@@ -2652,14 +2715,7 @@ export default function ThatOpenIfcCanvas({
       keepModelHiddenAfterCommit: shouldKeepModelHiddenAfterCommit,
       visibilityMode: visibilityModeAfterCommit,
     })
-    const commitHideLocalIds = Array.from(new Set<number>([
-      ...editability.editableLocalIds,
-      ...moveScopeLocalIds,
-      ...proxyLocalIds,
-      ...itemMappedLocalIds,
-      target.hitLocalId,
-      target.localId,
-    ].filter(Number.isFinite)))
+    const commitHideLocalIds = continuousProxyLocalIds
     ;(target.object as IfcEditableObject3D).userData.ifcEditTarget = {
       ...(target.object as IfcEditableObject3D).userData.ifcEditTarget!,
       modelId: editableModelId,
@@ -8445,8 +8501,6 @@ export default function ThatOpenIfcCanvas({
             libraryAssetModelId: assetModelId,
           }
         })
-        const assetMaterialName = preset.material ?? DEFAULT_LIBRARY_MATERIAL_BY_TYPE[preset.type]
-        applyObjectMaterial(THREE, assetMesh, assetMaterialName, preset.color, sceneState.materialsManager)
         const isReplacingSelectedLibraryTarget =
           selectedTargetRef.current?.source === 'library' &&
           getLibraryPresetFromObject(selectedTargetRef.current.object as LibraryObject3D)?.id === preset.id

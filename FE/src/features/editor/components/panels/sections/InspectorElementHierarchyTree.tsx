@@ -10,8 +10,9 @@ interface InspectorElementHierarchyTreeProps {
   selectedElementId: string | null
   hiddenElementIdSet: Set<string>
   expandedNodeIds: string[]
+  collapsedNodeIds: string[]
   onSearchQueryChange: (value: string) => void
-  onToggleExpand: (nodeId: string) => void
+  onToggleExpand: (nodeId: string, isExpanded: boolean) => void
 }
 
 /** IFC/라이브러리 element registry 기반 계층 트리를 렌더링한다. */
@@ -22,6 +23,7 @@ export function InspectorElementHierarchyTree({
   selectedElementId,
   hiddenElementIdSet,
   expandedNodeIds,
+  collapsedNodeIds,
   onSearchQueryChange,
   onToggleExpand,
 }: InspectorElementHierarchyTreeProps) {
@@ -41,7 +43,8 @@ export function InspectorElementHierarchyTree({
   const renderElementTreeNode = (node: ElementHierarchyNode, depth = 0): JSX.Element => {
     const hasChildren = node.children.length > 0
     const isSearching = searchQuery.trim().length > 0
-    const isExpanded = isSearching || expandedNodeIds.includes(node.id) || depth < 2
+    const isAutoExpanded = depth < 2 && !collapsedNodeIds.includes(node.id)
+    const isExpanded = isSearching || expandedNodeIds.includes(node.id) || isAutoExpanded
     const isSelected = Boolean(node.isSelected || (node.elementId && selectedElementId === node.elementId))
     const isElementHidden = Boolean(node.elementId && hiddenElementIdSet.has(node.elementId))
     const isVisible = node.isVisible !== false && !isElementHidden
@@ -58,7 +61,7 @@ export function InspectorElementHierarchyTree({
         >
           <button
             type="button"
-            onClick={() => hasChildren && onToggleExpand(node.id)}
+            onClick={() => hasChildren && onToggleExpand(node.id, isExpanded)}
             className={`shrink-0 rounded p-0.5 ${hasChildren ? 'text-[#94A3B8] hover:bg-[#EEF2FF]' : 'text-transparent'}`}
             aria-label={`${node.label} 펼침 전환`}
           >
