@@ -27,15 +27,16 @@ export function useProjectCardThumbnail({
   const lastEditorMode = readProjectEditorMode(project.id) ?? project.thumbnail_mode ?? null
   const editorPath = buildProjectEditorPath(project.id, lastEditorMode ?? 'bubble')
   const projectThumbnailUrl = normalizeThumbnailUrl(project.thumbnail_url)
+  const shouldLoadFallbackThumbnail = enableRenderedThumbnail && !isListView && !projectThumbnailUrl
 
   const { data: renderedThumbnailUrl } = useProjectThumbnail(
     project.id,
-    enableRenderedThumbnail && !isListView && !projectThumbnailUrl && lastEditorMode === 'view',
+    shouldLoadFallbackThumbnail && lastEditorMode === 'view',
   )
   const { data: workspacePreview } = useProjectWorkspacePreview(
     project.id,
     lastEditorMode,
-    enableRenderedThumbnail && !isListView,
+    shouldLoadFallbackThumbnail,
   )
 
   const workspacePreviewMode = resolveWorkspaceThumbnailMode(lastEditorMode, workspacePreview)
@@ -49,15 +50,21 @@ export function useProjectCardThumbnail({
   const modeThumbnailUrl = lastEditorMode === 'view'
     ? renderedUrl
     : workspaceThumbnailUrl ?? projectWorkspaceThumbnailUrl
-  const fallbackProjectThumbnailUrl = lastEditorMode && lastEditorMode !== 'view' ? null : projectThumbnailUrl
-  const thumbnailUrl = modeThumbnailUrl ?? fallbackProjectThumbnailUrl ?? ''
+  const thumbnailUrl = projectThumbnailUrl ?? modeThumbnailUrl ?? ''
   const canShowThumbnail = Boolean(thumbnailUrl) && thumbnailUrl !== failedThumbnailUrl
   const canShowWorkspacePreview = Boolean(workspacePreviewMode && workspacePreview)
 
   useEffect(() => {
-    if (!workspacePreviewMode || !workspaceThumbnailUrl || projectWorkspaceThumbnailUrl === workspaceThumbnailUrl) return
+    if (
+      projectThumbnailUrl ||
+      !workspacePreviewMode ||
+      !workspaceThumbnailUrl ||
+      projectWorkspaceThumbnailUrl === workspaceThumbnailUrl
+    ) {
+      return
+    }
     saveProjectWorkspaceThumbnail(project.id, workspacePreviewMode, workspaceThumbnailUrl)
-  }, [project.id, projectWorkspaceThumbnailUrl, workspacePreviewMode, workspaceThumbnailUrl])
+  }, [project.id, projectThumbnailUrl, projectWorkspaceThumbnailUrl, workspacePreviewMode, workspaceThumbnailUrl])
 
   return {
     canShowThumbnail,

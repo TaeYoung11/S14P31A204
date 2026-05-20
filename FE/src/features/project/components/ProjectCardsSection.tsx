@@ -50,7 +50,7 @@ export default function ProjectCardsSection({
           isSelectionMode={isSelectionMode}
           isSelected={selectedProjectIds.includes(project.id)}
           onToggleSelect={onToggleSelect}
-          enableRenderedThumbnail
+          enableRenderedThumbnail={!project.thumbnail_url?.trim()}
         />
       ))}
 
