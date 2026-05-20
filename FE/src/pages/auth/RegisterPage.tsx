@@ -58,7 +58,6 @@ export default function RegisterPage() {
         </div>
 
         <div className="auth-register-heading mb-4">
-          <span className="auth-kicker">START YOUR WORKSPACE</span>
           <h2 className="auth-heading">계정 만들기</h2>
           <p className="auth-subtext">도면과 모델을 함께 다룰 협업 공간을 준비하세요.</p>
         </div>
@@ -72,11 +71,10 @@ export default function RegisterPage() {
                   key={type}
                   type="button"
                   onClick={() => selectUserType(type)}
-                  className={`auth-type-option ${
-                    form.userType === type
+                  className={`auth-type-option ${form.userType === type
                       ? 'bg-white text-[#111827] shadow-[0_10px_24px_rgba(59,69,179,0.16)]'
                       : 'text-[#64748b] hover:text-[#111827]'
-                  }`}
+                    }`}
                 >
                   {type === 'DESIGNER' ? '디자이너' : '고객'}
                 </button>
@@ -130,13 +128,12 @@ export default function RegisterPage() {
             </div>
             {emailVerificationNotice && (
               <p
-                className={`mt-2 text-right text-xs ${
-                  isEmailVerificationValid
+                className={`mt-2 text-right text-xs ${isEmailVerificationValid
                     ? 'text-[#16a34a]'
                     : isEmailVerified || isEmailCodeExpired
                       ? 'text-[#dc2626]'
                       : 'text-[#6b7280]'
-                }`}
+                  }`}
               >
                 {emailVerificationNotice}
               </p>
@@ -241,9 +238,8 @@ export default function RegisterPage() {
 
               {emailVerificationNotice && (
                 <div
-                  className={`email-verify-notice ${
-                    isEmailCodeExpired ? 'email-verify-notice-danger' : 'email-verify-notice-active'
-                  }`}
+                  className={`email-verify-notice ${isEmailCodeExpired ? 'email-verify-notice-danger' : 'email-verify-notice-active'
+                    }`}
                 >
                   <Timer className="h-4 w-4 shrink-0" />
                   {emailVerificationNotice}

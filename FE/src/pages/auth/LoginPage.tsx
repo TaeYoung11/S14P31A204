@@ -40,7 +40,6 @@ export default function LoginPage() {
         </div>
 
         <div className="mb-5 xl:mb-6">
-          <span className="auth-kicker">WELCOME BACK</span>
           <h2 className="auth-heading mt-2">BATANG 로그인</h2>
           <p className="auth-subtext">프로젝트와 협업 기록을 이어서 관리하세요.</p>
         </div>
