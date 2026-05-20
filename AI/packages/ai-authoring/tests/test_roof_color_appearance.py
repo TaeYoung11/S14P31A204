@@ -3,7 +3,7 @@ from __future__ import annotations
 import ifcopenshell
 import ifcopenshell.guid
 
-from ai_authoring.engine_3d import modify_color
+from ai_authoring.engine_3d import modify_color, modify_material
 
 
 def _make_model() -> ifcopenshell.file:
@@ -73,6 +73,19 @@ def _roof(
     )
 
 
+def _slab(
+    model: ifcopenshell.file,
+    name: str,
+    shape: ifcopenshell.entity_instance | None = None,
+) -> ifcopenshell.entity_instance:
+    return model.create_entity(
+        "IfcSlab",
+        GlobalId=ifcopenshell.guid.new(),
+        Name=name,
+        Representation=shape,
+    )
+
+
 def _rgb_values(
     model: ifcopenshell.file,
     item: ifcopenshell.entity_instance,
@@ -99,6 +112,35 @@ def _has_blue_style(model: ifcopenshell.file, item: ifcopenshell.entity_instance
     )
 
 
+def _property_labels(element: ifcopenshell.entity_instance) -> dict[str, str]:
+    labels: dict[str, str] = {}
+    for rel in getattr(element, "IsDefinedBy", []) or []:
+        if not rel.is_a("IfcRelDefinesByProperties"):
+            continue
+        pset = getattr(rel, "RelatingPropertyDefinition", None)
+        if pset is None or not pset.is_a("IfcPropertySet"):
+            continue
+        for prop in getattr(pset, "HasProperties", []) or []:
+            if not prop.is_a("IfcPropertySingleValue"):
+                continue
+            nominal = getattr(prop, "NominalValue", None)
+            if nominal is not None:
+                labels[str(prop.Name)] = str(nominal.wrappedValue)
+    return labels
+
+
+def _associated_material_names(element: ifcopenshell.entity_instance) -> set[str]:
+    names: set[str] = set()
+    for rel in getattr(element, "HasAssociations", []) or []:
+        if not rel.is_a("IfcRelAssociatesMaterial"):
+            continue
+        material = getattr(rel, "RelatingMaterial", None)
+        name = getattr(material, "Name", None)
+        if name:
+            names.add(str(name))
+    return names
+
+
 def test_modify_color_propagates_to_aggregate_roof_descendants() -> None:
     model = _make_model()
     child_solid = _solid(model)
@@ -114,6 +156,45 @@ def test_modify_color_propagates_to_aggregate_roof_descendants() -> None:
     assert modify_color(model, parent, "#3B82F6", propagate_roof_descendants=True)
 
     assert _has_blue_style(model, child_solid)
+
+
+def test_modify_color_propagates_to_aggregate_roof_slab_descendants() -> None:
+    model = _make_model()
+    child_solid = _solid(model)
+    parent = _roof(model, "ParentRoof")
+    child = _slab(model, "RoofSlab", _body_shape(model, [child_solid]))
+    model.create_entity(
+        "IfcRelAggregates",
+        GlobalId=ifcopenshell.guid.new(),
+        RelatingObject=parent,
+        RelatedObjects=[child],
+    )
+
+    assert modify_color(model, parent, "#3B82F6", propagate_roof_descendants=True)
+
+    assert _has_blue_style(model, child_solid)
+
+
+def test_modify_material_propagates_to_aggregate_roof_descendants() -> None:
+    model = _make_model()
+    parent = _roof(model, "ParentRoof")
+    child = _slab(model, "RoofSlab", _body_shape(model, [_solid(model)]))
+    model.create_entity(
+        "IfcRelAggregates",
+        GlobalId=ifcopenshell.guid.new(),
+        RelatingObject=parent,
+        RelatedObjects=[child],
+    )
+
+    assert modify_material(
+        model,
+        parent,
+        {"name": "Concrete"},
+        propagate_roof_descendants=True,
+    )
+
+    assert _property_labels(child)["Material"] == "Concrete"
+    assert "Concrete" in _associated_material_names(child)
 
 
 def test_modify_color_propagates_to_mapped_source_items() -> None:
@@ -154,3 +235,58 @@ def test_modify_color_propagates_to_mapped_source_items() -> None:
 
     assert _has_blue_style(model, mapped_item)
     assert _has_blue_style(model, source_solid)
+
+
+def test_modify_color_does_not_style_shared_mapped_source_items() -> None:
+    model = _make_model()
+    source_solid = _solid(model)
+    context = model.by_type("IfcGeometricRepresentationContext")[0]
+    source_representation = model.create_entity(
+        "IfcShapeRepresentation",
+        ContextOfItems=context,
+        RepresentationIdentifier="Body",
+        RepresentationType="SweptSolid",
+        Items=[source_solid],
+    )
+    representation_map = model.create_entity(
+        "IfcRepresentationMap",
+        MappingOrigin=model.create_entity(
+            "IfcAxis2Placement3D",
+            Location=model.create_entity("IfcCartesianPoint", Coordinates=(0.0, 0.0, 0.0)),
+        ),
+        MappedRepresentation=source_representation,
+    )
+    mapped_item_a = model.create_entity(
+        "IfcMappedItem",
+        MappingSource=representation_map,
+        MappingTarget=model.create_entity(
+            "IfcCartesianTransformationOperator3D",
+            LocalOrigin=model.create_entity("IfcCartesianPoint", Coordinates=(0.0, 0.0, 0.0)),
+            Scale=1.0,
+        ),
+    )
+    mapped_item_b = model.create_entity(
+        "IfcMappedItem",
+        MappingSource=representation_map,
+        MappingTarget=model.create_entity(
+            "IfcCartesianTransformationOperator3D",
+            LocalOrigin=model.create_entity("IfcCartesianPoint", Coordinates=(1.0, 0.0, 0.0)),
+            Scale=1.0,
+        ),
+    )
+    roof_a = _roof(
+        model,
+        "MappedRoofA",
+        _body_shape(model, [mapped_item_a], representation_type="MappedRepresentation"),
+    )
+    _roof(
+        model,
+        "MappedRoofB",
+        _body_shape(model, [mapped_item_b], representation_type="MappedRepresentation"),
+    )
+
+    assert modify_color(model, roof_a, "#3B82F6", propagate_mapped_sources=True)
+
+    assert _has_blue_style(model, mapped_item_a)
+    assert not _has_blue_style(model, mapped_item_b)
+    assert not _has_blue_style(model, source_solid)
