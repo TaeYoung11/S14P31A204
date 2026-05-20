@@ -444,4 +444,5 @@ export interface WorkspaceSnapshot {
   overlayIfcStoreyExpressIds?: number[]
   overlayFloorLayerIds?: string[]
   hiddenElementIds?: string[]
+  ifcStoreyNameOverrides?: Record<string, string>
 }

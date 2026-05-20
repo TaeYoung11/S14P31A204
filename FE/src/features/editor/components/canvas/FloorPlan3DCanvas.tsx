@@ -104,6 +104,22 @@ const logSelectionDebug = (...args: unknown[]) => {
   console.log('[3d-select][FloorPlan3DCanvas]', ...args)
 }
 
+const SELECTION_ID_LIKE_PROPERTY_KEYS = [
+  'RoomId',
+  'WallId',
+  'BubbleId',
+  'OpeningId',
+  'HostWallGlobalId',
+  'FloorLayerId',
+  'LayerId',
+  'GlobalId',
+  'globalId',
+  'global_id',
+  'guid',
+  'Id',
+  'id',
+] as const
+
 const normalizeSelectionToken = (value?: string | null) => value
   ?.trim()
   .toLowerCase()
@@ -126,6 +142,261 @@ const getFloorSelectionPriority = (element: IfcElementInfo): number => {
   if (category.includes('wall') || ifcClass.includes('ifcwall')) return 1
   if (category.includes('space') || category.includes('room') || ifcClass.includes('ifcspace')) return 9
   return 4
+}
+
+const collectSelectionTokens = (element: IfcElementInfo): Set<string> => {
+  const tokens = new Set<string>()
+  const addToken = (value: unknown) => {
+    if (typeof value !== 'string' && typeof value !== 'number') return
+    const token = String(value).trim()
+    if (token) tokens.add(token)
+  }
+
+  addToken(element.id)
+  addToken(element.globalId)
+  addToken(element.expressId)
+  SELECTION_ID_LIKE_PROPERTY_KEYS.forEach((key) => addToken(element.properties?.[key]))
+
+  return tokens
+}
+
+const hasSharedSelectionToken = (left: IfcElementInfo, right: IfcElementInfo): boolean => {
+  const leftTokens = collectSelectionTokens(left)
+  for (const token of collectSelectionTokens(right)) {
+    if (leftTokens.has(token)) return true
+  }
+  return false
+}
+
+const hasSameFloorElementDimensions = (left: IfcElementInfo, right: IfcElementInfo): boolean => (
+  left.lengthMm === right.lengthMm &&
+  left.heightMm === right.heightMm &&
+  left.thicknessMm === right.thicknessMm
+)
+
+const buildFloorDataStableSignature = (
+  data: FloorPlan3DData,
+  overlayLayers: FloorLayerOverlay[],
+): string => JSON.stringify({
+  storyHeightMm: data.storyHeightMm,
+  activeFloorLayerId: data.activeFloorLayerId ?? null,
+  rooms: data.rooms.map((room) => ({
+    id: room.id,
+    globalId: room.globalId ?? null,
+    bubbleId: room.bubbleId,
+    label: room.label,
+    type: room.type,
+    width: room.width,
+    height: room.height,
+    widthMm: room.widthMm,
+    heightMm: room.heightMm,
+    color: room.color,
+    material: room.material ?? null,
+    connectedIds: room.connectedIds,
+  })),
+  walls: data.walls.map((wall) => ({
+    id: wall.id,
+    globalId: wall.globalId ?? null,
+    storeyGlobalId: wall.storeyGlobalId ?? null,
+    sourceIfcClass: wall.sourceIfcClass ?? null,
+    type: wall.type,
+    thickness: wall.thickness,
+    heightMm: wall.heightMm,
+    material: wall.material ?? null,
+  })),
+  overlayLayers: overlayLayers.map((layer) => ({
+    layerId: layer.layerId,
+    storeyGlobalId: layer.storeyGlobalId ?? null,
+    opacity: layer.opacity,
+    rooms: layer.rooms.map((room) => ({
+      id: room.id,
+      globalId: room.globalId ?? null,
+      bubbleId: room.bubbleId,
+      type: room.type,
+      width: room.width,
+      height: room.height,
+      widthMm: room.widthMm,
+      heightMm: room.heightMm,
+      color: room.color,
+      material: room.material ?? null,
+    })),
+  })),
+})
+
+const canReuseFloorObjectInPlace = (current: IfcElementInfo, next: IfcElementInfo): boolean => (
+  hasSharedSelectionToken(current, next) &&
+  current.ifcClass === next.ifcClass &&
+  current.category === next.category &&
+  hasSameFloorElementDimensions(current, next)
+)
+
+const copyMaterialState = (targetMaterial: unknown, sourceMaterial: unknown) => {
+  if (!targetMaterial || !sourceMaterial) return
+  if (Array.isArray(targetMaterial) || Array.isArray(sourceMaterial)) {
+    if (!Array.isArray(targetMaterial) || !Array.isArray(sourceMaterial)) return
+    targetMaterial.forEach((targetEntry, index) => copyMaterialState(targetEntry, sourceMaterial[index]))
+    return
+  }
+
+  const target = targetMaterial as {
+    color?: { copy?: (color: unknown) => void }
+    opacity?: number
+    transparent?: boolean
+    depthWrite?: boolean
+    needsUpdate?: boolean
+  }
+  const source = sourceMaterial as {
+    color?: unknown
+    opacity?: number
+    transparent?: boolean
+    depthWrite?: boolean
+  }
+  if (target.color?.copy && source.color) target.color.copy(source.color)
+  if (typeof source.opacity === 'number') target.opacity = source.opacity
+  if (typeof source.transparent === 'boolean') target.transparent = source.transparent
+  if (typeof source.depthWrite === 'boolean') target.depthWrite = source.depthWrite
+  target.needsUpdate = true
+}
+
+const copyObjectVisualState = (
+  target: import('three').Object3D,
+  source: import('three').Object3D,
+) => {
+  const targetDrawables: Array<import('three').Object3D & { material?: unknown }> = []
+  const sourceDrawables: Array<import('three').Object3D & { material?: unknown }> = []
+  target.traverse((child) => {
+    if ((child as { material?: unknown }).material) {
+      targetDrawables.push(child as import('three').Object3D & { material?: unknown })
+    }
+  })
+  source.traverse((child) => {
+    if ((child as { material?: unknown }).material) {
+      sourceDrawables.push(child as import('three').Object3D & { material?: unknown })
+    }
+  })
+  targetDrawables.forEach((targetChild, index) => {
+    copyMaterialState(targetChild.material, sourceDrawables[index]?.material)
+  })
+}
+
+const syncFloorGroupInPlace = (
+  currentGroup: import('three').Group,
+  nextGroup: import('three').Group,
+  disposeObject: (object: import('three').Object3D) => void,
+): boolean => {
+  const currentChildren = [...currentGroup.children]
+  const nextChildren = [...nextGroup.children]
+  const usedCurrentChildren = new Set<import('three').Object3D>()
+
+  nextChildren.forEach((nextChild) => {
+    const nextElement = getFloorPlanElementInfo(nextChild)
+    if (!nextElement) {
+      currentGroup.add(nextChild)
+      return
+    }
+
+    const reusableChild = currentChildren.find((currentChild) => {
+      if (usedCurrentChildren.has(currentChild)) return false
+      const currentElement = getFloorPlanElementInfo(currentChild)
+      return currentElement ? canReuseFloorObjectInPlace(currentElement, nextElement) : false
+    })
+
+    if (!reusableChild) {
+      currentGroup.add(nextChild)
+      return
+    }
+
+    usedCurrentChildren.add(reusableChild)
+    reusableChild.position.copy(nextChild.position)
+    reusableChild.quaternion.copy(nextChild.quaternion)
+    reusableChild.scale.copy(nextChild.scale)
+    reusableChild.visible = nextChild.visible
+    reusableChild.userData = {
+      ...reusableChild.userData,
+      floorPlanElement: nextChild.userData.floorPlanElement,
+      floorPlanBaseWorldSize: nextChild.userData.floorPlanBaseWorldSize,
+    }
+    copyObjectVisualState(reusableChild, nextChild)
+    nextChild.parent?.remove(nextChild)
+    disposeObject(nextChild)
+  })
+
+  currentChildren.forEach((currentChild) => {
+    if (usedCurrentChildren.has(currentChild)) return
+    currentChild.parent?.remove(currentChild)
+    disposeObject(currentChild)
+  })
+
+  return true
+}
+
+const remapFloorSelectionEntries = (
+  entries: MultiSelectionEntry[],
+  floorGroup: import('three').Group,
+): MultiSelectionEntry[] => {
+  const candidates = floorGroup.children
+    .map((child) => {
+      const element = getFloorPlanElementInfo(child)
+      return element ? { object: child, element } : null
+    })
+    .filter((candidate): candidate is { object: import('three').Object3D; element: IfcElementInfo } =>
+      Boolean(candidate))
+
+  return entries
+    .map((entry) => {
+      if (entry.source !== 'floor') return entry
+      const matched = candidates.find((candidate) => hasSharedSelectionToken(entry.element, candidate.element))
+      if (!matched) return null
+      return {
+        ...entry,
+        key: `floor:${matched.element.id}`,
+        object: matched.object,
+        element: matched.element,
+      }
+    })
+    .filter((entry): entry is MultiSelectionEntry => Boolean(entry))
+}
+
+const preserveSelectedFloorObjects = (
+  entries: MultiSelectionEntry[],
+  nextFloorGroup: import('three').Group,
+  disposeObject: (object: import('three').Object3D) => void,
+): MultiSelectionEntry[] => {
+  const candidates = nextFloorGroup.children
+    .map((child) => {
+      const element = getFloorPlanElementInfo(child)
+      return element ? { object: child, element } : null
+    })
+    .filter((candidate): candidate is { object: import('three').Object3D; element: IfcElementInfo } =>
+      Boolean(candidate))
+
+  return entries
+    .map((entry) => {
+      if (entry.source !== 'floor') return entry
+      const matched = candidates.find((candidate) =>
+        hasSharedSelectionToken(entry.element, candidate.element) &&
+        hasSameFloorElementDimensions(entry.element, candidate.element))
+      if (!matched) return null
+
+      const preservedObject = entry.object
+      preservedObject.parent?.remove(preservedObject)
+      matched.object.parent?.remove(matched.object)
+      preservedObject.userData = {
+        ...preservedObject.userData,
+        floorPlanElement: matched.object.userData.floorPlanElement,
+        floorPlanBaseWorldSize: matched.object.userData.floorPlanBaseWorldSize,
+      }
+      nextFloorGroup.add(preservedObject)
+      disposeObject(matched.object)
+
+      return {
+        ...entry,
+        key: `floor:${matched.element.id}`,
+        object: preservedObject,
+        element: matched.element,
+      }
+    })
+    .filter((entry): entry is MultiSelectionEntry => Boolean(entry))
 }
 
 /**
@@ -200,6 +471,11 @@ export function FloorPlan3DCanvas({
     anchorStart: import('three').Vector3
     memberWorldByKey: Map<string, import('three').Vector3>
   } | null>(null)
+  const floorDataStableSignatureRef = useRef<string | null>(null)
+  const pendingLocalFloorTransformEchoRef = useRef<{
+    stableSignature: string | null
+    expiresAt: number
+  } | null>(null)
   const [marqueeRect, setMarqueeRect] = useState<{
     left: number
     top: number
@@ -232,6 +508,27 @@ export function FloorPlan3DCanvas({
   useEffect(() => { isCollaborationModeRef.current = isCollaborationMode }, [isCollaborationMode])
   useEffect(() => { deletingPinIdRef.current = deletingPinId }, [deletingPinId])
   useEffect(() => { overlayLayersRef.current = overlayLayers }, [overlayLayers])
+
+  const markPendingLocalFloorTransformEcho = useCallback(() => {
+    if (transformModeRef.current !== 'translate') return
+    pendingLocalFloorTransformEchoRef.current = {
+      stableSignature: floorDataStableSignatureRef.current,
+      expiresAt: performance.now() + 1500,
+    }
+  }, [])
+
+  const refreshSelectedFloorElementMetadata = useCallback(() => {
+    const nextEntries = selectedEntriesRef.current.map((entry) => {
+      if (entry.source !== 'floor') return entry
+      const nextElement = getFloorPlanElementInfo(entry.object)
+      return nextElement ? { ...entry, element: nextElement } : entry
+    })
+    selectedEntriesRef.current = nextEntries
+    const primary = nextEntries[nextEntries.length - 1]
+    if (primary?.source === 'floor') {
+      onIfcElementSelectRef.current?.(primary.element)
+    }
+  }, [])
 
   const syncOrbitPanBinding = useCallback(() => {
     const controls = controlsRef.current as OrbitControlsInstance & {
@@ -353,20 +650,7 @@ export function FloorPlan3DCanvas({
       if (element.globalId && targetIds.has(element.globalId)) return true
       if (targetGlobalId && element.globalId === targetGlobalId) return true
       const properties = element.properties ?? {}
-      const idLikeKeys = [
-        'RoomId',
-        'WallId',
-        'BubbleId',
-        'OpeningId',
-        'HostWallGlobalId',
-        'GlobalId',
-        'globalId',
-        'global_id',
-        'guid',
-        'Id',
-        'id',
-      ]
-      for (const key of idLikeKeys) {
+      for (const key of SELECTION_ID_LIKE_PROPERTY_KEYS) {
         const value = properties[key]
         if (typeof value === 'string' && targetIds.has(value)) return true
       }
@@ -469,14 +753,77 @@ export function FloorPlan3DCanvas({
     const controls = controlsRef.current
     if (!THREE || !scene || !camera || !controls) return
 
-    if (floorGroupRef.current) {
-      scene.remove(floorGroupRef.current)
-      disposeObject3DResources(floorGroupRef.current)
-    }
+    const previousFloorGroup = floorGroupRef.current
+    const previousSelectionEntries = selectedEntriesRef.current
+    const hadSelectedFloorEntry = previousSelectionEntries.some((entry) => entry.source === 'floor')
+    const shouldFitCameraToFloor = !previousFloorGroup || !hadSelectedFloorEntry
 
     const nextFloorGroup = buildFloorPlan3DGroup(THREE, dataRef.current, overlayLayersRef.current)
+
+    if (previousFloorGroup) {
+      syncFloorGroupInPlace(previousFloorGroup, nextFloorGroup, (object) =>
+        disposeObject3DResources(object))
+      floorGroupRef.current = previousFloorGroup
+
+      if (hadSelectedFloorEntry) {
+        const previousSelectedObjects = previousSelectionEntries.map((entry) => entry.object)
+        const remappedSelectionEntries = remapFloorSelectionEntries(previousSelectionEntries, previousFloorGroup)
+        const didSelectionObjectChange =
+          remappedSelectionEntries.length !== previousSelectionEntries.length ||
+          remappedSelectionEntries.some((entry, index) => entry.object !== previousSelectedObjects[index])
+        selectedEntriesRef.current = remappedSelectionEntries
+        if (didSelectionObjectChange) {
+          updateTransformSelection()
+        } else {
+          const primary = remappedSelectionEntries[remappedSelectionEntries.length - 1]
+          if (primary) onIfcElementSelectRef.current?.(primary.element)
+        }
+      }
+
+      disposeObject3DResources(nextFloorGroup)
+      if (shouldFitCameraToFloor) {
+        const box = new THREE.Box3().setFromObject(previousFloorGroup)
+        const size = new THREE.Vector3()
+        const center = new THREE.Vector3()
+        box.getSize(size)
+        box.getCenter(center)
+        const maxSize = Math.max(size.x, size.y, size.z, 1)
+
+        camera.position.set(
+          center.x + maxSize * 1.6,
+          center.y + maxSize * 1.0,
+          center.z + maxSize * 1.6,
+        )
+        camera.near = 0.01
+        camera.far = maxSize * 30
+        camera.updateProjectionMatrix()
+        controls.target.copy(center)
+        controls.update()
+      }
+      return
+    }
+
+    const nextSelectionEntries = hadSelectedFloorEntry
+      ? preserveSelectedFloorObjects(previousSelectionEntries, nextFloorGroup, (object) =>
+        disposeObject3DResources(object))
+      : []
+
+    if (previousFloorGroup) {
+      scene.remove(previousFloorGroup)
+      disposeObject3DResources(previousFloorGroup)
+    }
+
     floorGroupRef.current = nextFloorGroup
     scene.add(nextFloorGroup)
+
+    if (hadSelectedFloorEntry) {
+      selectedEntriesRef.current = nextSelectionEntries.length > 0
+        ? nextSelectionEntries
+        : remapFloorSelectionEntries(previousSelectionEntries, nextFloorGroup)
+      updateTransformSelection()
+    }
+
+    if (!shouldFitCameraToFloor) return
 
     const box = new THREE.Box3().setFromObject(nextFloorGroup)
     const size = new THREE.Vector3()
@@ -495,13 +842,32 @@ export function FloorPlan3DCanvas({
     camera.updateProjectionMatrix()
     controls.target.copy(center)
     controls.update()
-  }, [])
+  }, [updateTransformSelection])
 
   // 외부 data 변경을 감지해 floor 그룹만 재구성한다.
   useEffect(() => {
+    const nextStableSignature = buildFloorDataStableSignature(data, overlayLayers)
+    const pendingEcho = pendingLocalFloorTransformEchoRef.current
+    const canConsumeTransformEcho =
+      Boolean(floorGroupRef.current) &&
+      pendingEcho !== null &&
+      pendingEcho.expiresAt >= performance.now() &&
+      pendingEcho.stableSignature === floorDataStableSignatureRef.current &&
+      pendingEcho.stableSignature === nextStableSignature
+
     dataRef.current = data
+    overlayLayersRef.current = overlayLayers
+    floorDataStableSignatureRef.current = nextStableSignature
+
+    if (canConsumeTransformEcho) {
+      pendingLocalFloorTransformEchoRef.current = null
+      refreshSelectedFloorElementMetadata()
+      return
+    }
+
+    pendingLocalFloorTransformEchoRef.current = null
     rebuildFloorGroup()
-  }, [data, overlayLayers, rebuildFloorGroup])
+  }, [data, overlayLayers, rebuildFloorGroup, refreshSelectedFloorElementMetadata])
 
   useEffect(() => {
     const container = containerRef.current
@@ -810,6 +1176,7 @@ export function FloorPlan3DCanvas({
             if (entry.source === 'floor') {
               const floorElement = getFloorPlanElementInfo(entry.object)
               if (!floorElement) return
+              markPendingLocalFloorTransformEcho()
               onIfcElementTransformCommitRef.current?.(entry.element, {
                 positionX: floorElement.positionX,
                 positionY: floorElement.positionY,
@@ -846,6 +1213,7 @@ export function FloorPlan3DCanvas({
         if (primary.source === 'floor') {
           const floorElement = getFloorPlanElementInfo(primary.object)
           if (floorElement) {
+            markPendingLocalFloorTransformEcho()
             onIfcElementTransformCommitRef.current?.(primary.element, {
               positionX: floorElement.positionX,
               positionY: floorElement.positionY,
@@ -1267,7 +1635,14 @@ export function FloorPlan3DCanvas({
       cameraRef.current = null
       threeRef.current = null
     }
-  }, [rebuildFloorGroup, deleteSelectedEntry, syncOrbitPanBinding, syncTransformSnap, updateTransformSelection])
+  }, [
+    rebuildFloorGroup,
+    deleteSelectedEntry,
+    markPendingLocalFloorTransformEcho,
+    syncOrbitPanBinding,
+    syncTransformSnap,
+    updateTransformSelection,
+  ])
 
   useEffect(() => {
     syncOrbitPanBinding()

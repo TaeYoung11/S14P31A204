@@ -99,6 +99,7 @@ import {
   findIfcEditableRoot,
   resolveEditorMaterialFromColor,
   resolveIfcCanonicalLocalIds,
+  setObjectOpacity,
   toIfcRotationAxisAngle,
 } from './thatopen/ifcSceneHelpers'
 import { runIfcMoveWorkflowRegressionCases } from './thatopen/ifcMoveWorkflow.regression'
@@ -344,6 +345,11 @@ type MovedIfcProxyRegistryRecord = {
   object: IfcEditableObject3D
   element?: IfcElementInfo
   keepModelHiddenAfterCommit: boolean
+}
+
+type MovedIfcProxyVisibilityState = {
+  visible: boolean
+  opacity: number
 }
 
 type DeferredIfcProxyCleanupRecord = {
@@ -764,6 +770,9 @@ export default function ThatOpenIfcCanvas({
   const pendingIfcSaveReasonRef = useRef<string | null>(null)
   const pendingUnpersistedIfcColorByRootRef = useRef<Map<string, Map<number, string>>>(new Map())
   const movedIfcProxyRegistryRef = useRef<Map<string, MovedIfcProxyRegistryRecord>>(new Map())
+  const movedIfcProxyVisibilityFilterRef = useRef<(record: MovedIfcProxyRegistryRecord) => MovedIfcProxyVisibilityState>(
+    () => ({ visible: true, opacity: 1 }),
+  )
   const deferredIfcProxyCleanupRecordsRef = useRef<Map<number, DeferredIfcProxyCleanupRecord>>(new Map())
   const deferredIfcProxyCleanupTokenRef = useRef(0)
   const deletedIfcLocalIdSetRef = useRef<Set<number>>(new Set())
@@ -1739,6 +1748,30 @@ export default function ThatOpenIfcCanvas({
     })
     return record
   }, [getMovedIfcProxyRegistryKey, logIfcMove])
+  const syncMovedIfcProxyVisibility = useCallback((
+    sceneState: ThatOpenSceneState,
+    reason: string,
+    options: { forceRender?: boolean } = {},
+  ) => {
+    const records = Array.from(movedIfcProxyRegistryRef.current.values())
+    if (records.length === 0) return
+    let changedCount = 0
+    records.forEach((record) => {
+      const state = movedIfcProxyVisibilityFilterRef.current(record)
+      const opacity = state.visible ? Math.min(Math.max(state.opacity, 0), 1) : 0
+      if (record.object.visible !== state.visible) changedCount += 1
+      record.object.visible = state.visible
+      setObjectOpacity(sceneState.three, record.object, opacity)
+    })
+    logIfcMove('moved_proxy_registry_visibility_sync', {
+      reason,
+      recordCount: records.length,
+      changedCount,
+    })
+    if (options.forceRender !== false) {
+      sceneState.renderer.render(sceneState.scene, sceneState.camera as import('three').PerspectiveCamera)
+    }
+  }, [logIfcMove])
   const removeMovedIfcProxyRecords = useCallback((
     sceneState: ThatOpenSceneState,
     localIds: number[],
@@ -1859,6 +1892,7 @@ export default function ThatOpenIfcCanvas({
         }
       }
     }
+    syncMovedIfcProxyVisibility(sceneState, `registry_rehide:${reason}`, { forceRender: false })
     if (options.forceRender !== false) {
       sceneState.renderer.render(sceneState.scene, sceneState.camera as import('three').PerspectiveCamera)
     }
@@ -1867,7 +1901,7 @@ export default function ThatOpenIfcCanvas({
       recordCount: records.length,
       resetHighlight: shouldResetHighlight,
     })
-  }, [logIfcMove])
+  }, [logIfcMove, syncMovedIfcProxyVisibility])
   const getMovedIfcProxyHideLocalIds = useCallback(() => (
     new Set(Array.from(movedIfcProxyRegistryRef.current.values()).flatMap((record) => record.hideLocalIds))
   ), [])
@@ -6851,6 +6885,50 @@ export default function ThatOpenIfcCanvas({
       ...hiddenIfcIds.filter((id) => allIds.has(id)),
       ...Array.from(movedHiddenIdsInModel),
     ])
+    const activeStoreyIds = new Set<number>()
+    if (activeStoreyExpressId != null) {
+      storeyMap.get(activeStoreyExpressId)?.forEach((id) => activeStoreyIds.add(id))
+    }
+    const overlayStoreyIdsByStoreyId = new Map<number, Set<number>>()
+    overlayIdsNormalized.forEach((storeyId) => {
+      const ids = storeyMap.get(storeyId)
+      if (ids && ids.size > 0) overlayStoreyIdsByStoreyId.set(storeyId, ids)
+    })
+    const visibleStoreyIds = new Set<number>()
+    if (activeStoreyExpressId == null) {
+      allIds.forEach((id) => visibleStoreyIds.add(id))
+    } else {
+      activeStoreyIds.forEach((id) => visibleStoreyIds.add(id))
+      overlayStoreyIdsByStoreyId.forEach((ids) => ids.forEach((id) => visibleStoreyIds.add(id)))
+    }
+    deletedIdsInModel.forEach((id) => visibleStoreyIds.delete(id))
+    hiddenIfcIds.forEach((id) => visibleStoreyIds.delete(id))
+
+    const resolveOverlayOpacityForLocalIds = (localIds: number[]): number | null => {
+      for (const storeyId of overlayIdsNormalized) {
+        if (storeyId === activeStoreyExpressId) continue
+        const ids = overlayStoreyIdsByStoreyId.get(storeyId)
+        if (!ids) continue
+        const hasOverlayId = localIds.some((localId) => ids.has(localId))
+        if (!hasOverlayId) continue
+        const rawTransparency = overlayIfcStoreyOpacityByExpressId?.[storeyId] ?? 0.35
+        const clampedTransparency = Math.min(Math.max(rawTransparency, 0), 1)
+        return 1 - clampedTransparency
+      }
+      return null
+    }
+    movedIfcProxyVisibilityFilterRef.current = (record) => {
+      const recordLocalIds = record.hideLocalIds.filter((id) => allIds.has(id))
+      if (recordLocalIds.length === 0) return { visible: true, opacity: 1 }
+      const isDeletedOrHidden = recordLocalIds.some((id) => deletedIdsInModel.has(id) || hiddenIfcIdSet.has(id))
+      if (isDeletedOrHidden) return { visible: false, opacity: 0 }
+      const visible = recordLocalIds.some((id) => visibleStoreyIds.has(id))
+      if (!visible) return { visible: false, opacity: 0 }
+      const isActiveStoreyElement = activeStoreyExpressId != null && recordLocalIds.some((id) => activeStoreyIds.has(id))
+      if (isActiveStoreyElement) return { visible: true, opacity: 1 }
+      return { visible: true, opacity: resolveOverlayOpacityForLocalIds(recordLocalIds) ?? 1 }
+    }
+    syncMovedIfcProxyVisibility(sceneState, 'storey_visibility_filter_update', { forceRender: false })
 
     const resolveFragmentsModel = () => {
       const modelList = sceneState.fragments.core.models.list as Map<string, unknown>
@@ -7019,6 +7097,7 @@ export default function ThatOpenIfcCanvas({
     overlayIfcStoreyExpressIds,
     overlayIfcStoreyOpacityByExpressId,
     rehideMovedIfcProxyRegistry,
+    syncMovedIfcProxyVisibility,
     syncTransformSelectionState,
   ])
 
@@ -7040,6 +7119,7 @@ export default function ThatOpenIfcCanvas({
     }
     floorVisibilityHiddenLocalIdsRef.current = new Set()
 
+    if (activeStoreyExpressId !== undefined || overlayIfcStoreyExpressIds !== undefined) return
     if (!activeFloorLayerId || floorLayers.length === 0) return
     const activeLayer = floorLayers.find((layer) => layer.id === activeFloorLayerId)
     if (!activeLayer) return
@@ -7076,7 +7156,16 @@ export default function ThatOpenIfcCanvas({
       [sceneState.modelId]: hiddenLocalIds,
     })
     floorVisibilityHiddenLocalIdsRef.current = hiddenLocalIds
-  }, [activeFloorLayerId, floorLayers, ifcElementChanges, overlayLayers, resolveStoreyLocalIds, status])
+  }, [
+    activeFloorLayerId,
+    activeStoreyExpressId,
+    floorLayers,
+    ifcElementChanges,
+    overlayIfcStoreyExpressIds,
+    overlayLayers,
+    resolveStoreyLocalIds,
+    status,
+  ])
 
   useEffect(() => {
     const sceneState = sceneRef.current
@@ -7091,6 +7180,7 @@ export default function ThatOpenIfcCanvas({
         overlayOpacityLocalIdsRef.current = new Set()
       }
 
+      if (activeStoreyExpressId !== undefined || overlayIfcStoreyExpressIds !== undefined) return
       if (overlayLayers.length === 0) return
 
       const nextApplied = new Set<number>()
@@ -7107,7 +7197,14 @@ export default function ThatOpenIfcCanvas({
     return () => {
       cancelled = true
     }
-  }, [overlayLayers, applyIfcOpacityByLocalIds, resolveStoreyLocalIds, status])
+  }, [
+    activeStoreyExpressId,
+    applyIfcOpacityByLocalIds,
+    overlayIfcStoreyExpressIds,
+    overlayLayers,
+    resolveStoreyLocalIds,
+    status,
+  ])
 
   useEffect(() => {
     if (ifcElementSelectionRequestToken <= 0) return

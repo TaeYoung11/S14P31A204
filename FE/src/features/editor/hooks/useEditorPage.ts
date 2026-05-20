@@ -251,6 +251,61 @@ interface FloorRoomMoveSession {
   affectedElementGlobalIds: string[]
 }
 
+const normalizeIfcStoreyNameOverrides = (
+  overrides?: Record<string, string> | null,
+): Record<string, string> =>
+  Object.fromEntries(
+    Object.entries(overrides ?? {})
+      .map(([id, name]) => [String(Number(id)), name.trim()] as const)
+      .filter(([id, name]) => id !== 'NaN' && name.length > 0),
+  )
+
+const applyIfcStoreyNameOverrides = (
+  storeys: IfcStoreyInfo[],
+  overrides: Record<string, string>,
+): IfcStoreyInfo[] => {
+  if (Object.keys(overrides).length === 0) return storeys
+  return storeys.map((storey) => {
+    const overrideName = overrides[String(storey.expressId)]
+    return overrideName ? { ...storey, name: overrideName } : storey
+  })
+}
+
+const normalizeFloorLayerNameToken = (value: string): string =>
+  value.trim().toLowerCase().replace(/\s+/g, '')
+
+const resolveLibraryElementFloorLayerId = (
+  element: Pick<ThreeDLibraryPreset, 'floorLayerId' | 'type' | 'name'>,
+  floorLayers: FloorLayer[],
+  activeFloorLayerId: string | null,
+): string | null => {
+  if (element.floorLayerId && floorLayers.some((layer) => layer.id === element.floorLayerId)) {
+    return element.floorLayerId
+  }
+  if (floorLayers.length === 0) return element.floorLayerId ?? activeFloorLayerId
+
+  const findLayerByNameTokens = (tokens: string[]) =>
+    floorLayers.find((layer) => {
+      const nameToken = normalizeFloorLayerNameToken(layer.name)
+      const storeyNameToken = normalizeFloorLayerNameToken(layer.storeyName ?? '')
+      return tokens.some((token) => nameToken.includes(token) || storeyNameToken.includes(token))
+    })?.id ?? null
+
+  if (element.type === 'roof') {
+    return findLayerByNameTokens(['옥상', '지붕', 'roof', 'rooftop', 'top']) ??
+      floorLayers[floorLayers.length - 1]?.id ??
+      activeFloorLayerId
+  }
+  if (element.type === 'ceiling') {
+    return findLayerByNameTokens(['천장', 'ceiling']) ?? activeFloorLayerId ?? floorLayers[0]?.id ?? null
+  }
+  if (element.type === 'floor') {
+    return findLayerByNameTokens(['바닥', 'floor']) ?? activeFloorLayerId ?? floorLayers[0]?.id ?? null
+  }
+
+  return activeFloorLayerId ?? floorLayers[0]?.id ?? null
+}
+
 const clampBubbleDbSaveDebounceMs = (value: number): number =>
   Math.min(MAX_BUBBLE_DB_SAVE_DEBOUNCE_MS, Math.max(MIN_BUBBLE_DB_SAVE_DEBOUNCE_MS, Math.round(value)))
 
@@ -336,6 +391,11 @@ const buildIfcElementCandidateIds = (element: IfcElementInfo): Set<string> => {
   addElementCandidateId(ids, element.expressId)
   addElementCandidateId(ids, element.properties?.GlobalId)
   addElementCandidateId(ids, element.properties?.LocalID)
+  addElementCandidateId(ids, element.properties?.RoomId)
+  addElementCandidateId(ids, element.properties?.BubbleId)
+  addElementCandidateId(ids, element.properties?.WallId)
+  addElementCandidateId(ids, element.properties?.OpeningId)
+  addElementCandidateId(ids, element.properties?.HostWallGlobalId)
   return ids
 }
 
@@ -1047,6 +1107,8 @@ export function useEditorPage() {
   const [activeIfcStoreyExpressId, setActiveIfcStoreyExpressId] = useState<number | null>(null)
   // 겹쳐보기로 함께 표시할 IFC 층 expressId 목록
   const [overlayIfcStoreyExpressIds, setOverlayIfcStoreyExpressIds] = useState<number[]>([])
+  const [ifcStoreyNameOverrides, setIfcStoreyNameOverrides] = useState<Record<string, string>>({})
+  const applyIfcStoreyNameOverridesToLoadedStoreysRef = useRef<(overrides: Record<string, string>) => void>(() => {})
   const sceneUpdateEventBus = useMemo(() => createSceneUpdateEventBus(), [])
   const publishSceneUpdateEvent = useCallback((event: SceneUpdateEvent) => {
     sceneUpdateEventBus.publish(event)
@@ -1293,8 +1355,13 @@ export function useEditorPage() {
     ))
     setActiveIfcStoreyExpressId(layout.activeIfcStoreyExpressId ?? null)
     setOverlayIfcStoreyExpressIds((layout.overlayIfcStoreyExpressIds ?? []).filter(Number.isFinite))
-    setOverlayLayerIds(layout.overlayFloorLayerIds ?? [])
+    const nextOverlayFloorLayerIds = layout.overlayFloorLayerIds ?? []
+    setOverlayLayerIds(nextOverlayFloorLayerIds)
+    setIsLayerOverlayMode(nextOverlayFloorLayerIds.length > 0)
     setHiddenElementIds(layout.hiddenElementIds ?? [])
+    const nextIfcStoreyNameOverrides = normalizeIfcStoreyNameOverrides(layout.ifcStoreyNameOverrides)
+    setIfcStoreyNameOverrides(nextIfcStoreyNameOverrides)
+    applyIfcStoreyNameOverridesToLoadedStoreysRef.current(nextIfcStoreyNameOverrides)
     if (layout.phaseStatus) setWorkspacePhaseStatus(layout.phaseStatus)
   }, [])
 
@@ -1758,6 +1825,7 @@ export function useEditorPage() {
     overlayIfcStoreyExpressIds,
     overlayFloorLayerIds: overlayLayerIds,
     hiddenElementIds,
+    ifcStoreyNameOverrides,
   }), [
     workspacePhaseStatus,
     bubbles,
@@ -1779,6 +1847,7 @@ export function useEditorPage() {
     overlayIfcStoreyExpressIds,
     overlayLayerIds,
     hiddenElementIds,
+    ifcStoreyNameOverrides,
   ])
 
   const latestDraftSnapshotRef = useRef(draftSnapshot)
@@ -1974,6 +2043,7 @@ export function useEditorPage() {
         overlayIfcStoreyExpressIds: [],
         overlayFloorLayerIds: [],
         hiddenElementIds: [],
+        ifcStoreyNameOverrides: {},
       }
     }
 
@@ -2599,6 +2669,7 @@ export function useEditorPage() {
         overlayIfcStoreyExpressIds: [],
         overlayFloorLayerIds: [],
         hiddenElementIds: [],
+        ifcStoreyNameOverrides: {},
       }
       : draftSnapshot
     const publishSnapshot = mapSnapshotForPersistenceRef.current(publishSourceSnapshot)
@@ -3344,6 +3415,7 @@ export function useEditorPage() {
         overlayIfcStoreyExpressIds: [],
         overlayFloorLayerIds: [],
         hiddenElementIds: [],
+        ifcStoreyNameOverrides: {},
       }
       const persistedSnapshot = mapSnapshotForPersistenceRef.current(publishSnapshot)
       void workspaceRealtimeService.publishSnapshot({
@@ -3356,17 +3428,28 @@ export function useEditorPage() {
     }
   }, [])
 
-  const updateFloorWallFromEditable = useCallback((wallId: string, updater: (wall: FloorWall) => FloorWall) => {
+  const updateFloorWallFromEditable = useCallback((
+    wallId: string,
+    updater: (wall: FloorWall) => FloorWall,
+    options: { floorLayerId?: string | null } = {},
+  ) => {
+    const targetFloorLayerId = options.floorLayerId?.trim() || null
     setFloorWalls((prev) => {
       const ensured = prev.some((wall) => wall.id === wallId)
         ? prev
         : (() => {
           const autoWall = visibleAutoFloorWalls.find((wall) => wall.id === wallId)
           return autoWall
-            ? [...prev, { ...autoWall, floorLayerId: autoWall.floorLayerId ?? activeFloorLayerId ?? undefined }]
+            ? [...prev, { ...autoWall, floorLayerId: autoWall.floorLayerId ?? targetFloorLayerId ?? activeFloorLayerId ?? undefined }]
             : prev
         })()
-      return ensured.map((wall) => (wall.id === wallId ? updater(wall) : wall))
+      return ensured.map((wall) => {
+        if (wall.id !== wallId) return wall
+        const nextWall = updater(wall)
+        return targetFloorLayerId && !nextWall.floorLayerId
+          ? { ...nextWall, floorLayerId: targetFloorLayerId }
+          : nextWall
+      })
     })
   }, [activeFloorLayerId, visibleAutoFloorWalls])
 
@@ -3775,6 +3858,7 @@ export function useEditorPage() {
       rooms: visibleRooms,
       walls: visibleWalls,
       storyHeightMm: activeLayer?.ceilingHeightMm ?? localFloorData?.storyHeightMm ?? 3000,
+      activeFloorLayerId,
     }
   }, [
     activeFloorLayerId,
@@ -3788,6 +3872,22 @@ export function useEditorPage() {
   ])
   // IFC 기반 3D에서 파싱된 건물 층(IfcBuildingStorey) 목록
   const [ifcStoreys, setIfcStoreys] = useState<IfcStoreyInfo[]>([])
+  useLayoutEffect(() => {
+    applyIfcStoreyNameOverridesToLoadedStoreysRef.current = (overrides: Record<string, string>) => {
+      setIfcStoreys((prev) => {
+        const next = applyIfcStoreyNameOverrides(prev, overrides)
+        const changed = next.some((storey, index) => storey.name !== prev[index]?.name)
+        return changed ? next : prev
+      })
+    }
+    return () => {
+      applyIfcStoreyNameOverridesToLoadedStoreysRef.current = () => {}
+    }
+  }, [])
+  const applyCurrentIfcStoreyNameOverrides = useCallback(
+    (storeys: IfcStoreyInfo[]) => applyIfcStoreyNameOverrides(storeys, ifcStoreyNameOverrides),
+    [ifcStoreyNameOverrides],
+  )
   const validIfcStoreyIdSet = useMemo(
     () => new Set(ifcStoreys.map((storey) => storey.expressId)),
     [ifcStoreys],
@@ -4527,18 +4627,23 @@ export function useEditorPage() {
 
   /**
    * 배치된 3D 라이브러리 요소의 위치, 회전, 치수, 색상 같은 속성을 갱신한다.
-   * 층 정보가 누락된 과거 데이터는 현재 활성 층 또는 첫 번째 IFC 층으로 보정한다.
+   * 층 정보가 누락된 과거 데이터는 요소 타입/층 이름 또는 현재 활성 층 기준으로 보정한다.
    */
   const handleChangeLibraryElement = useCallback((id: string, patch: Partial<ThreeDLibraryPreset>) => {
     const target = libraryElements.find((element) => element.id === id)
     if (!target) return
     const mergedTarget = { ...target, ...patch }
+    const resolvedTargetFloorLayerId = resolveLibraryElementFloorLayerId(
+      mergedTarget,
+      floorLayers,
+      activeFloorLayerId,
+    )
     const commandElement = Number.isFinite(mergedTarget.storeyExpressId)
       ? mergedTarget
       : {
           ...mergedTarget,
           storeyExpressId: activeIfcStoreyExpressId ?? ifcStoreys[0]?.expressId ?? null,
-          floorLayerId: mergedTarget.floorLayerId ?? activeFloorLayerId ?? floorLayers[0]?.id ?? null,
+          floorLayerId: resolvedTargetFloorLayerId,
         }
     workspaceCommandPublisher.updateLibraryElement(target, commandElement)
     markLocalFloorPlanSnapshotChanged()
@@ -4547,10 +4652,15 @@ export function useEditorPage() {
         if (element.id !== id) return element
         const merged = { ...element, ...patch }
         if (Number.isFinite(merged.storeyExpressId)) return merged
+        const resolvedFloorLayerId = resolveLibraryElementFloorLayerId(
+          merged,
+          floorLayers,
+          activeFloorLayerId,
+        )
         return {
           ...merged,
           storeyExpressId: activeIfcStoreyExpressId ?? ifcStoreys[0]?.expressId ?? null,
-          floorLayerId: merged.floorLayerId ?? activeFloorLayerId ?? floorLayers[0]?.id ?? null,
+          floorLayerId: resolvedFloorLayerId,
         }
       }),
     )
@@ -4653,6 +4763,141 @@ export function useEditorPage() {
     return Array.from(affectedElementGlobalIds)
   }, [
     updateFloorLayers,
+  ])
+
+  const syncLocalFloorPlanFromThreeDTransform = useCallback((
+    element: IfcElementInfo,
+    patch: Omit<IfcElementChange, 'expressId'>,
+  ): boolean => {
+    if (currentIfcUrl) return false
+    if (element.source !== 'ifc' || typeof element.expressId === 'number') return false
+
+    let resolvedTranslationMm = toFiniteTranslationMm(patch.translationMm)
+    const nextX = typeof patch.positionX === 'number' ? patch.positionX : null
+    const nextY = typeof patch.positionY === 'number' ? patch.positionY : null
+    const nextZ = typeof patch.positionZ === 'number' ? patch.positionZ : null
+    if (
+      !resolvedTranslationMm &&
+      nextX !== null &&
+      nextY !== null &&
+      nextZ !== null &&
+      typeof element.positionX === 'number' &&
+      typeof element.positionY === 'number' &&
+      typeof element.positionZ === 'number'
+    ) {
+      resolvedTranslationMm = {
+        x: nextX - element.positionX,
+        y: element.positionZ - nextZ,
+        z: nextY - element.positionY,
+      }
+    }
+
+    const candidateIds = buildIfcElementCandidateIds(element)
+    const floorLayerIdFromElement =
+      (typeof element.properties?.FloorLayerId === 'string' && element.properties.FloorLayerId.trim()) ||
+      (typeof element.properties?.LayerId === 'string' && element.properties.LayerId.trim()) ||
+      null
+    let didSync = false
+
+    if (isIfcSpaceElement(element) && resolvedTranslationMm) {
+      const dx = resolvedTranslationMm.x / FLOOR_MM_PER_PX
+      const dy = -resolvedTranslationMm.y / FLOOR_MM_PER_PX
+      if (Math.abs(dx) >= 0.0001 || Math.abs(dy) >= 0.0001) {
+        const { floorLayers: latestFloorLayers } = floorRoomSyncStateRef.current
+        const hasTargetRoom = latestFloorLayers.some((layer) =>
+          (!floorLayerIdFromElement || layer.id === floorLayerIdFromElement) &&
+          layer.rooms.some((room) =>
+            hasCandidateId(candidateIds, resolveFloorRoomGlobalId(room), room.globalId, room.id, room.bubbleId)),
+        )
+        if (hasTargetRoom) {
+          updateFloorLayers((currentLayers) => {
+            let didUpdateRoom = false
+            const nextLayers = currentLayers.map((layer) => {
+              if (floorLayerIdFromElement && layer.id !== floorLayerIdFromElement) return layer
+              let didUpdateLayer = false
+              const nextRooms = layer.rooms.map((room) => {
+                const isTargetRoom = hasCandidateId(
+                  candidateIds,
+                  resolveFloorRoomGlobalId(room),
+                  room.globalId,
+                  room.id,
+                  room.bubbleId,
+                )
+                if (!isTargetRoom) return room
+                didUpdateRoom = true
+                didUpdateLayer = true
+                return translateFloorRoom(room, dx, dy)
+              })
+              return didUpdateLayer ? { ...layer, rooms: nextRooms } : layer
+            })
+            return didUpdateRoom ? nextLayers : currentLayers
+          })
+          didSync = true
+        }
+      }
+    }
+
+    if (isIfcWallElement(element)) {
+      const wallId = typeof element.properties?.WallId === 'string' && element.properties.WallId.trim()
+        ? element.properties.WallId.trim()
+        : element.id
+      const hasFiniteStartEnd =
+        patch.startMm &&
+        patch.endMm &&
+        Number.isFinite(patch.startMm.x) &&
+        Number.isFinite(patch.startMm.y) &&
+        Number.isFinite(patch.endMm.x) &&
+        Number.isFinite(patch.endMm.y)
+      if (wallId && resolvedTranslationMm) {
+        const dx = resolvedTranslationMm.x / FLOOR_MM_PER_PX
+        const dy = -resolvedTranslationMm.y / FLOOR_MM_PER_PX
+        if (Math.abs(dx) >= 0.0001 || Math.abs(dy) >= 0.0001) {
+          updateFloorWallFromEditable(
+            wallId,
+            (wall) => ({
+              ...wall,
+              start: { x: wall.start.x + dx, y: wall.start.y + dy },
+              end: { x: wall.end.x + dx, y: wall.end.y + dy },
+              startMm: wall.startMm
+                ? { x: wall.startMm.x + resolvedTranslationMm.x, y: wall.startMm.y - resolvedTranslationMm.y }
+                : wall.startMm,
+              endMm: wall.endMm
+                ? { x: wall.endMm.x + resolvedTranslationMm.x, y: wall.endMm.y - resolvedTranslationMm.y }
+                : wall.endMm,
+            }),
+            { floorLayerId: floorLayerIdFromElement },
+          )
+          didSync = true
+        }
+      } else if (wallId && hasFiniteStartEnd) {
+        updateFloorWallFromEditable(
+          wallId,
+          (wall) => ({
+            ...wall,
+            start: {
+              x: (patch.startMm as Point2D).x / FLOOR_MM_PER_PX,
+              y: (patch.startMm as Point2D).y / FLOOR_MM_PER_PX,
+            },
+            end: {
+              x: (patch.endMm as Point2D).x / FLOOR_MM_PER_PX,
+              y: (patch.endMm as Point2D).y / FLOOR_MM_PER_PX,
+            },
+            startMm: patch.startMm,
+            endMm: patch.endMm,
+          }),
+          { floorLayerId: floorLayerIdFromElement },
+        )
+        didSync = true
+      }
+    }
+
+    if (didSync) markLocalFloorPlanSnapshotChanged()
+    return didSync
+  }, [
+    currentIfcUrl,
+    markLocalFloorPlanSnapshotChanged,
+    updateFloorLayers,
+    updateFloorWallFromEditable,
   ])
 
   const syncFloorPlanFromIfcElementDelete = useCallback((element: IfcElementInfo): boolean => {
@@ -4893,8 +5138,9 @@ export function useEditorPage() {
         },
       }
     })
+    syncLocalFloorPlanFromThreeDTransform(element, patch)
     recordIfcElementChange(element, patch)
-  }, [recordIfcElementChange])
+  }, [recordIfcElementChange, syncLocalFloorPlanFromThreeDTransform])
 
   const handleTwoDMarqueeSelect = useCallback(
     (
@@ -6548,9 +6794,10 @@ export function useEditorPage() {
         return acc
       }, new Map<number, IfcStoreyInfo>()).values(),
     )
-    const nextStoreyIdSet = new Set(dedupedStoreys.map((storey) => storey.expressId))
-    const fallbackStoreyId = dedupedStoreys[0]?.expressId ?? null
-    setIfcStoreys(dedupedStoreys)
+    const nextStoreys = applyCurrentIfcStoreyNameOverrides(dedupedStoreys)
+    const nextStoreyIdSet = new Set(nextStoreys.map((storey) => storey.expressId))
+    const fallbackStoreyId = nextStoreys[0]?.expressId ?? null
+    setIfcStoreys(nextStoreys)
     setLibraryElements((prev) =>
       prev.map((element) => {
         const normalizedCurrent = Number.isFinite(element.storeyExpressId) ? Number(element.storeyExpressId) : null
@@ -6570,7 +6817,13 @@ export function useEditorPage() {
       })
       setOverlayIfcStoreyExpressIds((prev) => prev.filter((id) => nextStoreyIdSet.has(id)))
     }
-  }, [setIfcStoreys, setLibraryElements, setActiveIfcStoreyExpressId, setOverlayIfcStoreyExpressIds])
+  }, [
+    applyCurrentIfcStoreyNameOverrides,
+    setIfcStoreys,
+    setLibraryElements,
+    setActiveIfcStoreyExpressId,
+    setOverlayIfcStoreyExpressIds,
+  ])
 
   /** FloorViewPanel에서 IFC 층 선택 시 호출 (id는 expressId의 문자열 표현) */
   const handleSelectIfcStorey = useCallback((id: string) => {
@@ -6630,6 +6883,8 @@ export function useEditorPage() {
         storey.expressId === expressId ? { ...storey, name: trimmedName } : storey
       )),
     )
+    setIfcStoreyNameOverrides((prev) =>
+      normalizeIfcStoreyNameOverrides({ ...prev, [String(expressId)]: trimmedName }))
     markLocalFloorPlanSnapshotChanged()
   }, [markLocalFloorPlanSnapshotChanged, setIfcStoreys])
 
@@ -6669,11 +6924,16 @@ export function useEditorPage() {
     markLocalBubbleSnapshotChanged,
   ])
 
+  const registryFloorRooms = useMemo(
+    () => (floorLayers.length > 0 ? floorLayers.flatMap((layer) => layer.rooms) : floorRooms),
+    [floorLayers, floorRooms],
+  )
+
   const elementRegistry = useMemo(
     () => buildElementRegistry({
       ifcStoreys,
       floorLayers,
-      floorRooms,
+      floorRooms: registryFloorRooms,
       floorWalls: mergedFloorWalls,
       floorOpenings: mergedFloorOpenings,
       libraryElements,
@@ -6692,7 +6952,6 @@ export function useEditorPage() {
       activeFloorLayerId,
       activeIfcStoreyExpressId,
       floorLayers,
-      floorRooms,
       hiddenElementIds,
       ifcElementChanges,
       ifcStoreys,
@@ -6701,6 +6960,7 @@ export function useEditorPage() {
       mergedFloorOpenings,
       overlayIfcStoreyExpressIds,
       overlayLayerIds,
+      registryFloorRooms,
       selectedFloorOpeningId,
       selectedFloorWallId,
       selectedId,
@@ -6743,13 +7003,19 @@ export function useEditorPage() {
             storeyExpressId === activeIfcStoreyExpressId ||
             overlayIfcSet.has(storeyExpressId)
         }
-        if (!element.floorLayerId || !activeFloorLayerId) return true
-        return element.floorLayerId === activeFloorLayerId || overlayFloorSet.has(element.floorLayerId)
+        const resolvedFloorLayerId = resolveLibraryElementFloorLayerId(
+          element,
+          floorLayers,
+          activeFloorLayerId,
+        )
+        if (!resolvedFloorLayerId || !activeFloorLayerId) return true
+        return resolvedFloorLayerId === activeFloorLayerId || overlayFloorSet.has(resolvedFloorLayerId)
       })
     },
     [
       activeFloorLayerId,
       activeIfcStoreyExpressId,
+      floorLayers,
       hiddenElementIds,
       libraryElements,
       overlayIfcStoreyExpressIds,

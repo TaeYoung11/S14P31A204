@@ -30,6 +30,7 @@ export interface FloorPlanSnapshotPayload {
     overlayIfcStoreyExpressIds?: WorkspaceSnapshot['overlayIfcStoreyExpressIds']
     overlayFloorLayerIds?: WorkspaceSnapshot['overlayFloorLayerIds']
     hiddenElementIds?: WorkspaceSnapshot['hiddenElementIds']
+    ifcStoreyNameOverrides?: WorkspaceSnapshot['ifcStoreyNameOverrides']
   }
 }
 

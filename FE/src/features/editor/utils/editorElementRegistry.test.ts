@@ -28,6 +28,33 @@ describe('editorElementRegistry floor and hierarchy sync', () => {
     )
   })
 
+  it('keeps 2D rooms from every floor in the common registry', () => {
+    const registry = buildElementRegistry({
+      floorLayers: [
+        {
+          id: 'floor-1',
+          name: '1F',
+          rooms: [{ id: 'room-1', bubbleId: 'bubble-1', label: 'Room 1', type: 'room' }],
+        },
+        {
+          id: 'floor-2',
+          name: '2F',
+          rooms: [{ id: 'room-2', bubbleId: 'bubble-2', label: 'Room 2', type: 'room' }],
+        },
+      ] as FloorLayer[],
+      floorRooms: [
+        { id: 'room-1', bubbleId: 'bubble-1', label: 'Room 1', type: 'room' },
+        { id: 'room-2', bubbleId: 'bubble-2', label: 'Room 2', type: 'room' },
+      ] as FloorLayer['rooms'],
+      activeFloorLayerId: 'floor-1',
+    })
+
+    expect(registry.elements.map((element) => element.elementId)).toEqual(
+      expect.arrayContaining(['2d:room:bubble-1', '2d:room:bubble-2']),
+    )
+    expect(registry.elements.find((element) => element.elementId === '2d:room:bubble-2')?.floorId).toBe('floor-2')
+  })
+
   it('maps library elements to 2D floor layers when no IFC storey is assigned', () => {
     const registry = buildElementRegistry({
       floorLayers: [{ id: 'floor-2', name: '2F', rooms: [] }] as FloorLayer[],

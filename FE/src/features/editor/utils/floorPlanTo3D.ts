@@ -16,6 +16,7 @@ export interface FloorPlan3DData {
   rooms: FloorRoom[]
   walls: FloorWall[]
   storyHeightMm: number
+  activeFloorLayerId?: string | null
 }
 
 const ROOM_COLOR_PALETTE = [
@@ -39,6 +40,7 @@ export function buildFloorPlan3DGroup(
 ): import('three').Group {
   const group = new THREE.Group()
   const { rooms, walls, storyHeightMm } = data
+  const activeFloorLayerId = data.activeFloorLayerId ?? null
   const wallHeightWorld = storyHeightMm * MM_TO_WORLD
 
   // ── 방(Room) 박스 ──
@@ -73,6 +75,7 @@ export function buildFloorPlan3DGroup(
       properties: {
         RoomId: room.id,
         BubbleId: room.bubbleId,
+        ...(activeFloorLayerId ? { FloorLayerId: activeFloorLayerId } : {}),
         ...(room.globalId ? { GlobalId: room.globalId } : {}),
         Category: 'Space',
         Class: 'IfcSpace',
@@ -161,6 +164,7 @@ export function buildFloorPlan3DGroup(
       : wall.type === 'partition'
         ? 'Interior wall'
         : 'Wall'
+    const wallFloorLayerId = wall.floorLayerId ?? activeFloorLayerId ?? null
     mesh.userData.floorPlanElement = {
       id: wall.id,
       name: wallCategory,
@@ -174,6 +178,7 @@ export function buildFloorPlan3DGroup(
       rotationY: -(Math.atan2(dz, dx) * 180) / Math.PI,
       properties: {
         WallId: wall.id,
+        ...(wallFloorLayerId ? { FloorLayerId: wallFloorLayerId } : {}),
         ...(wall.globalId ? { GlobalId: wall.globalId } : {}),
         Category: wallCategory,
         Class: wall.type === 'exterior' ? 'IfcWallStandardCase' : 'IfcWall',

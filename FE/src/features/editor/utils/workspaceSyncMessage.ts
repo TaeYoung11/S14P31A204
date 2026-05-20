@@ -39,6 +39,7 @@ export interface FloorPlanSnapshotPayload extends BubbleSnapshotPayload {
     overlayIfcStoreyExpressIds?: number[]
     overlayFloorLayerIds?: string[]
     hiddenElementIds?: string[]
+    ifcStoreyNameOverrides?: Record<string, string>
     mode?: 'ifc' | string
     baseIndex?: number
   } | null
