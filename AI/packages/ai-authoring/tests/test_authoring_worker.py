@@ -309,6 +309,48 @@ def test_authoring_worker_applies_space_and_direction_selector(tmp_path: Path):
     assert _property_labels(same_direction_other_space).get("Color") != target_color
 
 
+@pytest.mark.parametrize(
+    ("ifc_class", "expected_propagation"),
+    [("IfcWall", False), ("IfcRoof", True)],
+)
+def test_authoring_worker_limits_roof_appearance_propagation_to_roofs(
+    monkeypatch,
+    ifc_class: str,
+    expected_propagation: bool,
+):
+    calls: list[dict[str, object]] = []
+
+    def fake_modify_color(*args: object, **kwargs: object) -> bool:
+        del args
+        calls.append(dict(kwargs))
+        return True
+
+    monkeypatch.setattr(worker_module, "modify_color", fake_modify_color)
+    model = ifcopenshell.file(schema="IFC4")
+    product = model.create_entity(
+        ifc_class,
+        GlobalId=ifcopenshell.guid.new(),
+        Name=f"Test {ifc_class}",
+    )
+    worker, _ = _make_worker(b"")
+
+    result = worker._apply_operation(
+        model,
+        "op-roof-propagation",
+        "update_element_properties",
+        {"global_ids": [product.GlobalId]},
+        {"color": "#3B82F6", "propagate_roof_appearance": True},
+    )
+
+    assert result["status"] == "applied"
+    assert calls == [
+        {
+            "propagate_mapped_sources": expected_propagation,
+            "propagate_roof_descendants": expected_propagation,
+        }
+    ]
+
+
 def test_authoring_worker_keeps_candidates_when_optional_selector_has_no_ifc_match():
     root_dir = Path(__file__).resolve().parents[3]
     ifc_path = root_dir / "tests" / "sample_batang.ifc"
