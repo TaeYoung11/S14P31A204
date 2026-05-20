@@ -659,6 +659,16 @@ class LLM3DEngine:
         if LLM3DEngine._has_contextual_target_reference(text):
             return False
 
+        partial_context_patterns = (
+            r"\ud558\ub098|\uc77c\ubd80|\uba87\s*\uac1c|\ud2b9\uc815|\ubd80\ubd84",
+            r"\uc544\ub798|\ubc11|\ud558\ubd80|\uadfc\ucc98|\uc8fc\ubcc0|\uc606|\uc704",
+            r"\ubcbd|\bwall\b",
+            r"\bone\b|\bsome\b|\bpartial\b|\bspecific\b",
+            r"\bunder\b|\bbelow\b|\bnear\b|\bnext\s+to\b",
+        )
+        if any(re.search(pattern, text, re.IGNORECASE) for pattern in partial_context_patterns):
+            return False
+
         selector_patterns = (
             r"\bRF\b",
             r"\brooftop\b",
