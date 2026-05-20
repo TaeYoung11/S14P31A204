@@ -41,6 +41,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -286,6 +287,76 @@ class IfcEditApplyEventListenerTest {
                 sourceSceneCaptor.capture()
         );
         assertThat(sourceSceneCaptor.getValue().get("baseIndex").asInt()).isEqualTo(1);
+    }
+
+    @Test
+    void handleCompleted_directIfcEditJob_mergesWorkerFloorProjectIntoFloorPlanSyncPayload() throws Exception {
+        String ifcUrl = "projects/" + projectId + "/revisions/" + revisionId + "/ifc/model.v1.ifc";
+        Map<String, Object> floorProject = Map.of(
+                "id", projectId.toString(),
+                "name", "Latest IFC Floor Plan",
+                "created_at", "2026-05-20T00:00:00Z",
+                "updated_at", "2026-05-20T00:00:00Z",
+                "unit", "mm",
+                "floors", List.of(Map.of(
+                        "id", "storey-1",
+                        "number", 1,
+                        "name", "1F",
+                        "elevation", 0,
+                        "ceiling_height", 2700
+                )),
+                "rooms", List.of(),
+                "adjacency", List.of(),
+                "walls", List.of(),
+                "openings", List.of()
+        );
+        IfcEditEventMessage event = completedEvent(Map.of(
+                "storage_url", ifcUrl,
+                "floor_plan_project", floorProject
+        ));
+        UUID sourceRevisionId = UUID.randomUUID();
+        var sourceScene = objectMapper.readTree("""
+                {
+                  "baseIndex": 2,
+                  "bubbles": [],
+                  "connections": [],
+                  "layout": {"message": "old-layout"}
+                }
+                """);
+
+        var requestPayload = objectMapper.createObjectNode();
+        requestPayload.set("sourceScenePayload", sourceScene);
+
+        IfcEditJob directJob = IfcEditJob.createQueued(
+                jobId, projectId, UUID.randomUUID(), null, sourceRevisionId,
+                "IFC_MODEL", JOB_TYPE_IFC_EDIT,
+                requestPayload,
+                LocalDateTime.now()
+        );
+
+        given(ifcEditJobRepository.findByJobId(jobId)).willReturn(Optional.of(directJob));
+        given(ifcEditJobStepRepository.findByJobStepIdAndJobId(jobStepId, jobId)).willReturn(Optional.of(step));
+        given(revisionRepository.findById(revisionId)).willReturn(Optional.of(revision));
+        given(ifcEditArtifactRepository.findByArtifactId(artifactId)).willReturn(Optional.empty());
+        given(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).willReturn(Optional.of(project));
+        given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId)).willReturn(Optional.of(workspace));
+
+        listener.handle(event);
+
+        ArgumentCaptor<com.fasterxml.jackson.databind.JsonNode> sourceSceneCaptor =
+                ArgumentCaptor.forClass(com.fasterxml.jackson.databind.JsonNode.class);
+        verify(workspaceFloorPlanRealtimeService).publishFloorPlanUpdatedFromIfcEdit(
+                eq(projectId),
+                eq(revisionId),
+                eq(sourceRevisionId),
+                eq(ifcUrl),
+                sourceSceneCaptor.capture()
+        );
+        assertThat(sourceSceneCaptor.getValue().get("baseIndex").asInt()).isEqualTo(2);
+        assertThat(sourceSceneCaptor.getValue().get("layout").get("message").asText()).isEqualTo("old-layout");
+        assertThat(sourceSceneCaptor.getValue().get("floorProject").get("unit").asText()).isEqualTo("mm");
+        assertThat(sourceSceneCaptor.getValue().get("floorProject").get("floors").get(0).get("id").asText())
+                .isEqualTo("storey-1");
     }
 
     @Test
@@ -576,6 +647,10 @@ class IfcEditApplyEventListenerTest {
                 : validationReportStorageUrl == null
                 ? Map.of("storage_url", storageUrl)
                 : Map.of("storage_url", storageUrl, "validation_report_storage_url", validationReportStorageUrl);
+        return buildEvent(EVENT_IFC_EDIT_APPLY_COMPLETED, output, null, 1.0);
+    }
+
+    private IfcEditEventMessage completedEvent(Map<String, Object> output) {
         return buildEvent(EVENT_IFC_EDIT_APPLY_COMPLETED, output, null, 1.0);
     }
 
