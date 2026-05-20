@@ -390,6 +390,75 @@ class IfcEditApplyEventListenerTest {
     }
 
     @Test
+    void handleCompleted_withoutSourceScene_usesWorkerFloorProjectWhenAvailable() {
+        String ifcUrl = "projects/" + projectId + "/revisions/" + revisionId + "/ifc/model.v1.ifc";
+        Map<String, Object> floorProject = Map.of(
+                "id", projectId.toString(),
+                "name", "Latest IFC Floor Plan",
+                "created_at", "2026-05-20T00:00:00Z",
+                "updated_at", "2026-05-20T00:00:00Z",
+                "unit", "mm",
+                "floors", List.of(Map.of(
+                        "id", "storey-1",
+                        "number", 1,
+                        "name", "1F",
+                        "elevation", 0,
+                        "ceiling_height", 2700
+                )),
+                "rooms", List.of(Map.of(
+                        "id", "room-1",
+                        "name", "Room",
+                        "type", "bedroom",
+                        "floor", "storey-1",
+                        "polygon", List.of(
+                                Map.of("x", 0, "y", 0),
+                                Map.of("x", 4000, "y", 0),
+                                Map.of("x", 4000, "y", 3000),
+                                Map.of("x", 0, "y", 3000)
+                        )
+                )),
+                "adjacency", List.of(),
+                "walls", List.of(),
+                "openings", List.of()
+        );
+        IfcEditEventMessage event = completedEvent(Map.of(
+                "storage_url", ifcUrl,
+                "floor_plan_project", floorProject
+        ));
+        UUID sourceRevisionId = UUID.randomUUID();
+
+        IfcEditJob directJob = IfcEditJob.createQueued(
+                jobId, projectId, UUID.randomUUID(), null, sourceRevisionId,
+                "IFC_MODEL", JOB_TYPE_IFC_EDIT,
+                objectMapper.createObjectNode(),
+                LocalDateTime.now()
+        );
+
+        given(ifcEditJobRepository.findByJobId(jobId)).willReturn(Optional.of(directJob));
+        given(ifcEditJobStepRepository.findByJobStepIdAndJobId(jobStepId, jobId)).willReturn(Optional.of(step));
+        given(revisionRepository.findById(revisionId)).willReturn(Optional.of(revision));
+        given(ifcEditArtifactRepository.findByArtifactId(artifactId)).willReturn(Optional.empty());
+        given(projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)).willReturn(Optional.of(project));
+        given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId)).willReturn(Optional.of(workspace));
+
+        listener.handle(event);
+
+        ArgumentCaptor<com.fasterxml.jackson.databind.JsonNode> payloadCaptor =
+                ArgumentCaptor.forClass(com.fasterxml.jackson.databind.JsonNode.class);
+        verify(workspaceFloorPlanRealtimeService).publishFloorPlanUpdatedFromIfcEdit(
+                eq(projectId),
+                eq(revisionId),
+                eq(sourceRevisionId),
+                eq(ifcUrl),
+                payloadCaptor.capture()
+        );
+        verify(workspaceFloorPlanRealtimeService, never()).publishFloorPlanUpdatedFromGenerate(any(), any(), any(), anyString());
+        assertThat(payloadCaptor.getValue().get("baseIndex").asInt()).isEqualTo(-1);
+        assertThat(payloadCaptor.getValue().get("floorProject").get("rooms").get(0).get("id").asText())
+                .isEqualTo("room-1");
+    }
+
+    @Test
     void handleCompleted_savesIfcArtifactOnlyWhenValidationReportMissing() {
         String ifcUrl = "projects/" + projectId + "/revisions/" + revisionId + "/ifc/model.v1.ifc";
         IfcEditEventMessage event = completedEvent(ifcUrl, null);

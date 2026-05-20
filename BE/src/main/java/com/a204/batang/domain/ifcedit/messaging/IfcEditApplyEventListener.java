@@ -511,7 +511,18 @@ public class IfcEditApplyEventListener {
     ) {
         JsonNode sourceScenePayload = resolveFloorPlanSourcePayload(job);
         try {
+            JsonNode workerFloorProject = extractWorkerFloorProject(eventOutput);
             if (sourceScenePayload == null) {
+                if (isFloorProjectPayload(workerFloorProject)) {
+                    workspaceFloorPlanRealtimeService.publishFloorPlanUpdatedFromIfcEdit(
+                            job.getProjectId(),
+                            revision.getRevisionId(),
+                            job.getSourceRevisionId(),
+                            ifcUrl,
+                            buildWorkerFloorProjectPayload(workerFloorProject)
+                    );
+                    return;
+                }
                 workspaceFloorPlanRealtimeService.publishFloorPlanUpdatedFromGenerate(
                         job.getProjectId(),
                         revision.getRevisionId(),
@@ -521,7 +532,7 @@ public class IfcEditApplyEventListener {
                 return;
             }
 
-            JsonNode syncPayload = mergeWorkerFloorProject(sourceScenePayload, extractWorkerFloorProject(eventOutput));
+            JsonNode syncPayload = mergeWorkerFloorProject(sourceScenePayload, workerFloorProject);
             workspaceFloorPlanRealtimeService.publishFloorPlanUpdatedFromIfcEdit(
                     job.getProjectId(),
                     revision.getRevisionId(),
@@ -558,6 +569,17 @@ public class IfcEditApplyEventListener {
             return sourceScenePayload;
         }
         ObjectNode payload = sourceScenePayload.deepCopy();
+        payload.set("floorProject", floorProject);
+        return payload;
+    }
+
+    private JsonNode buildWorkerFloorProjectPayload(JsonNode floorProject) {
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("baseIndex", -1);
+        payload.set("bubbles", objectMapper.createArrayNode());
+        payload.set("connections", objectMapper.createArrayNode());
+        payload.putNull("floorMeta");
+        payload.putNull("layout");
         payload.set("floorProject", floorProject);
         return payload;
     }
