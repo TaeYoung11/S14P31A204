@@ -20,6 +20,7 @@ import type {
 } from '../../types'
 import { FLOOR_MM_PER_PX } from '../../constants'
 import { patchIfcTextForMaterialDefaults } from '../../services/ifcChange.service'
+import { captureCanvasWithBackground } from '../../utils/canvasPreviewCapture'
 import type { ThreeDLibraryDropRequest, ThreeDLibraryPreset } from './threeDLibrary.types'
 import {
   PRESETS,
@@ -180,6 +181,7 @@ interface ThatOpenIfcCanvasProps {
   transformSnapEnabled?: boolean
   transformSnapIntervalMm?: number
   isEditingLocked?: boolean
+  onPreviewCapture?: (imageUrl: string) => void
 }
 
 const syncTransformControlAxisVisibility = (
@@ -277,6 +279,10 @@ const IFC_SAVE_DEBOUNCE_MS = 1200
 const IFC_SAVE_MAX_POSTPONE_MS = 6000
 const IFC_COMMIT_QUEUE_DELAY_MS = 0
 const IFC_COMMIT_QUIET_WINDOW_MS = 0
+const IFC_COMMIT_INFLIGHT_RETRY_MS = 250
+const IFC_COMMIT_INFLIGHT_STALE_RECOVERY_MS = 1500
+const IFC_COMMIT_INFLIGHT_TIMEOUT_MS = 35_000
+const SPACE_TRANSFORM_DEDUP_LIMIT = 128
 const DELTA_MODEL_TOKEN = '-DELTA-MODEL-'
 const LEGACY_DELTA_MODEL_TOKEN = '-DELTADEL-'
 const containsAllIds = (allIds: number[], subset: number[]) => {
@@ -320,6 +326,16 @@ const traceIfcMove = (event: string, payload?: Record<string, unknown>) => {
   }
 }
 const IFC_MOVE_BUILD_MARKER = 'ifc-move-debug-build-2026-05-11-09'
+const rememberBoundedSetValue = (set: Set<string>, value: string, limit: number) => {
+  set.add(value)
+  if (set.size <= limit) return
+  const oldest = set.keys().next().value
+  if (oldest !== undefined) set.delete(oldest)
+}
+const isIfcSpaceElementInfo = (element?: IfcElementInfo | null) => (
+  element?.ifcClass?.toLowerCase() === 'ifcspace' ||
+  element?.category?.toLowerCase() === 'space'
+)
 const TRANSFORM_GIZMO_AXIS_NAMES = new Set([
   'X', 'Y', 'Z', 'E',
   'XY', 'YZ', 'XZ',
@@ -384,6 +400,166 @@ const updateTransformControlsIfSupported = (transformControls: unknown) => {
   }
 }
 
+const PREVIEW_CAMERA_FOV = 45
+const PREVIEW_CAMERA_MARGIN = 1.08
+const PREVIEW_CAMERA_MIN_DISTANCE = 1
+
+const getPreviewCanvasAspect = (canvas: HTMLCanvasElement): number => {
+  const width = canvas.width || canvas.clientWidth || 1
+  const height = canvas.height || canvas.clientHeight || 1
+  return Math.max(width / height, 0.01)
+}
+
+const getPreviewCameraFit = (
+  THREE: ThreeModule,
+  box: import('three').Box3,
+  aspect: number,
+  fovDegrees: number,
+): {
+  center: import('three').Vector3
+  direction: import('three').Vector3
+  up: import('three').Vector3
+  distance: number
+  fitSize: number
+} => {
+  const center = new THREE.Vector3()
+  const size = new THREE.Vector3()
+  box.getCenter(center)
+  box.getSize(size)
+
+  const direction = new THREE.Vector3(1, 0.65, 1).normalize()
+  const worldUp = new THREE.Vector3(0, 1, 0)
+  const right = new THREE.Vector3().crossVectors(worldUp, direction)
+  if (right.lengthSq() < 0.000001) {
+    right.set(1, 0, 0)
+  } else {
+    right.normalize()
+  }
+  const up = new THREE.Vector3().crossVectors(direction, right).normalize()
+
+  const halfVerticalFov = (fovDegrees * Math.PI) / 360
+  const halfHorizontalFov = Math.atan(Math.tan(halfVerticalFov) * Math.max(aspect, 0.01))
+  const tanVertical = Math.max(Math.tan(halfVerticalFov), 0.000001)
+  const tanHorizontal = Math.max(Math.tan(halfHorizontalFov), 0.000001)
+  const min = box.min
+  const max = box.max
+  const corners = [
+    new THREE.Vector3(min.x, min.y, min.z),
+    new THREE.Vector3(min.x, min.y, max.z),
+    new THREE.Vector3(min.x, max.y, min.z),
+    new THREE.Vector3(min.x, max.y, max.z),
+    new THREE.Vector3(max.x, min.y, min.z),
+    new THREE.Vector3(max.x, min.y, max.z),
+    new THREE.Vector3(max.x, max.y, min.z),
+    new THREE.Vector3(max.x, max.y, max.z),
+  ]
+
+  let distance = PREVIEW_CAMERA_MIN_DISTANCE
+  corners.forEach((corner) => {
+    const relative = corner.sub(center)
+    const depthTowardCamera = relative.dot(direction)
+    distance = Math.max(
+      distance,
+      Math.abs(relative.dot(right)) / tanHorizontal + depthTowardCamera,
+      Math.abs(relative.dot(up)) / tanVertical + depthTowardCamera,
+    )
+  })
+
+  const fitSize = Math.max(size.x, size.y, size.z, size.length(), PREVIEW_CAMERA_MIN_DISTANCE)
+  return {
+    center,
+    direction,
+    up,
+    distance: Math.max(distance * PREVIEW_CAMERA_MARGIN, PREVIEW_CAMERA_MIN_DISTANCE),
+    fitSize,
+  }
+}
+
+const captureFocusedIfcPreview = (sceneState: ThatOpenSceneState, focusObjects: Object3D[]): string | null => {
+  const { three: THREE, camera, renderer, scene } = sceneState
+  if (focusObjects.length === 0) return null
+  const previewCamera = camera as typeof camera & {
+    lookAt?: (target: import('three').Vector3) => void
+    position: import('three').Vector3
+    rotation: import('three').Euler
+    up: import('three').Vector3
+    near?: number
+    far?: number
+    fov?: number
+    aspect?: number
+    updateProjectionMatrix?: () => void
+  }
+
+  const previousPosition = previewCamera.position.clone()
+  const previousRotation = previewCamera.rotation.clone()
+  const previousUp = previewCamera.up.clone()
+  const previousNear = previewCamera.near
+  const previousFar = previewCamera.far
+  const previousFov = previewCamera.fov
+  const previousAspect = previewCamera.aspect
+
+  try {
+    const box = new THREE.Box3()
+    focusObjects.forEach((object) => {
+      object.updateMatrixWorld(true)
+      box.expandByObject(object)
+    })
+    if (box.isEmpty()) return null
+
+    const previewFov = PREVIEW_CAMERA_FOV
+    const fit = getPreviewCameraFit(THREE, box, getPreviewCanvasAspect(renderer.domElement), previewFov)
+
+    previewCamera.position.copy(fit.center).addScaledVector(fit.direction, fit.distance)
+    previewCamera.up.copy(fit.up)
+    if (typeof previewCamera.fov === 'number') {
+      previewCamera.fov = previewFov
+    }
+    if (typeof previewCamera.aspect === 'number') {
+      previewCamera.aspect = getPreviewCanvasAspect(renderer.domElement)
+    }
+    previewCamera.near = 0.01
+    previewCamera.far = Math.max(fit.distance + fit.fitSize * 3, 1000)
+    previewCamera.lookAt?.(fit.center)
+    previewCamera.updateProjectionMatrix?.()
+    renderer.setClearColor('#f0f2f9', 1)
+    renderer.render(scene, camera as import('three').PerspectiveCamera)
+    return captureCanvasWithBackground(renderer.domElement, {
+      backgroundColor: '#f0f2f9',
+      quality: 0.92,
+    })
+  } finally {
+    previewCamera.position.copy(previousPosition)
+    previewCamera.rotation.copy(previousRotation)
+    previewCamera.up.copy(previousUp)
+    if (typeof previousNear === 'number') previewCamera.near = previousNear
+    if (typeof previousFar === 'number') previewCamera.far = previousFar
+    if (typeof previousFov === 'number') previewCamera.fov = previousFov
+    if (typeof previousAspect === 'number') previewCamera.aspect = previousAspect
+    previewCamera.updateProjectionMatrix?.()
+    renderer.render(scene, camera as import('three').PerspectiveCamera)
+  }
+}
+
+const canUpdateLibraryPresetInPlace = (
+  current: ThreeDLibraryPreset | undefined,
+  next: ThreeDLibraryPreset,
+): current is ThreeDLibraryPreset => {
+  if (!current) return false
+  return (
+    current.id === next.id &&
+    current.type === next.type &&
+    current.material === next.material &&
+    current.color === next.color &&
+    current.lengthMm === next.lengthMm &&
+    current.heightMm === next.heightMm &&
+    current.thicknessMm === next.thicknessMm &&
+    current.roofShape === next.roofShape &&
+    current.assetIfc === next.assetIfc &&
+    current.assetIfcUrl === next.assetIfcUrl &&
+    current.sourceAssetId === next.sourceAssetId
+  )
+}
+
 export default function ThatOpenIfcCanvas({
   ifcUrl,
   projectId,
@@ -422,6 +598,7 @@ export default function ThatOpenIfcCanvas({
   onResolveLibraryDrop,
   cameraViewPresetCommand,
   isEditingLocked = false,
+  onPreviewCapture,
 }: ThatOpenIfcCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [ifcLibraryManifest, setIfcLibraryManifest] = useState<IfcLibraryManifest | null>(null)
@@ -2686,11 +2863,56 @@ export default function ThatOpenIfcCanvas({
         let transformPointerActiveSince = 0
         let lastTransformAxis: string | null = null
         let lastDragStartPosition: { x: number; y: number; z: number } | null = null
+        let lastDragStartWorldPosition: { x: number; y: number; z: number } | null = null
         let lastDragStartRotation: { x: number; y: number; z: number } | null = null
         let lastDragStartWorldRotation: { x: number; y: number; z: number } | null = null
         let lastDragStartWorldQuaternion: { x: number; y: number; z: number; w: number } | null = null
         let isTransformDragging = false
         let activeDragSessionId: string | null = null
+        const emittedTransformSessionIds = new Set<string>()
+        const emittedTransformTargetKeys = new Set<string>()
+        const emitTranslateTransformCommitFromDragEnd = (
+          target: Extract<Selected3DTarget, { source: 'ifc' }>,
+          _reason: string,
+        ): boolean => {
+          if (transformModeRef.current !== 'translate') return false
+          const activeScene = sceneRef.current
+          const editable = target.object as IfcEditableObject3D | undefined
+          const element = editable?.userData.ifcEditTarget?.element
+          if (!activeScene || !editable || !element) return false
+          if (!lastDragStartWorldPosition || activeScene.worldUnitsPerMm <= 0) return false
+
+          const worldPosition = new activeScene.three.Vector3()
+          editable.getWorldPosition(worldPosition)
+          const translationMm = {
+            x: (worldPosition.x - lastDragStartWorldPosition.x) / activeScene.worldUnitsPerMm,
+            y: (lastDragStartWorldPosition.z - worldPosition.z) / activeScene.worldUnitsPerMm,
+            z: (worldPosition.y - lastDragStartWorldPosition.y) / activeScene.worldUnitsPerMm,
+          }
+          const hasTranslation =
+            Math.abs(translationMm.x) > 1e-6 ||
+            Math.abs(translationMm.y) > 1e-6 ||
+            Math.abs(translationMm.z) > 1e-6
+          if (!hasTranslation) return false
+
+          const sessionId = activeDragSessionId
+          const targetKey = getIfcMoveTargetKey(target.modelId, target.localId)
+          if (sessionId && emittedTransformSessionIds.has(sessionId)) return false
+          if (emittedTransformTargetKeys.has(targetKey)) return false
+          if (sessionId) {
+            rememberBoundedSetValue(emittedTransformSessionIds, sessionId, SPACE_TRANSFORM_DEDUP_LIMIT)
+          }
+          rememberBoundedSetValue(emittedTransformTargetKeys, targetKey, SPACE_TRANSFORM_DEDUP_LIMIT)
+
+          const patch = {
+            positionX: worldPosition.x,
+            positionY: worldPosition.y,
+            positionZ: worldPosition.z,
+            translationMm,
+          }
+          onIfcElementTransformCommitRef.current?.(element, patch)
+          return true
+        }
         const safelyAttachTransformControls = async (
           activeScene: ThatOpenSceneState,
           target: Selected3DTarget,
@@ -2978,6 +3200,7 @@ export default function ThatOpenIfcCanvas({
           } finally {
             ifcCommitInFlightRef.current = false
             lastDragStartPosition = null
+            lastDragStartWorldPosition = null
             lastDragStartRotation = null
             lastDragStartWorldRotation = null
             lastDragStartWorldQuaternion = null
@@ -3064,15 +3287,60 @@ export default function ThatOpenIfcCanvas({
               return
             }
             if (ifcCommitInFlightRef.current) {
-              logIfcMove('commit_queue_defer_inflight', {
-                token,
-                modelId: selectedTarget.modelId,
-                localId: selectedTarget.localId,
-              })
-              pendingIfcCommitTimer = window.setTimeout(() => {
-                void runQueuedIfcCommit(token)
-              }, 120)
-              return
+              const stuckLatencyMs = lastIfcDragEndAt > 0
+                ? performance.now() - lastIfcDragEndAt
+                : 0
+              if (stuckLatencyMs > IFC_COMMIT_INFLIGHT_TIMEOUT_MS) {
+                logIfcMove('commit_queue_timeout_inflight', {
+                  token,
+                  modelId: selectedTarget.modelId,
+                  localId: selectedTarget.localId,
+                  stuckLatencyMs,
+                  timeoutMs: IFC_COMMIT_INFLIGHT_TIMEOUT_MS,
+                })
+                pendingIfcCommitTimer = null
+                if (queuedSessionId) {
+                  dispatchTransformRuntimeAction(
+                    {
+                      type: 'COMMIT_FAIL',
+                      transformSessionId: queuedSessionId,
+                      message: 'Previous IFC commit is still in flight.',
+                    },
+                    'runQueuedIfcCommit_inflight_timeout',
+                  )
+                  dispatchTransformRuntimeAction(
+                    { type: 'CLEANUP', transformSessionId: queuedSessionId },
+                    'runQueuedIfcCommit_inflight_timeout_cleanup',
+                  )
+                  if (activeDragSessionId === queuedSessionId) activeDragSessionId = null
+                }
+                pendingCommitSessionByToken.delete(token)
+                showIfcEditFeedback('error', '이전 3D 편집 저장이 아직 완료되지 않았습니다. 잠시 후 다시 시도해 주세요.')
+                return
+              } else if (stuckLatencyMs > IFC_COMMIT_INFLIGHT_STALE_RECOVERY_MS) {
+                logIfcMove('commit_queue_recover_stale_local_inflight', {
+                  token,
+                  modelId: selectedTarget.modelId,
+                  localId: selectedTarget.localId,
+                  stuckLatencyMs,
+                  recoveryMs: IFC_COMMIT_INFLIGHT_STALE_RECOVERY_MS,
+                  movePhase: ifcMoveLifecycleRef.current.phase,
+                })
+                ifcCommitInFlightRef.current = false
+              } else {
+                logIfcMove('commit_queue_defer_inflight', {
+                  token,
+                  modelId: selectedTarget.modelId,
+                  localId: selectedTarget.localId,
+                  stuckLatencyMs,
+                  retryMs: IFC_COMMIT_INFLIGHT_RETRY_MS,
+                })
+                pendingIfcCommitTimer = window.setTimeout(() => {
+                  pendingIfcCommitTimer = null
+                  void runQueuedIfcCommit(token)
+                }, IFC_COMMIT_INFLIGHT_RETRY_MS)
+                return
+              }
             }
             ifcCommitInFlightRef.current = true
             try {
@@ -3143,16 +3411,16 @@ export default function ThatOpenIfcCanvas({
                     ? toIfcRotationAxisAngle(deltaTransform?.quaternion ?? fallbackDeltaQuaternion)
                     : null
                   const persistedRotationDegrees = {}
-                  const translationMm = lastDragStartPosition && activeScene.worldUnitsPerMm > 0
+                  const translationMm = lastDragStartWorldPosition && activeScene.worldUnitsPerMm > 0
                     ? {
-                        x: (worldPosition.x - lastDragStartPosition.x) / activeScene.worldUnitsPerMm,
-                        y: (worldPosition.z - lastDragStartPosition.z) / activeScene.worldUnitsPerMm,
-                        z: (worldPosition.y - lastDragStartPosition.y) / activeScene.worldUnitsPerMm,
+                        x: (worldPosition.x - lastDragStartWorldPosition.x) / activeScene.worldUnitsPerMm,
+                        y: (lastDragStartWorldPosition.z - worldPosition.z) / activeScene.worldUnitsPerMm,
+                        z: (worldPosition.y - lastDragStartWorldPosition.y) / activeScene.worldUnitsPerMm,
                       }
                     : deltaTransform && activeScene.worldUnitsPerMm > 0
                     ? {
                         x: deltaTransform.position.x / activeScene.worldUnitsPerMm,
-                        y: deltaTransform.position.z / activeScene.worldUnitsPerMm,
+                        y: -deltaTransform.position.z / activeScene.worldUnitsPerMm,
                         z: deltaTransform.position.y / activeScene.worldUnitsPerMm,
                       }
                     : undefined
@@ -3216,14 +3484,54 @@ export default function ThatOpenIfcCanvas({
                       positionY: worldPosition.y,
                       positionZ: worldPosition.z,
                       translationMm,
-                      rotationX,
-                      rotationY,
-                      rotationZ,
-                      rotationDegrees: persistedRotationDegrees,
-                      rotationAxisAngle: persistedRotationAxisAngle ?? undefined,
+                      ...(currentTransformMode === 'translate'
+                        ? {}
+                        : {
+                            rotationX,
+                            rotationY,
+                            rotationZ,
+                            rotationDegrees: persistedRotationDegrees,
+                            rotationAxisAngle: persistedRotationAxisAngle ?? undefined,
+                          }),
                     },
                   }
                 })()
+                const transformCommitTargetKey =
+                  transformCommit && selectedTarget.source === 'ifc'
+                    ? getIfcMoveTargetKey(selectedTarget.modelId, selectedTarget.localId)
+                    : null
+                let didEmitTransformCommit = Boolean(
+                  queuedSessionId &&
+                  emittedTransformSessionIds.has(queuedSessionId),
+                ) || Boolean(
+                  transformCommitTargetKey &&
+                  emittedTransformTargetKeys.has(transformCommitTargetKey),
+                )
+                const emitTransformCommit = (_reason: string) => {
+                  if (!transformCommit || didEmitTransformCommit) return
+                  didEmitTransformCommit = true
+                  if (queuedSessionId) {
+                    rememberBoundedSetValue(emittedTransformSessionIds, queuedSessionId, SPACE_TRANSFORM_DEDUP_LIMIT)
+                  }
+                  if (transformCommitTargetKey) {
+                    rememberBoundedSetValue(
+                      emittedTransformTargetKeys,
+                      transformCommitTargetKey,
+                      SPACE_TRANSFORM_DEDUP_LIMIT,
+                    )
+                  }
+                  onIfcElementTransformCommitRef.current?.(transformCommit.element, transformCommit.patch)
+                }
+                if (
+                  transformModeRef.current === 'translate' &&
+                  transformCommit
+                ) {
+                  emitTransformCommit(
+                    isIfcSpaceElementInfo(transformCommit.element)
+                      ? 'space_translate_before_local_commit'
+                      : 'translate_before_local_commit',
+                  )
+                }
                 await commitIfcProxyTransformToModel(activeScene, selectedTarget, {
                   keepProxyVisibleAfterCommit: true,
                   transformSessionId: queuedSessionId,
@@ -3242,19 +3550,7 @@ export default function ThatOpenIfcCanvas({
                 const moveState = ifcMoveLifecycleRef.current
                 if (!moveState.lastError) {
                   if (transformCommit) {
-                    if (import.meta.env.DEV && transformModeRef.current === 'rotate') {
-                      const patchSnapshot = { ...transformCommit.patch }
-                      console.log('[ifc-transform-save][emit-transform-commit]', {
-                        transformMode: transformModeRef.current,
-                        elementId: transformCommit.element.id,
-                        expressId: transformCommit.element.expressId,
-                        globalId: transformCommit.element.globalId ?? transformCommit.element.properties?.GlobalId ?? null,
-                        patch: patchSnapshot,
-                        patchKeys: Object.keys(patchSnapshot),
-                        patchJson: JSON.stringify(patchSnapshot),
-                      })
-                    }
-                    onIfcElementTransformCommitRef.current?.(transformCommit.element, transformCommit.patch)
+                    emitTransformCommit('after_local_commit')
                   }
                   if (queuedSessionId) {
                     dispatchTransformRuntimeAction(
@@ -3374,6 +3670,7 @@ export default function ThatOpenIfcCanvas({
             } finally {
               ifcCommitInFlightRef.current = false
               lastDragStartPosition = null
+              lastDragStartWorldPosition = null
               lastDragStartRotation = null
               lastDragStartWorldRotation = null
               lastDragStartWorldQuaternion = null
@@ -3749,6 +4046,13 @@ export default function ThatOpenIfcCanvas({
                   z: dragObject.rotation.z,
                 }
                 dragObject.updateMatrixWorld(true)
+                const startWorldPosition = new THREE.Vector3()
+                dragObject.getWorldPosition(startWorldPosition)
+                lastDragStartWorldPosition = {
+                  x: startWorldPosition.x,
+                  y: startWorldPosition.y,
+                  z: startWorldPosition.z,
+                }
                 const startWorldQuaternion = new THREE.Quaternion()
                 const startWorldEuler = new THREE.Euler()
                 dragObject.getWorldQuaternion(startWorldQuaternion)
@@ -3768,6 +4072,7 @@ export default function ThatOpenIfcCanvas({
                   Array.from(dragObject.matrixWorld.elements)
               } else {
                 lastDragStartPosition = null
+                lastDragStartWorldPosition = null
                 lastDragStartRotation = null
                 lastDragStartWorldRotation = null
                 lastDragStartWorldQuaternion = null
@@ -3896,6 +4201,10 @@ export default function ThatOpenIfcCanvas({
             }
             ifcMoveDirtyRef.current = true
             lastIfcDragEndAt = performance.now()
+            const didEmitTranslateTransformCommit = emitTranslateTransformCommitFromDragEnd(
+              selectedTarget,
+              'drag_end_translate',
+            )
             logIfcMove('drag_end_schedule_commit', {
               modelId: selectedTarget.modelId,
               localId: selectedTarget.localId,
@@ -3903,6 +4212,7 @@ export default function ThatOpenIfcCanvas({
               deltaRaw: dragDeltaRaw,
               deltaRounded: dragDelta,
               hasTransformDelta,
+              didEmitTranslateTransformCommit,
               note: 'commit scheduled immediately after drag end',
             })
             if (activeDragSessionId) {
@@ -7268,6 +7578,28 @@ export default function ThatOpenIfcCanvas({
       const preset = getLibraryPresetFromObject(child)
       if (preset?.id) existingChildByPresetId.set(preset.id, child)
     })
+
+    const canUpdateInPlace =
+      existingChildren.length === manifestLibraryElements.length &&
+      manifestLibraryElements.length > 0 &&
+      manifestLibraryElements.every((preset, index) => (
+        canUpdateLibraryPresetInPlace(getLibraryPresetFromObject(existingChildren[index]), preset)
+      ))
+
+    if (canUpdateInPlace) {
+      manifestLibraryElements.forEach((preset, index) => {
+        const object = existingChildren[index]
+        if (preset.position) object.position.set(preset.position.x, preset.position.y, preset.position.z)
+        if (preset.rotation) object.rotation.set(preset.rotation.x, preset.rotation.y, preset.rotation.z)
+        if (preset.scale) object.scale.set(preset.scale.x, preset.scale.y, preset.scale.z)
+        object.updateMatrixWorld(true)
+        updateLibraryPresetData(object, preset)
+      })
+      applyLibraryVisibilityByStorey()
+      sceneState.renderer.render(sceneState.scene, sceneState.camera as import('three').PerspectiveCamera)
+      return
+    }
+
     const preservedChildren = new Set<Object3D>()
     presetGroup.clear()
 
@@ -7559,6 +7891,48 @@ export default function ThatOpenIfcCanvas({
     loadLibraryAssetInstance,
     logIfcMove,
     syncTransformSelectionState,
+  ])
+
+  useEffect(() => {
+    if (!onPreviewCapture || status !== 'ready') return
+
+    const timerId = window.setTimeout(() => {
+      const sceneState = sceneRef.current
+      if (!sceneState) return
+
+      const previousGridVisible = floorGridRef.current?.visible
+      try {
+        if (floorGridRef.current) floorGridRef.current.visible = false
+        const focusObjects = [
+          sceneState.ifcObject,
+          presetGroupRef.current?.children.length ? presetGroupRef.current : null,
+        ].filter((object): object is Object3D => Boolean(object))
+        const focusedPreview = captureFocusedIfcPreview(sceneState, focusObjects)
+        if (focusedPreview) {
+          onPreviewCapture(focusedPreview)
+          return
+        }
+        sceneState.renderer.render(sceneState.scene, sceneState.camera as import('three').PerspectiveCamera)
+        onPreviewCapture(captureCanvasWithBackground(sceneState.renderer.domElement, {
+          backgroundColor: '#f0f2f9',
+          quality: 0.92,
+        }))
+      } catch {
+        // 캔버스 캡처 실패는 카드 썸네일 fallback으로 처리한다.
+      } finally {
+        if (typeof previousGridVisible === 'boolean' && floorGridRef.current) {
+          floorGridRef.current.visible = previousGridVisible
+        }
+      }
+    }, 650)
+
+    return () => window.clearTimeout(timerId)
+  }, [
+    activeStoreyExpressId,
+    onPreviewCapture,
+    overlayIfcStoreyExpressIds,
+    overlayIfcStoreyOpacityByExpressId,
+    status,
   ])
 
   return (

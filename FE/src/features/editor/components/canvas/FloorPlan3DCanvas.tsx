@@ -4,6 +4,7 @@ import { FLOOR_MM_PER_PX } from '../../constants'
 import type { FloorPlan3DData } from '../../utils/floorPlanTo3D'
 import type { ThreeDCameraViewPresetCommand } from '@/pages/editor/components/canvas-content/buildCanvasSectionProps'
 import { buildFloorPlan3DGroup } from '../../utils/floorPlanTo3D'
+import { captureCanvasWithBackground } from '../../utils/canvasPreviewCapture'
 import type { ThreeDLibraryDropRequest, ThreeDLibraryPreset } from './threeDLibrary.types'
 import { getFloorPlanElementInfo, isSelectableThreeDComponent } from './threeDSelection.utils'
 import {
@@ -71,6 +72,7 @@ interface FloorPlan3DCanvasProps {
   transformSnapEnabled?: boolean
   transformSnapIntervalMm?: number
   isEditingLocked?: boolean
+  onPreviewCapture?: (imageUrl: string) => void
 }
 
 type ThreeModule = typeof import('three')
@@ -87,6 +89,80 @@ type MultiSelectionEntry = {
 }
 
 const PRESET_MOVE_DEBUG = import.meta.env.DEV || import.meta.env.VITE_3D_MOVE_DEBUG === 'true'
+const PREVIEW_CAMERA_FOV = 45
+const PREVIEW_CAMERA_MARGIN = 1.08
+const PREVIEW_CAMERA_MIN_DISTANCE = 1
+
+const getPreviewCanvasAspect = (canvas: HTMLCanvasElement): number => {
+  const width = canvas.width || canvas.clientWidth || 1
+  const height = canvas.height || canvas.clientHeight || 1
+  return Math.max(width / height, 0.01)
+}
+
+const getPreviewCameraFit = (
+  THREE: ThreeModule,
+  box: import('three').Box3,
+  aspect: number,
+  fovDegrees: number,
+): {
+  center: import('three').Vector3
+  direction: import('three').Vector3
+  up: import('three').Vector3
+  distance: number
+  fitSize: number
+} => {
+  const center = new THREE.Vector3()
+  const size = new THREE.Vector3()
+  box.getCenter(center)
+  box.getSize(size)
+
+  const direction = new THREE.Vector3(1, 0.65, 1).normalize()
+  const worldUp = new THREE.Vector3(0, 1, 0)
+  const right = new THREE.Vector3().crossVectors(worldUp, direction)
+  if (right.lengthSq() < 0.000001) {
+    right.set(1, 0, 0)
+  } else {
+    right.normalize()
+  }
+  const up = new THREE.Vector3().crossVectors(direction, right).normalize()
+
+  const halfVerticalFov = (fovDegrees * Math.PI) / 360
+  const halfHorizontalFov = Math.atan(Math.tan(halfVerticalFov) * Math.max(aspect, 0.01))
+  const tanVertical = Math.max(Math.tan(halfVerticalFov), 0.000001)
+  const tanHorizontal = Math.max(Math.tan(halfHorizontalFov), 0.000001)
+  const min = box.min
+  const max = box.max
+  const corners = [
+    new THREE.Vector3(min.x, min.y, min.z),
+    new THREE.Vector3(min.x, min.y, max.z),
+    new THREE.Vector3(min.x, max.y, min.z),
+    new THREE.Vector3(min.x, max.y, max.z),
+    new THREE.Vector3(max.x, min.y, min.z),
+    new THREE.Vector3(max.x, min.y, max.z),
+    new THREE.Vector3(max.x, max.y, min.z),
+    new THREE.Vector3(max.x, max.y, max.z),
+  ]
+
+  let distance = PREVIEW_CAMERA_MIN_DISTANCE
+  corners.forEach((corner) => {
+    const relative = corner.sub(center)
+    const depthTowardCamera = relative.dot(direction)
+    distance = Math.max(
+      distance,
+      Math.abs(relative.dot(right)) / tanHorizontal + depthTowardCamera,
+      Math.abs(relative.dot(up)) / tanVertical + depthTowardCamera,
+    )
+  })
+
+  const fitSize = Math.max(size.x, size.y, size.z, size.length(), PREVIEW_CAMERA_MIN_DISTANCE)
+  return {
+    center,
+    direction,
+    up,
+    distance: Math.max(distance * PREVIEW_CAMERA_MARGIN, PREVIEW_CAMERA_MIN_DISTANCE),
+    fitSize,
+  }
+}
 
 const logRoofDebug = (...args: unknown[]) => {
   if (!import.meta.env.DEV) return
@@ -125,6 +201,7 @@ export function FloorPlan3DCanvas({
   transformSnapEnabled = true,
   transformSnapIntervalMm = 100,
   isEditingLocked = false,
+  onPreviewCapture,
 }: FloorPlan3DCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   // 렌더 루프/비동기 초기화에서 최신 data를 참조하기 위한 ref 캐시
@@ -175,6 +252,7 @@ export function FloorPlan3DCanvas({
   const onPinClickRef = useRef(onPinClick)
   const onPinCreateRef = useRef(onPinCreate)
   const onPinDeleteRef = useRef(onPinDelete)
+  const onPreviewCaptureRef = useRef(onPreviewCapture)
 
   useEffect(() => { onLibraryElementChangeRef.current = onLibraryElementChange }, [onLibraryElementChange])
   useEffect(() => { onLibraryElementDeleteRef.current = onLibraryElementDelete }, [onLibraryElementDelete])
@@ -183,6 +261,7 @@ export function FloorPlan3DCanvas({
   useEffect(() => { onPinClickRef.current = onPinClick }, [onPinClick])
   useEffect(() => { onPinCreateRef.current = onPinCreate }, [onPinCreate])
   useEffect(() => { onPinDeleteRef.current = onPinDelete }, [onPinDelete])
+  useEffect(() => { onPreviewCaptureRef.current = onPreviewCapture }, [onPreviewCapture])
   useEffect(() => { rotationLockedRef.current = isRotationLocked }, [isRotationLocked])
   useEffect(() => { transformModeRef.current = transformMode }, [transformMode])
   useEffect(() => { selectedToolRef.current = selectedTool }, [selectedTool])
@@ -219,6 +298,69 @@ export function FloorPlan3DCanvas({
       isShiftSnap: isShiftSnapRef.current,
       worldUnitsPerMm: PROJECT_WORLD_UNITS_PER_MM,
     })
+  }, [])
+
+  const captureFocusedPreview = useCallback((): string | null => {
+    const THREE = threeRef.current
+    const scene = sceneRef.current
+    const camera = cameraRef.current
+    const renderer = rendererRef.current
+    const controls = controlsRef.current
+    if (!THREE || !scene || !camera || !renderer || !controls) return null
+
+    const focusObjects: import('three').Object3D[] = []
+    if (floorGroupRef.current?.children.length) focusObjects.push(floorGroupRef.current)
+    if (presetGroupRef.current?.children.length) focusObjects.push(presetGroupRef.current)
+    if (focusObjects.length === 0) return null
+
+    const previousPosition = camera.position.clone()
+    const previousRotation = camera.rotation.clone()
+    const previousUp = camera.up.clone()
+    const previousNear = camera.near
+    const previousFar = camera.far
+    const previousFov = camera.fov
+    const previousAspect = camera.aspect
+    const previousTarget = controls.target.clone()
+
+    try {
+      const box = new THREE.Box3()
+      focusObjects.forEach((object) => {
+        object.updateMatrixWorld(true)
+        box.expandByObject(object)
+      })
+      if (box.isEmpty()) return null
+      const previewFov = PREVIEW_CAMERA_FOV
+      const fit = getPreviewCameraFit(THREE, box, getPreviewCanvasAspect(renderer.domElement), previewFov)
+
+      camera.position.copy(fit.center).addScaledVector(fit.direction, fit.distance)
+      camera.fov = previewFov
+      camera.aspect = getPreviewCanvasAspect(renderer.domElement)
+      camera.near = 0.01
+      camera.far = Math.max(fit.distance + fit.fitSize * 3, 1000)
+      camera.up.copy(fit.up)
+      camera.lookAt(fit.center)
+      camera.updateProjectionMatrix()
+      controls.target.copy(fit.center)
+      controls.update()
+      renderer.setClearColor('#f0f2f9', 1)
+      renderer.render(scene, camera)
+      return captureCanvasWithBackground(renderer.domElement, {
+        backgroundColor: '#f0f2f9',
+        quality: 0.92,
+      })
+    } finally {
+      camera.position.copy(previousPosition)
+      camera.rotation.copy(previousRotation)
+      camera.up.copy(previousUp)
+      camera.near = previousNear
+      camera.far = previousFar
+      camera.fov = previousFov
+      camera.aspect = previousAspect
+      camera.updateProjectionMatrix()
+      controls.target.copy(previousTarget)
+      controls.update()
+      renderer.render(scene, camera)
+    }
   }, [])
 
   const updateTransformSelection = useCallback(() => {
@@ -462,7 +604,8 @@ export function FloorPlan3DCanvas({
       )
       cameraRef.current = camera
 
-      const renderer = new THREE.WebGLRenderer({ antialias: true })
+      const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true })
+      renderer.setClearColor('#f0f2f9', 1)
       renderer.setPixelRatio(window.devicePixelRatio)
       renderer.setSize(container.clientWidth, container.clientHeight)
       container.appendChild(renderer.domElement)
@@ -1585,6 +1728,39 @@ export function FloorPlan3DCanvas({
   useEffect(() => {
     syncTransformSnap()
   }, [transformSnapEnabled, transformSnapIntervalMm, syncTransformSnap])
+
+  useEffect(() => {
+    if (!onPreviewCapture || !rendererRef.current || !sceneRef.current || !cameraRef.current) return
+
+    const timerId = window.setTimeout(() => {
+      const renderer = rendererRef.current
+      const scene = sceneRef.current
+      const camera = cameraRef.current
+      if (!renderer || !scene || !camera) return
+
+      try {
+        const focusedPreview = captureFocusedPreview()
+        if (focusedPreview) {
+          onPreviewCaptureRef.current?.(focusedPreview)
+          return
+        }
+        renderer.render(scene, camera)
+        onPreviewCaptureRef.current?.(captureCanvasWithBackground(renderer.domElement, {
+          backgroundColor: '#f0f2f9',
+          quality: 0.92,
+        }))
+      } catch {
+        // 캔버스 캡처 실패는 카드 썸네일 fallback으로 처리한다.
+      }
+    }, 450)
+
+    return () => window.clearTimeout(timerId)
+  }, [
+    cameraViewPresetCommand,
+    data,
+    captureFocusedPreview,
+    onPreviewCapture,
+  ])
 
   useEffect(() => {
     rotationLockedRef.current = isRotationLocked

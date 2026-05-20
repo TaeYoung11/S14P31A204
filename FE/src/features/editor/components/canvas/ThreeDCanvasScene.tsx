@@ -58,6 +58,7 @@ interface ThreeDCanvasSceneProps {
   isTransformSnapEnabled: boolean
   transformSnapIntervalMm: number
   isEditingLocked: boolean
+  onPreviewCapture?: (imageUrl: string) => void
 }
 
 /**
@@ -106,6 +107,7 @@ export default function ThreeDCanvasScene({
   isTransformSnapEnabled,
   transformSnapIntervalMm,
   isEditingLocked,
+  onPreviewCapture,
 }: ThreeDCanvasSceneProps) {
   const useLocalFloorPlan = shouldRenderLocalFloorPlan(rawIfcUrl, localFloorData) && Boolean(localFloorData)
 
@@ -140,6 +142,7 @@ export default function ThreeDCanvasScene({
         transformSnapEnabled={isTransformSnapEnabled}
         transformSnapIntervalMm={transformSnapIntervalMm}
         isEditingLocked={isEditingLocked}
+        onPreviewCapture={onPreviewCapture}
       />
     )
   }
@@ -190,6 +193,7 @@ export default function ThreeDCanvasScene({
       transformSnapEnabled={isTransformSnapEnabled}
       transformSnapIntervalMm={transformSnapIntervalMm}
       isEditingLocked={isEditingLocked}
+      onPreviewCapture={onPreviewCapture}
     />
   )
 }

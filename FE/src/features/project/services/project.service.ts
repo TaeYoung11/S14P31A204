@@ -14,6 +14,7 @@ import { extractOuterRingFromCoordinates } from '@/features/project/utils/sitePo
 import { api } from '@/shared/lib/axios'
 
 import type { Project, ProjectMember, CreateProjectDto, UpdateProjectDto } from '@/shared/types'
+import type { EditorMode } from '@/features/editor/types'
 
 interface ApiResponse<T> {
   status: number
@@ -35,6 +36,10 @@ interface ProjectSummaryResponse {
   currentIfcStorageUrl?: string
   /** private S3 버킷 접근용 에셋 UUID (BE가 제공하는 경우) */
   currentIfcAssetId?: string
+  thumbnailUrl?: string
+  thumbnail_url?: string
+  thumbnailMode?: EditorMode
+  thumbnail_mode?: EditorMode
   createdAt: string
   updatedAt: string
   unreadCommentCount?: number
@@ -48,6 +53,10 @@ interface ProjectDetailResponse {
   bubbleSnapshotJson?: unknown
   ifcStorageUrl?: string
   currentRevision?: string
+  thumbnailUrl?: string
+  thumbnail_url?: string
+  thumbnailMode?: EditorMode
+  thumbnail_mode?: EditorMode
   siteInfo?: {
     pnu?: string | null
     address?: string | null
@@ -104,6 +113,15 @@ interface UpdateProjectResponse {
   description?: string
   updatedAt: string
   unreadCommentCount?: number
+}
+
+interface UpdateProjectThumbnailResponse {
+  projectId: string
+  thumbnailUrl?: string
+  thumbnail_url?: string
+  thumbnailMode?: EditorMode
+  thumbnail_mode?: EditorMode
+  updatedAt: string
 }
 
 interface RegisterProjectSiteDto {
@@ -169,7 +187,8 @@ const mapProjectSummary = (project: ProjectSummaryResponse): Project => ({
   owner_id: project.ownerUserId ?? '',
   created_at: project.createdAt,
   updated_at: project.updatedAt,
-  thumbnail_url: undefined,
+  thumbnail_url: project.thumbnailUrl ?? project.thumbnail_url,
+  thumbnail_mode: project.thumbnailMode ?? project.thumbnail_mode,
   member_count: 0,
   ifc_uploaded: !!project.currentIfcUrl,
   unread_comment_count: project.unreadCommentCount ?? 0,
@@ -196,6 +215,7 @@ const mapUpdatedProject = (project: UpdateProjectResponse, fallback?: Project): 
   created_at: fallback?.created_at ?? project.updatedAt,
   updated_at: project.updatedAt,
   thumbnail_url: fallback?.thumbnail_url,
+  thumbnail_mode: fallback?.thumbnail_mode,
   member_count: fallback?.member_count ?? 0,
   ifc_uploaded: fallback?.ifc_uploaded ?? false,
   unread_comment_count: project.unreadCommentCount ?? fallback?.unread_comment_count ?? 0,
@@ -395,6 +415,8 @@ export const projectService = {
         createdAt: detail.createdAt ?? new Date().toISOString(),
         updatedAt: detail.updatedAt ?? detail.createdAt ?? new Date().toISOString(),
         unreadCommentCount: detail.unreadCommentCount,
+        thumbnailUrl: detail.thumbnailUrl ?? detail.thumbnail_url,
+        thumbnailMode: detail.thumbnailMode ?? detail.thumbnail_mode,
       }),
       phaseStatus: detail.phaseStatus,
       bubbleSnapshotJson: detail.bubbleSnapshotJson,
@@ -490,6 +512,14 @@ export const projectService = {
   update: async (id: string, data: UpdateProjectDto): Promise<Project> => {
     const response = await api.patch<ApiResponse<UpdateProjectResponse>>(`/projects/${id}`, data)
     return mapUpdatedProject(response.data.data)
+  },
+
+  updateThumbnail: async (
+    id: string,
+    data: { thumbnailUrl: string; thumbnailMode: Exclude<EditorMode, 'view'> },
+  ): Promise<UpdateProjectThumbnailResponse> => {
+    const response = await api.patch<ApiResponse<UpdateProjectThumbnailResponse>>(`/projects/${id}/thumbnail`, data)
+    return response.data.data
   },
 
   delete: async (id: string): Promise<void> => {

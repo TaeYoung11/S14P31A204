@@ -88,6 +88,7 @@ interface ThreeDCanvasProps {
   isTransformSnapEnabled?: boolean
   transformSnapIntervalMm?: number
   isEditingLocked?: boolean
+  onPreviewCapture?: (imageUrl: string) => void
 }
 
 export function ThreeDCanvas(props: ThreeDCanvasProps) {
@@ -171,6 +172,7 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
         isTransformSnapEnabled={props.isTransformSnapEnabled ?? true}
         transformSnapIntervalMm={props.transformSnapIntervalMm ?? 100}
         isEditingLocked={isEditingLocked}
+        onPreviewCapture={props.onPreviewCapture}
       />
 
       <ThreeDCanvasCollaborationOverlay isVisible={Boolean(props.isCollaborationMode)} />

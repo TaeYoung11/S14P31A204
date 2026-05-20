@@ -14,6 +14,8 @@ import {
 import { subscribeProjectRenderSse } from '../services/projectRenderSse.service'
 import { useAuthStore } from '@/shared/stores/authStore'
 import { useProjectNotificationToastStore } from '@/features/project/stores/projectNotificationToastStore'
+import { saveProjectEditorMode } from '@/features/project/utils/projectEditorModeCache'
+import { saveProjectRenderThumbnailUrl } from '@/features/project/utils/projectRenderThumbnailCache'
 
 export interface ViewRenderPreset {
   id: string
@@ -114,6 +116,16 @@ const hasInProgressRender = (renders: ProjectRenderResponse[], preset: ViewRende
 const canDisplayRender = (render: ProjectRenderResponse): boolean =>
   render.status === 'SUCCEEDED' && hasDisplayableImage(render)
 
+const saveRenderThumbnail = (projectId: string | undefined, render: ProjectRenderResponse): void => {
+  if (!projectId) return
+
+  try {
+    saveProjectRenderThumbnailUrl(projectId, resolveProjectRenderImageUrl(render), render.renderId)
+  } catch {
+    // 내부 S3 URL만 있는 경우에는 기존 렌더 표시 흐름에 맡기고 보조 캐시만 생략한다.
+  }
+}
+
 const upsertRender = (
   renders: ProjectRenderResponse[],
   nextRender: ProjectRenderResponse,
@@ -145,6 +157,10 @@ export function useProjectViewRender(
   const [isRequesting, setIsRequesting] = useState(false)
   const [renderStateProjectId, setRenderStateProjectId] = useState<string | null>(null)
 
+  useEffect(() => {
+    saveProjectEditorMode(projectId, 'view')
+  }, [projectId])
+
   const applyRenderList = useCallback(
     (nextRenders: ProjectRenderResponse[]) => {
       const displayRender = pickDisplayRender(nextRenders, preset)
@@ -153,6 +169,7 @@ export function useProjectViewRender(
       setErrorMessage(null)
 
       if (displayRender) {
+        saveRenderThumbnail(projectId, displayRender)
         setImageUrl(resolveProjectRenderImageUrl(displayRender))
         setRenderUrls(resolveProjectRenderUrls(displayRender))
         setSelectedRenderId(displayRender.renderId)
@@ -205,6 +222,7 @@ export function useProjectViewRender(
           return
         }
 
+        saveRenderThumbnail(projectId, nextRender)
         setImageUrl(resolveProjectRenderImageUrl(nextRender))
         setRenderUrls(resolveProjectRenderUrls(nextRender))
         setSelectedRenderId(nextRender.renderId)
@@ -213,6 +231,7 @@ export function useProjectViewRender(
       }
 
       if (selectedRenderId === nextRender.renderId && canDisplayRender(nextRender)) {
+        saveRenderThumbnail(projectId, nextRender)
         setImageUrl(resolveProjectRenderImageUrl(nextRender))
         setRenderUrls(resolveProjectRenderUrls(nextRender))
         setStatus('succeeded')
@@ -222,6 +241,7 @@ export function useProjectViewRender(
       setRenders((prev) => {
         const displayRender = imageUrl ? null : pickDisplayRender(prev, preset)
         if (displayRender) {
+          saveRenderThumbnail(projectId, displayRender)
           setImageUrl(resolveProjectRenderImageUrl(displayRender))
           setRenderUrls(resolveProjectRenderUrls(displayRender))
           setSelectedRenderId(displayRender.renderId)
@@ -317,6 +337,7 @@ export function useProjectViewRender(
         if (payload.projectId !== projectId) return
 
         if (event === 'RENDER_COMPLETED') {
+          saveProjectRenderThumbnailUrl(projectId, payload.renderUrls?.frontDiagonalLeftUrl ?? payload.imageUrl, payload.renderId ?? payload.jobId)
           pushToast({
             id: `render-completed:${projectId}:${payload.renderId ?? payload.jobId ?? Date.now()}`,
             type: 'render_completed',

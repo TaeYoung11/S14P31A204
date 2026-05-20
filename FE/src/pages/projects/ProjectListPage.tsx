@@ -248,6 +248,7 @@ export default function ProjectsPage() {
                 isSelectionMode={isSelectionMode}
                 isSelected={selectedProjectIds.includes(project.id)}
                 onToggleSelect={handleToggleProjectSelect}
+                enableRenderedThumbnail
               />
             ))}
 

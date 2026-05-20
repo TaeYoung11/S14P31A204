@@ -157,6 +157,7 @@ export function useFloorPlan(projectId?: string) {
     }
     setLayers((prev) => [...prev, newLayer])
     setActiveLayerId(newId)
+    return newLayer
   }, [layers])
 
   /** 층 이름 수정 */
@@ -370,6 +371,14 @@ export function useFloorPlan(projectId?: string) {
     })
   }, [])
 
+  const updateFloorLayers = useCallback((updater: (layers: FloorLayer[]) => FloorLayer[]) => {
+    setLayers((currentLayers) => {
+      const nextLayers = updater(currentLayers)
+      if (nextLayers === currentLayers) return currentLayers
+      return normalizeFloorLayerLabels(nextLayers)
+    })
+  }, [])
+
   return {
     isGenerated,
     isGenerating,
@@ -391,5 +400,6 @@ export function useFloorPlan(projectId?: string) {
     removeActiveRooms,
     clearFloorPlan,
     replaceFloorPlanState,
+    updateFloorLayers,
   }
 }
