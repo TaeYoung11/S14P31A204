@@ -39,6 +39,11 @@ interface FloorPlanLayoutState {
   activeLayerId: string | null
 }
 
+interface ApplyRemoteFloorPlanSnapshotMeta {
+  action?: string | null
+  layoutOnly?: boolean
+}
+
 interface UseWorkspaceRemoteSnapshotHandlersInput {
   projectId: string | null | undefined
   latestBubbleSnapshotRef: MutableRefObject<LatestBubbleSnapshotState>
@@ -272,10 +277,17 @@ export function useWorkspaceRemoteSnapshotHandlers({
     workspaceEditTransactionDepthRef,
   ])
 
-  const applyRemoteFloorPlanSnapshot = useCallback((snapshot: FloorPlanSnapshotPayload) => {
+  const applyRemoteFloorPlanSnapshot = useCallback((
+    snapshot: FloorPlanSnapshotPayload,
+    meta?: ApplyRemoteFloorPlanSnapshotMeta,
+  ) => {
+    const isAuthoritativeFloorPlanEvent =
+      meta?.action === WORKSPACE_SYNC_ACTION.floorPlanUpdated ||
+      meta?.action === WORKSPACE_SYNC_ACTION.floorPlanUndo ||
+      meta?.action === WORKSPACE_SYNC_ACTION.floorPlanRedo
     const hasLocalFloorPlanEditInFlight =
       workspaceEditTransactionDepthRef.current > 0 ||
-      pendingWorkspaceSnapshotCommitRef.current
+      (pendingWorkspaceSnapshotCommitRef.current && !isAuthoritativeFloorPlanEvent)
 
     if (hasLocalFloorPlanEditInFlight) {
       floorPlanHistoryCommandInFlightRef.current = false
@@ -291,7 +303,7 @@ export function useWorkspaceRemoteSnapshotHandlers({
       }))
     }
 
-    if (isBubbleSnapshotPayload(snapshot)) {
+    if (!meta?.layoutOnly && isBubbleSnapshotPayload(snapshot)) {
       const { normalizedBubbles, floorMeta, availableFloors } =
         resolveNormalizedBubbleSnapshotState(snapshot)
       applyNormalizedBubbleSnapshotState({
@@ -315,6 +327,7 @@ export function useWorkspaceRemoteSnapshotHandlers({
     setConnectingFromId(null)
     clearConnectionAndTwoDSelection()
     clearSelection()
+    pendingWorkspaceSnapshotCommitRef.current = false
     floorPlanHistoryCommandInFlightRef.current = false
     awaitingServerSyncRef.current = null
     setSaveStatus(resolveSnapshotSyncStatus())

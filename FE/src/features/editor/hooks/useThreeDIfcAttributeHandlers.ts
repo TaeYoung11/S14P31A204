@@ -1,5 +1,6 @@
 import { useCallback, type Dispatch, type SetStateAction } from 'react'
 import type { EditorMode, IfcElementChange, IfcElementInfo } from '../types'
+import type { ThreeDLibraryPreset } from '../components/canvas/threeDLibrary.types'
 
 const THREE_D_MATERIAL_COLOR: Record<string, string> = {
   // 영문 IFC 재질명
@@ -20,10 +21,7 @@ const THREE_D_MATERIAL_COLOR: Record<string, string> = {
   타일: '#C56F45',
 }
 
-const logRoofDebug = (...args: unknown[]) => {
-  if (!import.meta.env.DEV) return
-  console.log('[roof-debug][useThreeDIfcAttributeHandlers]', ...args)
-}
+const logRoofDebug = (..._args: unknown[]) => {}
 
 interface UseThreeDIfcAttributeHandlersParams {
   mode: EditorMode
@@ -44,6 +42,20 @@ type PositionAxis = 'x' | 'y' | 'z'
 type RotationAxis = 'x' | 'y' | 'z'
 type RoofShape = 'flat' | 'gable'
 
+const applyDimensionToSelectedElement = (
+  element: IfcElementInfo,
+  patch: Pick<IfcElementInfo, 'lengthMm' | 'heightMm' | 'thicknessMm'>,
+) => ({
+  ...element,
+  ...patch,
+  properties: {
+    ...element.properties,
+    Length: patch.lengthMm ?? element.lengthMm ?? '-',
+    Height: patch.heightMm ?? element.heightMm ?? '-',
+    Thickness: patch.thicknessMm ?? element.thicknessMm ?? '-',
+  },
+})
+
 /**
  * 3D IFC 요소 속성 편집(재질/색/치수) 로직을 모듈화한다.
  * - 3D + 선택 IFC 요소일 때만 로컬 IFC 상태를 갱신한다.
@@ -62,6 +74,28 @@ export function useThreeDIfcAttributeHandlers({
 }: UseThreeDIfcAttributeHandlersParams) {
   const selectedIfcElementId = selectedIfcElement?.id
   const shouldBlockThreeDEdit = mode === '3d' && !canEditThreeDAttributes
+
+  const applyLibraryDimensionPatch = useCallback((
+    id: string,
+    patch: Pick<ThreeDLibraryPreset, 'lengthMm' | 'heightMm' | 'thicknessMm'>,
+  ) => {
+    const current = selectedIfcElement
+    if (mode !== '3d' || current?.source !== 'library' || current.id !== id) return false
+
+    const nextLengthMm = patch.lengthMm ?? current.lengthMm
+    const nextHeightMm = patch.heightMm ?? current.heightMm
+    const nextThicknessMm = patch.thicknessMm ?? current.thicknessMm
+
+    setSelectedIfcElement((prev) => {
+      if (!prev || prev.id !== id || prev.source !== 'library') return prev
+      return applyDimensionToSelectedElement(prev, {
+        lengthMm: nextLengthMm,
+        heightMm: nextHeightMm,
+        thicknessMm: nextThicknessMm,
+      })
+    })
+    return true
+  }, [mode, selectedIfcElement, setSelectedIfcElement])
 
   const handleMaterialChangeForPanel = useCallback((id: string, material: string) => {
     if (shouldBlockThreeDEdit) return
@@ -130,6 +164,7 @@ export function useThreeDIfcAttributeHandlers({
       baseHandleWidthChangeForPanel(id, widthMm)
       return
     }
+    if (applyLibraryDimensionPatch(id, { lengthMm: widthMm })) return
 
     setSelectedIfcElement((prev) => {
       if (!prev || prev.id !== id) return prev
@@ -145,6 +180,7 @@ export function useThreeDIfcAttributeHandlers({
       return next
     })
   }, [
+    applyLibraryDimensionPatch,
     baseHandleWidthChangeForPanel,
     mode,
     recordIfcElementChange,
@@ -159,6 +195,7 @@ export function useThreeDIfcAttributeHandlers({
       baseHandleHeightChangeForPanel(id, heightMm)
       return
     }
+    if (applyLibraryDimensionPatch(id, { heightMm })) return
 
     setSelectedIfcElement((prev) => {
       if (!prev || prev.id !== id) return prev
@@ -174,6 +211,7 @@ export function useThreeDIfcAttributeHandlers({
       return next
     })
   }, [
+    applyLibraryDimensionPatch,
     baseHandleHeightChangeForPanel,
     mode,
     recordIfcElementChange,
@@ -185,6 +223,7 @@ export function useThreeDIfcAttributeHandlers({
   const handleThicknessChangeForPanel = useCallback((id: string, thicknessMm: number) => {
     if (shouldBlockThreeDEdit) return
     if (mode !== '3d' || selectedIfcElementId !== id) return
+    if (applyLibraryDimensionPatch(id, { thicknessMm })) return
 
     setSelectedIfcElement((prev) => {
       if (!prev || prev.id !== id) return prev
@@ -199,7 +238,7 @@ export function useThreeDIfcAttributeHandlers({
       recordIfcElementChange(next, { thicknessMm })
       return next
     })
-  }, [mode, recordIfcElementChange, selectedIfcElementId, setSelectedIfcElement, shouldBlockThreeDEdit])
+  }, [applyLibraryDimensionPatch, mode, recordIfcElementChange, selectedIfcElementId, setSelectedIfcElement, shouldBlockThreeDEdit])
 
   const handlePositionChangeForPanel = useCallback((id: string, axis: PositionAxis, value: number) => {
     if (shouldBlockThreeDEdit) return

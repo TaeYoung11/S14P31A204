@@ -101,6 +101,12 @@ interface UseEditorSiteBoundaryParams {
   sitePolygonQueryEnabled?: boolean
   siteBoundaryHydrated?: boolean
   setSaveStatus: Dispatch<SetStateAction<SaveStatus>>
+  onNotice?: (notice: {
+    title?: string
+    message: string
+    description?: string
+    confirmLabel?: string
+  }) => void
 }
 
 /**
@@ -123,6 +129,7 @@ export function useEditorSiteBoundary({
   sitePolygonQueryEnabled = true,
   siteBoundaryHydrated = true,
   setSaveStatus,
+  onNotice,
 }: UseEditorSiteBoundaryParams) {
   const sitePolygonQuery = useProjectSitePolygon(
     projectId ?? null,
@@ -316,11 +323,13 @@ export function useEditorSiteBoundary({
     if (!reason) return true
 
     setSaveStatus('error')
-    window.alert(
-      `대지 경계 밖 요소가 있어 저장할 수 없습니다.\n\n현재 상태: ${reason}\n\n대지 안으로 이동한 뒤 다시 저장해 주세요.`,
-    )
+    onNotice?.({
+      title: '저장할 수 없습니다',
+      message: '대지 경계 밖 요소가 있어 저장할 수 없습니다.',
+      description: `현재 상태: ${reason}\n대지 안으로 이동한 뒤 다시 저장해 주세요.`,
+    })
     return false
-  }, [getSiteBoundaryBlockReason, setSaveStatus])
+  }, [getSiteBoundaryBlockReason, onNotice, setSaveStatus])
 
   return {
     sitePolygonQuery,

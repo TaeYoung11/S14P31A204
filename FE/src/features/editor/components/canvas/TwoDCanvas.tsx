@@ -22,7 +22,6 @@ import {
 import { toCanvasPolygon } from '../../utils/siteBoundaryValidation'
 import { useSpacePanning } from '../../hooks/useSpacePanning'
 import { FloorPlanEmpty, FloorPlanLoading } from './TwoDCanvasOverlays'
-import { TwoDSiteValidationBanner } from './TwoDSiteValidationBanner'
 import type { RoomDragState } from './TwoDRoomsLayer'
 import { TwoDCanvasStage } from './TwoDCanvasStage'
 import { useCanvasGridLines } from './useCanvasGridLines'
@@ -242,6 +241,7 @@ export function TwoDCanvas({
   const marqueeStart = useRef<Point2D | null>(null)
   const marqueeAppendRef = useRef(false)
   const skipStageClickClearRef = useRef(false)
+  const workspaceDragTransactionRef = useRef(false)
   const isPanMode = selectedTool === 'hand' || isSpacePressed || isMiddlePanning
   const baseOffsetX = (stageSize.width * (1 - scale)) / 2
   const baseOffsetY = (stageSize.height * (1 - scale)) / 2
@@ -445,6 +445,8 @@ export function TwoDCanvas({
     onWallCreate,
     onWallMove,
     onOpeningMove,
+    onWorkspaceEditStart,
+    onWorkspaceEditCommit,
     onTwoDMarqueeSelect,
     onMarqueeSelect,
     onWheelZoom,
@@ -461,6 +463,7 @@ export function TwoDCanvas({
     marqueeStart,
     marqueeAppendRef,
     skipStageClickClearRef,
+    workspaceDragTransactionRef,
   })
 
   const findContextMenuWallId = (point: Point2D): string | null => {
@@ -506,8 +509,11 @@ export function TwoDCanvas({
   }, [wallContextMenu])
 
   // ── 생성 전 / 생성 중 화면 ───────────────────────────────────────────────
+  // 첫 generation일 때만 FloorPlanLoading을 표시한다.
+  // 이미 생성된 평면도에 대한 IFC 편집 후속 처리(CONVERTING) 중에는
+  // 기존 캔버스를 유지해 매 편집마다 깜빡이는 현상을 막는다.
   if (!isGenerated && !isGenerating) return <FloorPlanEmpty onGenerate={onGenerate} canGenerate={canGenerate} isCheckingIfcSource={isCheckingIfcSource} />
-  if (isGenerating) return <FloorPlanLoading />
+  if (isGenerating && !isGenerated) return <FloorPlanLoading />
 
   // ── 생성 완료: Konva 평면도 렌더링 ───────────────────────────────────────
   return (
@@ -581,6 +587,7 @@ export function TwoDCanvas({
         openings={openings}
         selectedOpeningId={selectedOpeningId}
         selectedOpeningIds={selectedOpeningIds}
+        outsideOpeningIds={siteValidation.outsideOpeningIds}
         createOpeningOnWall={createOpeningOnWall}
         onOpeningDelete={onOpeningDelete}
         onOpeningDragStart={setOpeningDragState}
@@ -597,7 +604,6 @@ export function TwoDCanvas({
         deletingPinId={deletingPinId ?? null}
         marquee={marquee}
       />
-      <TwoDSiteValidationBanner siteValidation={siteValidation} />
       {wallContextMenu && (
         <div
           className="fixed z-[9999] min-w-[140px] rounded-lg border border-[#E2E8F0] bg-white py-1 shadow-lg"

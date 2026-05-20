@@ -16,8 +16,17 @@ import {
   Square,
   X,
 } from 'lucide-react'
-import { useRef } from 'react'
-import { buildPresetPreviewDataUri, PRESETS } from './threeDLibraryPresets'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  PRESETS,
+  buildPresetPreviewDataUri,
+  getLibraryPresetDisplayName,
+} from './threeDLibraryPresets'
+import {
+  applyIfcLibraryManifestToPresets,
+  loadIfcLibraryManifest,
+  type IfcLibraryManifest,
+} from './threeDLibraryManifest'
 import { writeLibraryPresetToDataTransfer } from './threeDLibraryDnd'
 import type { ThreeDLibraryPreset } from './threeDLibrary.types'
 
@@ -35,6 +44,7 @@ const LIBRARY_CATEGORIES = [
   { id: 'room-door', label: '방문', icon: DoorOpen },
   { id: 'front-door', label: '현관문', icon: DoorOpen },
   { id: 'stairs', label: '계단', icon: PanelTop },
+  { id: 'terrace', label: '테라스', icon: Square },
   { id: 'column', label: '기둥', icon: Columns3 },
   { id: 'floor', label: '바닥', icon: Square },
   { id: 'ceiling', label: '천장', icon: PanelBottom },
@@ -61,7 +71,7 @@ interface LibraryCategoryNavProps {
  */
 function LibraryCategoryNav({ activeCategory, onSelectCategory }: LibraryCategoryNavProps) {
   return (
-    <div className="flex w-[128px] flex-col items-center gap-3 overflow-y-auto border-r border-[#F0F2F9] bg-white/40 px-3 py-6">
+    <div className="flex w-[116px] shrink-0 flex-col items-center gap-3 overflow-y-auto border-r border-[#F0F2F9] bg-white/40 px-3 py-6">
       <div className="mb-1 flex h-[64px] w-[64px] items-center justify-center rounded-2xl bg-[#3B45B3]/20 text-center text-sm font-black text-[#3B45B3] shadow-inner">
         {activeCategory.label}
       </div>
@@ -102,6 +112,7 @@ function LibraryPresetCard({ preset, onAdd, isEditingLocked }: LibraryPresetCard
   const fallbackPreviewSrc = buildPresetPreviewDataUri(preset)
   const previewSrc = preset.previewImageUrl ?? fallbackPreviewSrc
   const categoryLabel = LIBRARY_CATEGORIES.find((c) => c.id === preset.type)?.label
+  const displayName = getLibraryPresetDisplayName(preset)
   const suppressNextClickRef = useRef(false)
 
   return (
@@ -136,7 +147,7 @@ function LibraryPresetCard({ preset, onAdd, isEditingLocked }: LibraryPresetCard
       <div className="mb-3 h-16 overflow-hidden rounded-xl border border-black/5 bg-[#EEF1F8]">
         <img
           src={previewSrc}
-          alt={`${preset.name} 미리보기`}
+          alt={`${displayName} 미리보기`}
           loading="lazy"
           decoding="async"
           data-fallback-applied="0"
@@ -152,7 +163,7 @@ function LibraryPresetCard({ preset, onAdd, isEditingLocked }: LibraryPresetCard
       </div>
       <div className="flex items-start justify-between gap-2">
         <h4 className="min-w-0 flex-1 truncate text-[13px] font-black text-[#1C1C1E]">
-          {preset.name}
+          {displayName}
         </h4>
         {categoryLabel && (
           <span className="shrink-0 rounded-md bg-[#EEF0FF] px-1.5 py-0.5 text-[9px] font-black text-[#3B45B3]">
@@ -198,20 +209,36 @@ export default function ThreeDLibraryPanel({
   onAddPreset,
   isEditingLocked = false,
 }: ThreeDLibraryPanelProps) {
+  const [ifcManifest, setIfcManifest] = useState<IfcLibraryManifest | null>(null)
   const activeCategory =
     LIBRARY_CATEGORIES.find((category) => category.id === selectedCategory) ??
     LIBRARY_CATEGORIES[0]
 
+  useEffect(() => {
+    let active = true
+    void loadIfcLibraryManifest().then((manifest) => {
+      if (active) setIfcManifest(manifest)
+    })
+    return () => {
+      active = false
+    }
+  }, [])
+
+  const presets = useMemo(
+    () => applyIfcLibraryManifestToPresets(PRESETS, ifcManifest),
+    [ifcManifest],
+  )
+
   // 선택된 카테고리에 해당하는 프리셋 목록을 필터링한다.
   const filteredPresets =
     activeCategory.id === 'all'
-      ? PRESETS
-      : PRESETS.filter((preset) => preset.type === activeCategory.id)
+      ? presets
+      : presets.filter((preset) => preset.type === activeCategory.id)
 
   return (
     <div
       data-3d-library-panel="true"
-      className="absolute left-8 top-[7%] z-50 flex h-[82%] w-[620px] overflow-hidden rounded-[24px] border border-white/40 bg-white/90 shadow-2xl backdrop-blur-xl animate-in fade-in slide-in-from-left-4 duration-300"
+      className="absolute bottom-24 left-[132px] top-6 z-[110] flex w-[min(720px,calc(100%-164px))] overflow-hidden rounded-[24px] border border-white/40 bg-white/90 shadow-2xl backdrop-blur-xl animate-in fade-in slide-in-from-left-4 duration-300"
     >
       {/* 닫기 버튼 */}
       <button
@@ -229,7 +256,7 @@ export default function ThreeDLibraryPanel({
       />
 
       {/* 우측 프리셋 그리드 */}
-      <div className="flex min-w-0 flex-1 flex-col p-8">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col p-8">
         <div className="mb-5 pr-16">
           <p className="text-[11px] font-black uppercase tracking-widest text-[#ADB5BD]">
             3D Presets
@@ -239,7 +266,7 @@ export default function ThreeDLibraryPanel({
           </h3>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 overflow-y-auto pr-1">
+        <div className="grid min-h-0 grid-cols-[repeat(auto-fit,minmax(210px,1fr))] gap-3 overflow-y-auto pr-1">
           {filteredPresets.map((preset) => (
             <LibraryPresetCard
               key={preset.id}

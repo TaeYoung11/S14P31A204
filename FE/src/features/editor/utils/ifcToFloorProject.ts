@@ -120,6 +120,28 @@ const buildPlacementMatrix = (
   return result
 }
 
+const buildAxisPlacementMatrix2D = (
+  placement: StepEntity | undefined,
+  entities: Map<number, StepEntity>,
+): Affine2D => {
+  if (!placement || (placement.type !== 'IFCAXIS2PLACEMENT2D' && placement.type !== 'IFCAXIS2PLACEMENT3D')) {
+    return IDENTITY_2D
+  }
+
+  const locationRef = parseStepRef(placement.args[0] ?? '$')
+  const directionRef = parseStepRef(placement.args[placement.type === 'IFCAXIS2PLACEMENT2D' ? 1 : 2] ?? '$')
+  const location = extractCartesianPoint2D(entities.get(locationRef ?? -1))
+  const dir = extractDirection2D(entities.get(directionRef ?? -1))
+  return {
+    a: dir.x,
+    b: -dir.y,
+    c: dir.y,
+    d: dir.x,
+    tx: location.x,
+    ty: location.y,
+  }
+}
+
 const extractProfilePoints = (
   profileRef: number | null,
   entities: Map<number, StepEntity>,
@@ -450,6 +472,9 @@ const extractWallGeometry = (
       if (item.type !== 'IFCEXTRUDEDAREASOLID') continue
       const profileRef = parseStepRef(item.args[0] ?? '$')
       const profile = entities.get(profileRef ?? -1)
+      const solidPlacementRef = parseStepRef(item.args[1] ?? '$')
+      const solidMatrix = buildAxisPlacementMatrix2D(entities.get(solidPlacementRef ?? -1), entities)
+      const itemMatrix = multiplyAffine(matrix, solidMatrix)
       const nextHeight = parseStepNumber(item.args[3] ?? '')
       if (nextHeight !== null) height = nextHeight
 
@@ -458,8 +483,10 @@ const extractWallGeometry = (
         const nextThickness = parseStepNumber(profile.args[4] ?? '')
         if (nextThickness !== null) thickness = nextThickness
         if (length === null) continue
-        bodyStart = applyAffine(matrix, { x: -length / 2, y: 0 })
-        bodyEnd = applyAffine(matrix, { x: length / 2, y: 0 })
+        const profilePlacementRef = parseStepRef(profile.args[2] ?? '$')
+        const profileMatrix = buildAxisPlacementMatrix2D(entities.get(profilePlacementRef ?? -1), entities)
+        bodyStart = applyAffine(itemMatrix, applyAffine(profileMatrix, { x: -length / 2, y: 0 }))
+        bodyEnd = applyAffine(itemMatrix, applyAffine(profileMatrix, { x: length / 2, y: 0 }))
         continue
       }
 
@@ -482,8 +509,8 @@ const extractWallGeometry = (
         if (length <= 0) continue
         const centerY = (minY + maxY) / 2
         if (!Number.isFinite(centerY)) continue
-        bodyStart = applyAffine(matrix, { x: minX, y: centerY })
-        bodyEnd = applyAffine(matrix, { x: maxX, y: centerY })
+        bodyStart = applyAffine(itemMatrix, { x: minX, y: centerY })
+        bodyEnd = applyAffine(itemMatrix, { x: maxX, y: centerY })
       }
     }
   }

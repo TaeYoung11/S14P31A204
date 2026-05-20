@@ -12,10 +12,7 @@ import { MaterialSelector } from '../shared/MaterialSelector'
 import type { IfcElementInfo } from '../../types'
 import type { BubbleInfo } from './BubbleAttributePanel'
 
-const logRoofDebug = (...args: unknown[]) => {
-  if (!import.meta.env.DEV) return
-  console.log('[roof-debug][ThreeDAttributePanel]', ...args)
-}
+const logRoofDebug = (..._args: unknown[]) => {}
 
 /** ThreeDAttributePanel 컴포넌트 props */
 interface ThreeDAttributePanelProps {

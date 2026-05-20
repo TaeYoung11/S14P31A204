@@ -1,12 +1,18 @@
 // 로그인 페이지의 이메일 조합, 기억하기, 제출 상태를 관리합니다.
-import { useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useLocation } from 'react-router-dom'
+import {
+  buildEmail,
+  EMAIL_DOMAIN_OPTIONS,
+  EMAIL_PATTERN,
+  sanitizeEmailSegment,
+  splitEmail,
+  type EmailDomainOption,
+} from '@/features/auth/constants/email'
+import { clearWithdrawNotice, readWithdrawNotice } from '@/features/auth/constants/storage'
 import { useAuth } from '@/features/auth/hooks/useAuth'
 
 const REMEMBERED_EMAIL_KEY = 'batang-remembered-email'
-const EMAIL_DOMAIN_OPTIONS = ['gmail.com', 'naver.com', 'kakao.com'] as const
-const EMAIL_PATTERN = /\S+@\S+\.\S+/
-type EmailDomainOption = (typeof EMAIL_DOMAIN_OPTIONS)[number]
 
 interface LoginLocationState {
   email?: string
@@ -16,27 +22,6 @@ interface LoginLocationState {
 const readRememberedEmail = () => {
   if (typeof window === 'undefined') return ''
   return window.localStorage.getItem(REMEMBERED_EMAIL_KEY) ?? ''
-}
-
-const splitEmail = (email: string) => {
-  const normalizedEmail = email.trim().toLowerCase()
-  const atIndex = normalizedEmail.indexOf('@')
-  const localPart = atIndex >= 0 ? normalizedEmail.slice(0, atIndex) : normalizedEmail
-  const domain = atIndex >= 0 ? normalizedEmail.slice(atIndex + 1) : ''
-  const isKnownDomain = EMAIL_DOMAIN_OPTIONS.includes(domain as EmailDomainOption)
-
-  return {
-    localPart,
-    domain: domain || 'gmail.com',
-    isCustomDomain: Boolean(domain) && !isKnownDomain,
-  }
-}
-
-const buildEmail = (localPart: string, domain: string) => {
-  const normalizedLocalPart = localPart.trim()
-  const normalizedDomain = domain.trim()
-  if (!normalizedLocalPart || !normalizedDomain) return ''
-  return `${normalizedLocalPart}@${normalizedDomain}`.toLowerCase()
 }
 
 export const useLoginPage = () => {
@@ -54,8 +39,24 @@ export const useLoginPage = () => {
   const [showPw, setShowPw] = useState(false)
   const [rememberEmail, setRememberEmail] = useState(Boolean(initialEmail))
   const [loginValidationError, setLoginValidationError] = useState('')
+  const [hasWithdrawNotice] = useState(() => readWithdrawNotice() || Boolean(locationState?.withdrawn))
 
   const email = useMemo(() => buildEmail(emailLocalPart, emailDomain), [emailDomain, emailLocalPart])
+
+  useEffect(() => {
+    if (!hasWithdrawNotice) return
+    clearWithdrawNotice()
+  }, [hasWithdrawNotice])
+
+  const validateEmailInput = (localPart: string, domain: string) => {
+    const nextEmail = buildEmail(localPart, domain)
+    if (!nextEmail || EMAIL_PATTERN.test(nextEmail)) {
+      setLoginValidationError('')
+      return
+    }
+
+    setLoginValidationError('올바른 이메일 형식으로 입력해 주세요.')
+  }
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault()
@@ -100,24 +101,27 @@ export const useLoginPage = () => {
     loginError,
     loginValidationError,
     isLoggingIn,
-    loginNotice: locationState?.withdrawn ? '회원 탈퇴가 완료되었습니다. 다시 로그인해 주세요.' : '',
+    loginNotice: hasWithdrawNotice ? '회원 탈퇴가 완료되었습니다. 다시 로그인해 주세요.' : '',
     setEmailLocalPart: (value: string) => {
-      setLoginValidationError('')
-      setEmailLocalPart(value)
+      const nextLocalPart = sanitizeEmailSegment(value)
+      setEmailLocalPart(nextLocalPart)
+      validateEmailInput(nextLocalPart, emailDomain)
     },
     setEmailDomain: (value: string) => {
-      setLoginValidationError('')
-      setEmailDomain(value)
+      const nextDomain = sanitizeEmailSegment(value)
+      setEmailDomain(nextDomain)
+      validateEmailInput(emailLocalPart, nextDomain)
     },
     selectEmailDomain: (domain: EmailDomainOption | 'custom') => {
-      setLoginValidationError('')
       if (domain === 'custom') {
         setIsCustomEmailDomain(true)
         setEmailDomain('')
+        validateEmailInput(emailLocalPart, '')
         return
       }
       setIsCustomEmailDomain(false)
       setEmailDomain(domain)
+      validateEmailInput(emailLocalPart, domain)
     },
     setPassword: (value: string) => {
       setLoginValidationError('')

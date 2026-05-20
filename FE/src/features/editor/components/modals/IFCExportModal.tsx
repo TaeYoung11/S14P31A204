@@ -62,7 +62,7 @@ function IFCExportModalContent({
     try {
       const resolvedIfcUrl = sourceIfcUrl
         ? await resolveIfcPresignedUrl(sourceIfcUrl, sourceIfcAssetId ?? undefined)
-        : '/mock/shinchan_house.ifc'
+        : '/mock/sample_final_semantic.ifc'
       const response = await fetch(resolvedIfcUrl)
       if (!response.ok) {
         throw new Error(`IFC 다운로드에 실패했습니다. (${response.status})`)

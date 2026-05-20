@@ -1,4 +1,4 @@
-import { lazy, useEffect, useMemo } from 'react'
+import { lazy, useMemo } from 'react'
 import { useFreshIfcUrl } from '@/features/editor/hooks/useFreshIfcUrl'
 import type { EditorCanvasRenderProps } from '../../types/editorCanvasContentProps'
 import type { ThreeDCameraViewPresetCommand, ThreeDCoordinates } from '../canvas-content/buildCanvasSectionProps'
@@ -35,18 +35,9 @@ export default function ThreeDModeCanvas({
   // IFC source가 없으면 mock IFC를 fallback으로 사용한다.
   const freshIfcUrl = useFreshIfcUrl(
     editorProps.currentIfcAssetId,
-    editorProps.currentIfcUrl ?? '/mock/shinchan_house.ifc',
+    editorProps.currentIfcUrl ?? '/mock/sample_final_semantic.ifc',
     editorProps.projectId ?? null,
   )
-
-  useEffect(() => {
-    if (!import.meta.env.DEV) return
-    console.log('[3d-ifc-url]', {
-      currentIfcUrl: editorProps.currentIfcUrl,
-      currentIfcAssetId: editorProps.currentIfcAssetId,
-      freshIfcUrl,
-    })
-  }, [editorProps.currentIfcAssetId, editorProps.currentIfcUrl, freshIfcUrl])
 
   const overlayIfcStoreyOpacityByExpressId = useMemo(() => {
     const overlayIds = editorProps.overlayIfcStoreyExpressIds ?? []

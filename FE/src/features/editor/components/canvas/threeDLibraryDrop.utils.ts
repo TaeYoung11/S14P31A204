@@ -8,36 +8,16 @@ interface DropResolveParams {
 }
 
 /**
- * 라이브러리 드롭 시 월드 히트포인트(또는 지면 교차점)를 로컬 좌표로 변환해
- * 프리셋 위치 patch를 생성한다.
+ * 라이브러리 드롭은 추가 동작만 수행한다.
+ * 실제 배치는 캔버스 동기화 단계에서 모델 바깥 기본 위치로 보정한다.
  */
 export function resolveLibraryDropPositionPatch({
-  THREE,
-  raycaster,
-  hitPoint,
-  toLocal,
+  THREE: _THREE,
+  raycaster: _raycaster,
+  hitPoint: _hitPoint,
+  toLocal: _toLocal,
 }: DropResolveParams): Partial<ThreeDLibraryPreset> | undefined {
-  if (hitPoint) {
-    const localPoint = toLocal(hitPoint)
-    return {
-      position: {
-        x: localPoint.x,
-        y: localPoint.y,
-        z: localPoint.z,
-      },
-    }
-  }
-
-  const groundPoint = new THREE.Vector3()
-  const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
-  if (!raycaster.ray.intersectPlane(groundPlane, groundPoint)) return undefined
-
-  const localPoint = toLocal(groundPoint)
-  return {
-    position: {
-      x: localPoint.x,
-      y: localPoint.y,
-      z: localPoint.z,
-    },
-  }
+  // 현재 3D 라이브러리 추가는 드롭 지점이 아니라 IFC 모델 바깥 자동 배치 규칙을 따른다.
+  // 인자는 향후 표면 스냅 배치 확장을 위해 함수 계약에 남겨 둔다.
+  return {}
 }

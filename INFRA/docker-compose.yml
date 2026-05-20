@@ -36,6 +36,8 @@ services:
     container_name: batang-be
     restart: unless-stopped
     environment:
+      TZ: Asia/Seoul
+      JAVA_TOOL_OPTIONS: "-Duser.timezone=Asia/Seoul"
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-docker}
       SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:postgresql://postgres:5432/${POSTGRES_DB:-batang}}
       SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:-${POSTGRES_USER:-batang}}
@@ -159,6 +161,8 @@ services:
         condition: service_completed_successfully
     networks:
       - batang-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   worker-planning-3d:
     build:
@@ -188,6 +192,7 @@ services:
       LLM_MODEL_NAME: ${LLM_MODEL_NAME:-qwen2.5:7b}
       LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
       LLM_API_KEY: ${LLM_API_KEY:-ollama}
+      LLM_REASONING_EFFORT: ${LLM_REASONING_EFFORT:-none}
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -195,6 +200,8 @@ services:
         condition: service_completed_successfully
     networks:
       - batang-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   worker-authoring:
     build:
@@ -295,7 +302,9 @@ services:
     image: postgres:16-alpine
     container_name: batang-postgres
     restart: unless-stopped
+    command: ["postgres", "-c", "timezone=Asia/Seoul"]
     environment:
+      TZ: Asia/Seoul
       POSTGRES_DB: ${POSTGRES_DB:-batang}
       POSTGRES_USER: ${POSTGRES_USER:-batang}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-batang}

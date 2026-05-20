@@ -91,6 +91,7 @@ interface TwoDCanvasStageProps {
   openings: FloorOpening[]
   selectedOpeningId: string | null
   selectedOpeningIds: string[]
+  outsideOpeningIds: Set<string>
   createOpeningOnWall: (wall: FloorWall, point: Point2D) => void
   onOpeningDelete?: (openingId: string) => void
   onOpeningDragStart: (next: { openingId: string } | null) => void
@@ -181,6 +182,7 @@ export function TwoDCanvasStage({
   openings,
   selectedOpeningId,
   selectedOpeningIds,
+  outsideOpeningIds,
   createOpeningOnWall,
   onOpeningDelete,
   onOpeningDragStart,
@@ -392,6 +394,8 @@ export function TwoDCanvasStage({
             onWallSelect={onWallSelect}
             onWallEndpointChange={onWallEndpointChange}
             onWallDragStart={onWallDragStart}
+            onWorkspaceEditStart={beginRoomResize}
+            onWorkspaceEditCommit={commitRoomResize}
           />
 
           <TwoDOpeningsLayer
@@ -399,6 +403,7 @@ export function TwoDCanvasStage({
             wallById={wallById}
             selectedOpeningId={selectedOpeningId}
             selectedOpeningIds={selectedOpeningIds}
+            outsideOpeningIds={outsideOpeningIds}
             selectedTool={selectedTool}
             isPanMode={isPanModeEnabled}
             isWallTool={isWallTool}

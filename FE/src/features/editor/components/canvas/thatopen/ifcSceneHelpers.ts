@@ -22,24 +22,13 @@ import {
   type MaybeThatOpenMaterialsManager,
   type ThreeModule,
 } from "./ifcMaterials";
-const IFC_MOVE_DEBUG = import.meta.env.VITE_3D_MOVE_DEBUG === "true";
+const IFC_MOVE_DEBUG = false;
 const IFC_MOVE_USE_MODEL_OPACITY_API = false;
 const IFC_MOVE_USE_MODEL_VISIBILITY_API = true;
 const traceIfcMoveVisibility = (
-  event: string,
-  payload?: Record<string, unknown>,
-) => {
-  if (!IFC_MOVE_DEBUG) return;
-  try {
-    if (payload) {
-      console.log(`[IFC_MOVE][TRACE] ${event}`, payload);
-      return;
-    }
-    console.log(`[IFC_MOVE][TRACE] ${event}`);
-  } catch {
-    // no-op
-  }
-};
+  _event: string,
+  _payload?: Record<string, unknown>,
+) => {};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 공유 타입 정의
@@ -59,6 +48,8 @@ export type Selected3DTarget =
       selectedSignature?: string;
       selectedColorSignature?: string;
       selectedMaterialSignature?: string;
+      selectedShapeSignature?: string;
+      selectedTransformSignature?: string;
     }
   | {
       source: "library";
@@ -66,6 +57,8 @@ export type Selected3DTarget =
       selectedSignature?: string;
       selectedColorSignature?: string;
       selectedMaterialSignature?: string;
+      selectedShapeSignature?: string;
+      selectedTransformSignature?: string
     }
   | null;
 
@@ -651,21 +644,8 @@ export const fetchIfcText = async (ifcUrl: string) => {
   let lastError: unknown = null;
 
   for (const candidate of candidates) {
-    if (import.meta.env.DEV) {
-      console.log("[3d-ifc-fetch][request]", { ifcUrl: candidate });
-    }
-
     try {
       const response = await fetch(candidate);
-
-      if (import.meta.env.DEV) {
-        console.log("[3d-ifc-fetch][response]", {
-          ifcUrl: candidate,
-          ok: response.ok,
-          status: response.status,
-          contentType: response.headers.get("content-type"),
-        });
-      }
 
       if (response.ok) {
         return response.text();
@@ -797,11 +777,16 @@ export const disposeObjectMaterials = (
 ) => {
   object.traverse((child) => {
     if (!(child instanceof THREE.Mesh)) return;
-    child.geometry.dispose();
+    const disposableGeometry = child.geometry as
+      | { dispose?: () => void }
+      | undefined;
+    disposableGeometry?.dispose?.();
     if (Array.isArray(child.material)) {
-      child.material.forEach((material) => material.dispose());
+      child.material.forEach((material) => {
+        (material as { dispose?: () => void } | undefined)?.dispose?.();
+      });
     } else {
-      child.material.dispose();
+      (child.material as { dispose?: () => void } | undefined)?.dispose?.();
     }
   });
 };
@@ -1309,8 +1294,24 @@ export const clearSelectedTarget = async (
     }
     if (!shouldRestoreModelVisibility) {
       if (target.object) {
+        target.object.visible = true;
         setObjectOpacity(sceneState.three, target.object, 1);
         if (removeObject) {
+          if (target.keepModelHiddenAfterCommit) {
+            traceIfcMoveVisibility("clear_target_keep_proxy_visible", {
+              modelId: target.modelId,
+              hitLocalId: target.hitLocalId,
+              localId: target.localId,
+              reason: "model_hidden_after_commit",
+            });
+            if (sceneState.renderer && sceneState.camera) {
+              sceneState.renderer.render(
+                sceneState.scene,
+                sceneState.camera as import("three").PerspectiveCamera,
+              );
+            }
+            return;
+          }
           target.object.parent?.remove(target.object);
           disposeObjectMaterials(sceneState.three, target.object);
         }
@@ -1389,6 +1390,43 @@ export const positionPresetGroupBesideIfc = (
   (
     presetGroup as Object3D & { updateMatrixWorld?: (force?: boolean) => void }
   ).updateMatrixWorld?.(true);
+};
+
+/**
+ * 저장 위치가 없는 라이브러리 프리셋은 항상 기준 모델의 바깥쪽에 보이도록 보정한다.
+ * 드롭/클릭 추가 시 모델 내부 히트 지점에 묻히는 것을 막기 위한 마지막 배치 가드다.
+ */
+export const ensureLibraryPresetOutsideIfc = (
+  THREE: ThreeModule,
+  ifcObject: Object3D,
+  presetObject: Object3D,
+  worldUnitsPerMm = PROJECT_WORLD_UNITS_PER_MM,
+) => {
+  const ifcBox = new THREE.Box3().setFromObject(ifcObject);
+  if (ifcBox.isEmpty()) return;
+
+  presetObject.updateMatrixWorld(true);
+  const presetBox = new THREE.Box3().setFromObject(presetObject);
+  if (presetBox.isEmpty()) return;
+
+  const gap = 600 * worldUnitsPerMm;
+  const targetMinX = ifcBox.max.x + gap;
+  const deltaX = presetBox.min.x < targetMinX ? targetMinX - presetBox.min.x : 0;
+  const deltaY = ifcBox.min.y - presetBox.min.y;
+
+  if (Math.abs(deltaX) < 1e-8 && Math.abs(deltaY) < 1e-8) return;
+
+  const nextWorldPosition = new THREE.Vector3();
+  presetObject.getWorldPosition(nextWorldPosition);
+  nextWorldPosition.x += deltaX;
+  nextWorldPosition.y += deltaY;
+
+  if (presetObject.parent) {
+    presetObject.position.copy(presetObject.parent.worldToLocal(nextWorldPosition));
+  } else {
+    presetObject.position.copy(nextWorldPosition);
+  }
+  presetObject.updateMatrixWorld(true);
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
