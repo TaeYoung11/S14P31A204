@@ -1,11 +1,14 @@
 import { FolderOpen } from 'lucide-react'
 
 interface ProjectEmptyStateProps {
-  search: string
+  hasSearch?: boolean
+  search?: string
 }
 
-/** 프로젝트가 없거나 검색 결과가 없을 때 보여주는 빈 상태 화면이다. */
-export default function ProjectEmptyState({ search }: ProjectEmptyStateProps) {
+/** 프로젝트가 없거나 검색 결과가 없을 때의 빈 상태 화면이다. */
+export default function ProjectEmptyState({ hasSearch, search }: ProjectEmptyStateProps) {
+  const hasActiveSearch = hasSearch ?? Boolean(search)
+
   return (
     <section className="project-empty-panel">
       <div className="project-empty-visual">
@@ -13,10 +16,10 @@ export default function ProjectEmptyState({ search }: ProjectEmptyStateProps) {
       </div>
       <div className="min-w-0">
         <h2 className="text-lg font-black text-[#111827]">
-          {search ? '검색 결과가 없습니다' : '첫 프로젝트를 시작해 보세요'}
+          {hasActiveSearch ? '검색 결과가 없습니다' : '첫 프로젝트를 시작해 보세요'}
         </h2>
         <p className="mt-1 text-sm font-medium text-[#64748b]">
-          {search
+          {hasActiveSearch
             ? '입력한 검색어와 일치하는 프로젝트가 없습니다.'
             : '프로젝트를 만들면 이곳에서 바로 확인하고 관리할 수 있습니다.'}
         </p>

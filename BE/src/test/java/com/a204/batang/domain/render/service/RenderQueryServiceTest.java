@@ -98,7 +98,7 @@ class RenderQueryServiceTest {
 
         org.mockito.Mockito.doThrow(new CustomException(ErrorCode.FORBIDDEN_ACCESS))
                 .when(projectAccessService)
-                .validateProjectOwnerOrThrow(eq(project), any());
+                .validateProjectMemberOrThrow(eq(project), any());
 
         assertThatThrownBy(() -> renderQueryService.getProjectRenders(projectId))
                 .isInstanceOf(CustomException.class)

@@ -191,6 +191,7 @@ import {
 import { createSceneUpdateEventBus } from '../utils/sceneUpdateEventBus'
 import { resolveWorkspaceSiteAreaM2 } from '../utils/numberUtils'
 import { extractOuterRingFromCoordinates } from '@/features/project/utils/sitePolygon'
+import { readProjectEditorMode, saveProjectEditorMode } from '@/features/project/utils/projectEditorModeCache'
 import { getRuntimeEnvString } from '@/shared/lib/runtimeEnv'
 import type { WorkspaceCommand } from '../types/workspaceCommand.types'
 import { useWorkspaceCoordinateFramePolicy } from './useWorkspaceCoordinateFramePolicy'
@@ -602,7 +603,9 @@ export function useEditorPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const queryClient = useQueryClient()
   const { currentProjectName } = useEditorProjectName(projectId)
-  const mode = resolveEditorMode(searchParams.get('mode'))
+  const modeParam = searchParams.get('mode')
+  const cachedProjectMode = readProjectEditorMode(projectId)
+  const mode = resolveEditorMode(modeParam ?? cachedProjectMode)
   const [selectedIfcElement, setSelectedIfcElement] = useState<IfcElementInfo | null>(null)
   /** 계층구조 패널에서 특정 IFC 요소 선택을 3D 캔버스로 전달하는 요청 localId */
   const [requestedIfcElementLocalId, setRequestedIfcElementLocalId] = useState<number | null>(null)
@@ -615,6 +618,21 @@ export function useEditorPage() {
   /** 3D 사이드바 삭제 버튼으로 선택 요소 삭제를 요청하는 트리거 */
   const [threeDDeleteRequestToken, setThreeDDeleteRequestToken] = useState(0)
   const [ifcElementChangesById, setIfcElementChangesById] = useState<Record<number, IfcElementChange>>({})
+
+  useEffect(() => {
+    if (!projectId || modeParam) return
+    const cachedMode = readProjectEditorMode(projectId)
+    if (!cachedMode) return
+
+    const nextParams = new URLSearchParams(searchParams)
+    nextParams.set('mode', cachedMode)
+    setSearchParams(nextParams, { replace: true })
+  }, [modeParam, projectId, searchParams, setSearchParams])
+
+  useEffect(() => {
+    if (!projectId || !modeParam) return
+    saveProjectEditorMode(projectId, mode)
+  }, [mode, modeParam, projectId])
 
   const { containerRef, stageSize } = useStageSize()
 
@@ -3044,6 +3062,7 @@ export function useEditorPage() {
         traceBubbleSnapshot('db-save:begin', projectId, snapshot, { force, saveStartVersion })
       },
       onSaveSuccess: ({ saved, snapshot, force, saveStartVersion, changedDuringSave }) => {
+        saveProjectEditorMode(projectId, 'bubble')
         if (isBubbleDebugEnabled()) {
           const summary = summarizeBubbleSnapshotForDebug(snapshot)
           console.table(summary.bubbleFloorRows)
@@ -3186,6 +3205,7 @@ export function useEditorPage() {
       }
 
       setSaveStatus('synced')
+      saveProjectEditorMode(projectId, mode === '3d' || mode === 'view' ? mode : '2d')
       clearUnsavedDbChangesIfUnchanged(dbSaveStartVersion)
       return saved
     } catch (error: unknown) {
@@ -3206,6 +3226,7 @@ export function useEditorPage() {
     currentIfcRevisionId,
     currentIfcStorageUrl,
     currentIfcUrl,
+    mode,
     projectId,
     workspacePhaseStatus,
   ])
@@ -3223,6 +3244,7 @@ export function useEditorPage() {
 
   const markLocalBubbleSnapshotChanged = useCallback(() => {
     hasUserEditedRef.current = true
+    saveProjectEditorMode(projectId, 'bubble')
     markUnsavedDbChanges()
     bubbleSnapshotChangeVersionRef.current += 1
     pendingLocalBubbleChangeTaskRef.current = () => {
@@ -3252,6 +3274,7 @@ export function useEditorPage() {
 
   const markLocalFloorPlanSnapshotChanged = useCallback(() => {
     hasUserEditedRef.current = true
+    saveProjectEditorMode(projectId, mode === '3d' ? '3d' : '2d')
     markUnsavedDbChanges()
     if (!floorPlanSnapshotCommitScheduledRef.current) {
       floorPlanSnapshotCommitScheduledRef.current = true
@@ -3261,7 +3284,7 @@ export function useEditorPage() {
       }, 0)
     }
     setSaveStatus('dirty')
-  }, [markUnsavedDbChanges])
+  }, [markUnsavedDbChanges, mode, projectId])
 
   const beginWorkspaceSnapshotTransaction = useCallback(() => {
     hasUserEditedRef.current = true
@@ -4064,6 +4087,7 @@ export function useEditorPage() {
 
   /** 실제 모드 전환 적용 — 협업 모드·라이브러리는 모드 이탈 시 닫힘 */
   const applyMode = useCallback((nextMode: EditorMode) => {
+    saveProjectEditorMode(projectId, nextMode)
     setSearchParams({ mode: nextMode })
     if (nextMode !== mode) resetToolSelection()
     if (nextMode === 'view' || nextMode === 'bubble' || (!isEditorReadOnly && nextMode !== '2d')) {
@@ -4082,6 +4106,7 @@ export function useEditorPage() {
   }, [
     isEditorReadOnly,
     mode,
+    projectId,
     resetToolSelection,
     setIsAgentPanelMode,
     setIsCollaborationMode,

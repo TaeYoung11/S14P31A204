@@ -1,19 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { saveWithdrawNotice } from '@/features/auth/constants/storage'
 import type { LoginDto, WithdrawDto } from '@/features/auth/services/auth.service'
 import { authService } from '@/features/auth/services/auth.service'
+import { resolveSafeInternalRedirect } from '@/features/auth/utils/redirect'
 import { useAuthStore } from '@/shared/stores/authStore'
 
-interface LoginOptions {
-  redirectTo?: string
+interface AuthLocationState {
+  redirectTo?: string | null
 }
 
-const isSafeInternalRedirect = (redirectTo?: string): redirectTo is string => {
-  if (!redirectTo) return false
-  if (!redirectTo.startsWith('/')) return false
-  if (redirectTo.startsWith('//')) return false
-  return !/^[a-z][a-z\d+.-]*:/i.test(redirectTo)
+interface LoginOptions {
+  redirectTo?: string | null
 }
 
 export const useAuth = () => {
@@ -28,6 +26,8 @@ export const useAuth = () => {
     logout: storeLogout,
   } = useAuthStore()
   const navigate = useNavigate()
+  const location = useLocation()
+  const locationState = location.state as AuthLocationState | null
 
   const { data: me, isLoading: isMeLoading } = useQuery({
     queryKey: ['me', token],
@@ -76,8 +76,7 @@ export const useAuth = () => {
     isMeLoading,
     login: (data: LoginDto, options?: LoginOptions) => loginMutation.mutate(data, {
       onSuccess: () => {
-        const redirectTo = options?.redirectTo
-        navigate(isSafeInternalRedirect(redirectTo) ? redirectTo : '/projects', { replace: true })
+        navigate(resolveSafeInternalRedirect(options?.redirectTo ?? locationState?.redirectTo), { replace: true })
       },
     }),
     loginError: loginMutation.error,

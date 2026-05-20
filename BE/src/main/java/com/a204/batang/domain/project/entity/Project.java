@@ -47,6 +47,12 @@ public class Project extends BaseEntity {
     @Column(name = "description", columnDefinition = "TEXT")
     private String description;
 
+    @Column(name = "thumbnail_url", columnDefinition = "TEXT")
+    private String thumbnailUrl;
+
+    @Column(name = "thumbnail_mode", length = 20)
+    private String thumbnailMode;
+
     @Column(name = "cadastral_pnu", length = 32)
     private String cadastralPnu;
 
@@ -99,6 +105,17 @@ public class Project extends BaseEntity {
     public void updateBasicInfo(String name, String description) {
         this.name = name;
         this.description = description;
+    }
+
+    /**
+     * 프로젝트 카드에 표시할 최신 작업 썸네일을 갱신한다.
+     *
+     * @param thumbnailUrl 브라우저에서 표시 가능한 이미지 URL
+     * @param thumbnailMode 썸네일이 캡처된 에디터 모드
+     */
+    public void updateThumbnail(String thumbnailUrl, String thumbnailMode) {
+        this.thumbnailUrl = thumbnailUrl;
+        this.thumbnailMode = thumbnailMode;
     }
 
     /**

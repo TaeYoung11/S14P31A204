@@ -27,6 +27,7 @@ export interface Project {
   created_at: string
   updated_at: string
   thumbnail_url?: string
+  thumbnail_mode?: 'bubble' | '2d' | '3d' | 'view'
   member_count: number
   ifc_uploaded: boolean
   unread_comment_count: number

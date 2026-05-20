@@ -12,6 +12,8 @@ import java.util.UUID;
  * @param name 프로젝트 이름
  * @param description 프로젝트 설명
  * @param cadastralAddress 대지 주소
+ * @param thumbnailUrl 프로젝트 카드 썸네일 URL
+ * @param thumbnailMode 썸네일이 캡처된 에디터 모드
  * @param createdAt 생성 시각
  * @param updatedAt 수정 시각
  */
@@ -20,6 +22,8 @@ public record ProjectSummaryResponse(
         String name,
         String description,
         String cadastralAddress,
+        String thumbnailUrl,
+        String thumbnailMode,
         LocalDateTime createdAt,
         LocalDateTime updatedAt
 ) {
@@ -36,6 +40,8 @@ public record ProjectSummaryResponse(
                 project.getName(),
                 project.getDescription(),
                 project.getCadastralAddress(),
+                project.getThumbnailUrl(),
+                project.getThumbnailMode(),
                 project.getCreatedAt(),
                 project.getUpdatedAt()
         );

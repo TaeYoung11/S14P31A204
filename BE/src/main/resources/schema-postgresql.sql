@@ -105,6 +105,11 @@ CREATE INDEX IF NOT EXISTS idx_projects_name_lower_trgm
     USING gin (lower(name) gin_trgm_ops)
     WHERE deleted_at IS NULL;
 
+ALTER TABLE IF EXISTS projects
+    ADD COLUMN IF NOT EXISTS thumbnail_url TEXT;
+ALTER TABLE IF EXISTS projects
+    ADD COLUMN IF NOT EXISTS thumbnail_mode VARCHAR(20);
+
 ALTER TABLE IF EXISTS project_pins
     ADD COLUMN IF NOT EXISTS version BIGINT;
 

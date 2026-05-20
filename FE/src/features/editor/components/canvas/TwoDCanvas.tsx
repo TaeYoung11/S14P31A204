@@ -21,6 +21,7 @@ import {
 } from '../../constants'
 import { toCanvasPolygon } from '../../utils/siteBoundaryValidation'
 import { useSpacePanning } from '../../hooks/useSpacePanning'
+import { captureKonvaStagePreview } from '../../utils/canvasPreviewCapture'
 import { FloorPlanEmpty, FloorPlanLoading } from './TwoDCanvasOverlays'
 import type { RoomDragState } from './TwoDRoomsLayer'
 import { TwoDCanvasStage } from './TwoDCanvasStage'
@@ -125,6 +126,7 @@ interface TwoDCanvasProps {
   scale?: number
   selectedTool?: string
   onWheelZoom?: (factor: number) => void
+  onPreviewCapture?: (imageUrl: string) => void
 }
 
 const createSharedPanStorageKey = (projectId?: string) => (
@@ -225,6 +227,7 @@ export function TwoDCanvas({
   scale = 1,
   selectedTool = 'selection',
   onWheelZoom,
+  onPreviewCapture,
 }: TwoDCanvasProps) {
   const stageRef = useRef<Konva.Stage | null>(null)
   const isSpacePressed = useSpacePanning()
@@ -366,6 +369,46 @@ export function TwoDCanvas({
     panOffsetY: panOffset.y,
     gridStepPx: gridSnapStepPx,
   })
+
+  useEffect(() => {
+    if (
+      !onPreviewCapture ||
+      !isGenerated ||
+      isGenerating ||
+      (rooms.length === 0 && walls.length === 0) ||
+      stageSize.width <= 0 ||
+      stageSize.height <= 0
+    ) return
+
+    const timerId = window.setTimeout(() => {
+      const stage = stageRef.current
+      if (!stage) return
+
+      try {
+        const imageUrl = captureKonvaStagePreview(stage)
+        onPreviewCapture(imageUrl)
+      } catch {
+        // 캔버스 캡처 실패는 카드 썸네일 fallback으로 처리한다.
+      }
+    }, 250)
+
+    return () => window.clearTimeout(timerId)
+  }, [
+    isGenerated,
+    isGenerating,
+    onPreviewCapture,
+    openings,
+    overlayLayers,
+    panOffset.x,
+    panOffset.y,
+    rooms,
+    scale,
+    sitePoints,
+    stageSize.height,
+    stageSize.width,
+    viewTransform,
+    walls,
+  ])
 
   const {
     fallbackDoorList,

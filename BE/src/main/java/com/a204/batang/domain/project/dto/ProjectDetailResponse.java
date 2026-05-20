@@ -19,6 +19,8 @@ import java.util.UUID;
  * @param bubbleSnapshotJson 현재 저장된 버블 스냅샷
  * @param ifcStorageUrl 버블 편집 종료 후 반환하는 IFC URL
  * @param currentRevision 현재 리비전 ID 문자열
+ * @param thumbnailUrl 프로젝트 카드 썸네일 URL
+ * @param thumbnailMode 썸네일이 캡처된 에디터 모드
  * @param siteInfo 대지 정보
  * @param creator 프로젝트 생성자 정보
  * @param invitedUsers 초대 사용자 정보 목록
@@ -32,6 +34,8 @@ public record ProjectDetailResponse(
         JsonNode bubbleSnapshotJson,
         String ifcStorageUrl,
         String currentRevision,
+        String thumbnailUrl,
+        String thumbnailMode,
         ProjectSiteDetailResponse siteInfo,
         ProjectParticipantResponse creator,
         List<ProjectParticipantResponse> invitedUsers
@@ -66,6 +70,8 @@ public record ProjectDetailResponse(
                 bubbleSnapshotJson,
                 ifcStorageUrl,
                 workspace.getCurrentRevision(),
+                project.getThumbnailUrl(),
+                project.getThumbnailMode(),
                 ProjectSiteDetailResponse.from(project),
                 creator,
                 List.copyOf(invitedUsers)

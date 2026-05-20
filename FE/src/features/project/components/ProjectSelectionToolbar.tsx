@@ -9,7 +9,7 @@ interface ProjectSelectionToolbarProps {
   onSelectAllVisible: () => void
 }
 
-/** 선택 모드에서 다중 공유/삭제 액션을 제공한다. */
+/** 선택 모드에서 전체 선택, 공유, 삭제 일괄 액션을 제공한다. */
 export default function ProjectSelectionToolbar({
   isAllVisibleSelected,
   isDeleting,

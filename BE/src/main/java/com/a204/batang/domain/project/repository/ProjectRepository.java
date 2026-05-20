@@ -6,6 +6,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -52,6 +53,32 @@ public interface ProjectRepository extends JpaRepository<Project, UUID> {
               AND p.deletedAt IS NULL
             """)
     Optional<Project> findByProjectIdAndDeletedAtIsNullForUpdate(@Param("projectId") UUID projectId);
+
+    /**
+     * 카드 썸네일만 갱신한다.
+     * 프로젝트 정렬 기준인 updated_at은 실제 프로젝트 편집 저장 시점만 반영하도록 유지한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param thumbnailUrl 썸네일 URL
+     * @param thumbnailMode 썸네일 모드
+     * @return 갱신된 행 수
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query(
+            value = """
+                    UPDATE projects
+                    SET thumbnail_url = :thumbnailUrl,
+                        thumbnail_mode = :thumbnailMode
+                    WHERE project_id = :projectId
+                      AND deleted_at IS NULL
+                    """,
+            nativeQuery = true
+    )
+    int updateThumbnailByProjectId(
+            @Param("projectId") UUID projectId,
+            @Param("thumbnailUrl") String thumbnailUrl,
+            @Param("thumbnailMode") String thumbnailMode
+    );
 
     /**
      * 삭제되지 않은 프로젝트 중 전달한 ID 목록에 해당하는 프로젝트를 조회한다.
