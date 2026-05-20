@@ -103,7 +103,7 @@ export default function EditorHeaderActions({
         }`}
       >
         <Save size={14} />
-        {mode === '3d' ? 'IFC 내보내기' : '저장'}
+        {mode === 'view' ? 'IFC 내보내기' : '저장'}
       </button>
       )}
     </div>
