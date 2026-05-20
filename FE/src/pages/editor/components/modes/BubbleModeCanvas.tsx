@@ -1,6 +1,7 @@
-import { lazy, useMemo } from 'react'
+import { lazy, useCallback, useMemo } from 'react'
 import { Plus } from 'lucide-react'
 import type { EditorCanvasRenderProps } from '../../types/editorCanvasContentProps'
+import { saveProjectWorkspaceThumbnail } from '@/features/project/services/projectWorkspaceThumbnail.service'
 import { formatBubbleFloorLabel, normalizeBubbleFloor } from '@/features/editor/utils/bubbleFloorUtils'
 import { buildActiveFloorBubbleSection } from '../../utils/bubbleModeSection'
 
@@ -54,6 +55,9 @@ export default function BubbleModeCanvas({ editorProps, scale }: BubbleModeCanva
       bubbleFloors,
     ],
   )
+  const handlePreviewCapture = useCallback((imageUrl: string) => {
+    saveProjectWorkspaceThumbnail(editorProps.projectId, 'bubble', imageUrl)
+  }, [editorProps.projectId])
 
   return (
     <div className="absolute inset-0 p-4">
@@ -124,6 +128,7 @@ export default function BubbleModeCanvas({ editorProps, scale }: BubbleModeCanva
           onBubbleResize={editorProps.handleBubbleResize}
           isReadOnly={editorProps.isBubbleReadOnly}
           scale={scale}
+          onPreviewCapture={handlePreviewCapture}
         />
       </div>
     </div>
