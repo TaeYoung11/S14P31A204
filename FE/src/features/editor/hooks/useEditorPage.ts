@@ -181,6 +181,11 @@ import {
   findRegistryElement,
   resolveRegistryElementSelectionTarget,
 } from '../utils/editorElementRegistry'
+import {
+  applyIfcStoreyNameOverrides,
+  normalizeIfcStoreyNameOverrides,
+  resolveLibraryElementFloorLayerId,
+} from '../utils/editorFloorLayerResolution'
 import { createSceneUpdateEventBus } from '../utils/sceneUpdateEventBus'
 import { resolveWorkspaceSiteAreaM2 } from '../utils/numberUtils'
 import { extractOuterRingFromCoordinates } from '@/features/project/utils/sitePolygon'
@@ -249,61 +254,6 @@ interface FloorRoomMoveSession {
   key: string
   baselineRoomsByBubbleId: Map<string, FloorRoom>
   affectedElementGlobalIds: string[]
-}
-
-const normalizeIfcStoreyNameOverrides = (
-  overrides?: Record<string, string> | null,
-): Record<string, string> =>
-  Object.fromEntries(
-    Object.entries(overrides ?? {})
-      .map(([id, name]) => [String(Number(id)), name.trim()] as const)
-      .filter(([id, name]) => id !== 'NaN' && name.length > 0),
-  )
-
-const applyIfcStoreyNameOverrides = (
-  storeys: IfcStoreyInfo[],
-  overrides: Record<string, string>,
-): IfcStoreyInfo[] => {
-  if (Object.keys(overrides).length === 0) return storeys
-  return storeys.map((storey) => {
-    const overrideName = overrides[String(storey.expressId)]
-    return overrideName ? { ...storey, name: overrideName } : storey
-  })
-}
-
-const normalizeFloorLayerNameToken = (value: string): string =>
-  value.trim().toLowerCase().replace(/\s+/g, '')
-
-const resolveLibraryElementFloorLayerId = (
-  element: Pick<ThreeDLibraryPreset, 'floorLayerId' | 'type' | 'name'>,
-  floorLayers: FloorLayer[],
-  activeFloorLayerId: string | null,
-): string | null => {
-  if (element.floorLayerId && floorLayers.some((layer) => layer.id === element.floorLayerId)) {
-    return element.floorLayerId
-  }
-  if (floorLayers.length === 0) return element.floorLayerId ?? activeFloorLayerId
-
-  const findLayerByNameTokens = (tokens: string[]) =>
-    floorLayers.find((layer) => {
-      const nameToken = normalizeFloorLayerNameToken(layer.name)
-      const storeyNameToken = normalizeFloorLayerNameToken(layer.storeyName ?? '')
-      return tokens.some((token) => nameToken.includes(token) || storeyNameToken.includes(token))
-    })?.id ?? null
-
-  if (element.type === 'roof') {
-    return findLayerByNameTokens(['옥상', '지붕', 'roof', 'rooftop', 'top']) ??
-      floorLayers[floorLayers.length - 1]?.id ??
-      activeFloorLayerId
-  }
-  if (element.type === 'ceiling') {
-    return findLayerByNameTokens(['천장', 'ceiling']) ?? activeFloorLayerId ?? floorLayers[0]?.id ?? null
-  }
-  if (element.type === 'floor') {
-    return findLayerByNameTokens(['바닥', 'floor']) ?? activeFloorLayerId ?? floorLayers[0]?.id ?? null
-  }
-
-  return activeFloorLayerId ?? floorLayers[0]?.id ?? null
 }
 
 const clampBubbleDbSaveDebounceMs = (value: number): number =>
