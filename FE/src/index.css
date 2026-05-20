@@ -9,8 +9,8 @@
    ===================== */
 :root {
   /* Background */
-  --color-bg: #fafaf8;
-  --color-bg-secondary: #f8f9fa;
+  --color-bg: #f8f9f6;
+  --color-bg-secondary: #f8f9f6;
   --color-bg-tertiary: #f1f3f5;
   --color-surface: #ffffff;
 
@@ -232,7 +232,8 @@ h6 {
 }
 
 .auth-heading {
-  @apply mb-1.5 text-[clamp(1.65rem,5vw,2rem)] font-bold leading-tight text-[#0f172a];
+  @apply mb-1.5 font-bold leading-tight text-[#0f172a];
+  font-size: clamp(1.65rem, 5vw, 2rem);
 }
 
 .auth-kicker {
