@@ -10,7 +10,8 @@ class EngineOperationInlineRef(BaseModel):
     type: str = Field(
         pattern=(
             "^(create_element|create_wall|update_element_properties|"
-            "transform_elements|delete_elements|delete_wall_void)$"
+            "transform_elements|delete_elements|delete_wall_void|"
+            "create_storey|update_storey|delete_storey)$"
         )
     )
     selector: dict[str, object] | None = None
@@ -18,7 +19,7 @@ class EngineOperationInlineRef(BaseModel):
 
     @model_validator(mode="after")
     def validate_selector_requirements(self) -> EngineOperationInlineRef:
-        if self.type not in {"create_wall", "create_element"} and self.selector is None:
+        if self.type not in {"create_wall", "create_element", "create_storey"} and self.selector is None:
             raise ValueError("selector is required for non-create_wall operations")
         return self
 

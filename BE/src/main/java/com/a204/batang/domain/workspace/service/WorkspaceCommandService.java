@@ -9,8 +9,10 @@ import com.a204.batang.domain.workspace.dto.SaveFloorPlanSnapshotRequest;
 import com.a204.batang.domain.workspace.dto.SaveFloorPlanSnapshotResponse;
 import com.a204.batang.domain.workspace.entity.ProjectWorkspace;
 import com.a204.batang.domain.workspace.repository.ProjectWorkspaceRepository;
+import com.a204.batang.domain.workspace.repository.WorkspaceBubbleSnapshotRedisRepository;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -32,6 +34,7 @@ public class WorkspaceCommandService {
     private final BubbleSnapshotHelper bubbleSnapshotHelper;
     private final ProjectAccessService projectAccessService;
     private final RevisionRepository revisionRepository;
+    private final WorkspaceBubbleSnapshotRedisRepository workspaceBubbleSnapshotRedisRepository;
 
     /**
      * 버블 스냅샷을 DB에 저장한다.
@@ -75,6 +78,36 @@ public class WorkspaceCommandService {
         ProjectWorkspace workspace = projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId)
                 .orElseThrow(() -> new CustomException(ErrorCode.PROJECT_NOT_FOUND));
 
+        if ((request.baseIndex() == null || request.baseIndex() < 0)
+                && (request.s3Url() == null || request.s3Url().isBlank())) {
+            throw new CustomException(
+                    ErrorCode.INVALID_REQUEST,
+                    "Either baseIndex or s3Url is required."
+            );
+        }
+
+        JsonNode floorPlanPayloadJson = resolveFloorPlanPayloadFromHistory(projectId, request.baseIndex());
+        if (floorPlanPayloadJson != null) {
+            workspace.updateFloorPlanSnapshot(floorPlanPayloadJson);
+        }
+
+        String normalizedS3Url = normalizeOptionalS3Url(request.s3Url());
+        if (normalizedS3Url == null) {
+            log.info(
+                    "Floor-plan snapshot JSON saved to DB without IFC output update. projectId={}, baseIndex={}, savedBy={}",
+                    projectId,
+                    request.baseIndex(),
+                    currentUserId
+            );
+            return new SaveFloorPlanSnapshotResponse(
+                    projectId,
+                    workspace.getPhaseStatus(),
+                    workspace.getCurrentRevision(),
+                    workspace.getIfcStorageUrl(),
+                    LocalDateTime.now()
+            );
+        }
+
         UUID parentRevisionId = resolveParentRevisionId(request.revisionId(), workspace.getCurrentRevision());
         int nextRevisionNo = revisionRepository.findTopByProjectIdOrderByRevisionNoDesc(projectId)
                 .map(revision -> revision.getRevisionNo() + 1)
@@ -96,7 +129,6 @@ public class WorkspaceCommandService {
         revision.markSucceeded();
         revisionRepository.save(revision);
 
-        String normalizedS3Url = request.s3Url().trim();
         workspace.updateIfcOutput(normalizedS3Url, nextRevisionId);
         workspace.getProject().updateLatestRevisionId(nextRevisionId);
 
@@ -139,5 +171,37 @@ public class WorkspaceCommandService {
             log.warn("Workspace currentRevision is not UUID format. currentRevision={}", workspaceRevisionId);
             return null;
         }
+    }
+
+    private JsonNode resolveFloorPlanPayloadFromHistory(UUID projectId, Integer baseIndex) {
+        if (baseIndex == null || baseIndex < 0) {
+            return null;
+        }
+        try {
+            JsonNode historySnapshot = workspaceBubbleSnapshotRedisRepository.findFloorPlanSnapshotByIndex(projectId, baseIndex);
+            if (historySnapshot == null || historySnapshot.isNull()) {
+                throw new CustomException(
+                        ErrorCode.WORKSPACE_FLOOR_PLAN_CACHE_READ_FAILED,
+                        "floor-plan history snapshot not found."
+                );
+            }
+            JsonNode payload = historySnapshot.get("floorPlanPayloadJson");
+            if (payload == null || payload.isNull() || !payload.isObject()) {
+                throw new CustomException(
+                        ErrorCode.WORKSPACE_FLOOR_PLAN_CACHE_READ_FAILED,
+                        "floor-plan history snapshot has no floorPlanPayloadJson."
+                );
+            }
+            return payload;
+        } catch (JsonProcessingException exception) {
+            throw new CustomException(ErrorCode.WORKSPACE_FLOOR_PLAN_CACHE_READ_FAILED, exception.getMessage());
+        }
+    }
+
+    private String normalizeOptionalS3Url(String s3Url) {
+        if (s3Url == null || s3Url.isBlank()) {
+            return null;
+        }
+        return s3Url.trim();
     }
 }

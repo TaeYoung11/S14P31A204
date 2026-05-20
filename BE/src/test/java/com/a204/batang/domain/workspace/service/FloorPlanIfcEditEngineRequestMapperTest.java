@@ -51,6 +51,95 @@ class FloorPlanIfcEditEngineRequestMapperTest {
     }
 
     @Test
+    void toEngineRequest_mapsFloorLayerCreateToCreateStorey() throws Exception {
+        UUID projectId = UUID.randomUUID();
+        UUID baseRevisionId = UUID.randomUUID();
+        ObjectNode data = objectMapper.createObjectNode()
+                .put("name", "2F")
+                .put("storeyName", "2F")
+                .put("elevationMm", 3000.0)
+                .put("ceilingHeightMm", 2700.0);
+
+        JsonNode engineRequest = mapper.toEngineRequest(
+                "request-create-storey",
+                projectId,
+                baseRevisionId,
+                List.of(envelope(projectId, baseRevisionId, "create", "floorLayer", "floor-2", data, null))
+        );
+
+        JsonNode operation = engineRequest.get("operations").get(0);
+        assertThat(operation.get("type").asText()).isEqualTo("create_storey");
+        JsonNode params = operation.get("parameters");
+        assertThat(params.get("name").asText()).isEqualTo("2F");
+        assertThat(params.get("local_id").asText()).isEqualTo("floor-2");
+        assertThat(params.get("elevation_mm").asDouble()).isEqualTo(3000.0);
+        assertThat(params.get("ceiling_height_mm").asDouble()).isEqualTo(2700.0);
+        assertValidEngineRequestV2(engineRequest);
+    }
+
+    @Test
+    void toEngineRequest_mapsFloorLayerUpdateToUpdateStoreyWhenGlobalIdExists() throws Exception {
+        UUID projectId = UUID.randomUUID();
+        UUID baseRevisionId = UUID.randomUUID();
+        ObjectNode patch = objectMapper.createObjectNode()
+                .put("storeyGlobalId", "2HlybO1QH4A9HpWyE9qInJ")
+                .put("name", "Level 2")
+                .put("elevationMm", 3200.0);
+
+        JsonNode engineRequest = mapper.toEngineRequest(
+                "request-update-storey",
+                projectId,
+                baseRevisionId,
+                List.of(envelope(projectId, baseRevisionId, "update", "floorLayer", "floor-2", null, patch))
+        );
+
+        JsonNode operation = engineRequest.get("operations").get(0);
+        assertThat(operation.get("type").asText()).isEqualTo("update_storey");
+        assertThat(operation.get("selector").get("global_ids").get(0).asText()).isEqualTo("2HlybO1QH4A9HpWyE9qInJ");
+        assertThat(operation.get("parameters").get("name").asText()).isEqualTo("Level 2");
+        assertThat(operation.get("parameters").get("elevation_mm").asDouble()).isEqualTo(3200.0);
+        assertValidEngineRequestV2(engineRequest);
+    }
+
+    @Test
+    void toEngineRequest_mapsFloorLayerDeleteToDeleteStoreyWhenGlobalIdExists() throws Exception {
+        UUID projectId = UUID.randomUUID();
+        UUID baseRevisionId = UUID.randomUUID();
+
+        JsonNode engineRequest = mapper.toEngineRequest(
+                "request-delete-storey",
+                projectId,
+                baseRevisionId,
+                List.of(envelope(projectId, baseRevisionId, "delete", "floorLayer", "2HlybO1QH4A9HpWyE9qInJ", null, null))
+        );
+
+        JsonNode operation = engineRequest.get("operations").get(0);
+        assertThat(operation.get("type").asText()).isEqualTo("delete_storey");
+        assertThat(operation.get("selector").get("global_ids").get(0).asText()).isEqualTo("2HlybO1QH4A9HpWyE9qInJ");
+        assertValidEngineRequestV2(engineRequest);
+    }
+
+    @Test
+    void toEngineRequest_mapsLocalFloorLayerIdToStoreyTagSelector() throws Exception {
+        UUID projectId = UUID.randomUUID();
+        UUID baseRevisionId = UUID.randomUUID();
+        ObjectNode patch = objectMapper.createObjectNode()
+                .put("name", "Level 2");
+
+        JsonNode engineRequest = mapper.toEngineRequest(
+                "request-update-local-storey",
+                projectId,
+                baseRevisionId,
+                List.of(envelope(projectId, baseRevisionId, "update", "floorLayer", "floor-2", null, patch))
+        );
+
+        JsonNode operation = engineRequest.get("operations").get(0);
+        assertThat(operation.get("type").asText()).isEqualTo("update_storey");
+        assertThat(operation.get("selector").get("tag").asText()).isEqualTo("floor-2");
+        assertValidEngineRequestV2(engineRequest);
+    }
+
+    @Test
     void toEngineRequest_mapsTranslationMmToTransformElements() {
         UUID projectId = UUID.randomUUID();
         UUID baseRevisionId = UUID.randomUUID();

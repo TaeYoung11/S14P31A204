@@ -320,6 +320,11 @@
           "minLength": 1,
           "maxLength": 64
         },
+        "floor_layer_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
         "space_name": {
           "type": "string",
           "minLength": 1,
@@ -850,6 +855,49 @@
         }
       }
     },
+    "storeyCreateParameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "local_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "elevation_mm": {
+          "type": "number"
+        },
+        "ceiling_height_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "storeyUpdateParameters": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "elevation_mm": {
+          "type": "number"
+        },
+        "ceiling_height_mm": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
     "engineOperation": {
       "type": "object",
       "additionalProperties": false,
@@ -869,7 +917,10 @@
             "update_element_properties",
             "transform_elements",
             "delete_elements",
-            "delete_wall_void"
+            "delete_wall_void",
+            "create_storey",
+            "update_storey",
+            "delete_storey"
           ]
         },
         "selector": {
@@ -1203,6 +1254,59 @@
             "properties": {
               "parameters": {
                 "$ref": "#/$defs/deleteWallVoidParameters"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "create_storey"
+              }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {
+              "parameters": {
+                "$ref": "#/$defs/storeyCreateParameters"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "update_storey"
+              }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "required": ["selector"],
+            "properties": {
+              "parameters": {
+                "$ref": "#/$defs/storeyUpdateParameters"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "delete_storey"
+              }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "required": ["selector"],
+            "properties": {
+              "parameters": {
+                "$ref": "#/$defs/deleteParameters"
               }
             }
           }

@@ -153,11 +153,54 @@ def _make_wall(
 def test_shared_operation_registry_contains_2d_handlers() -> None:
     expected = {
         "create_element",
+        "create_storey",
+        "delete_storey",
         "delete_elements",
         "transform_elements",
+        "update_storey",
         "update_element_properties",
     }
     assert expected <= set(all_types())
+
+
+def test_storey_handlers_create_update_and_delete_floor_layer() -> None:
+    bundle = _make_model()
+    model = bundle["model"]
+    create_handler = get("create_storey")
+    update_handler = get("update_storey")
+    delete_handler = get("delete_storey")
+
+    created = create_handler.execute(
+        model,
+        None,
+        {
+            "name": "2F",
+            "local_id": "floor-2",
+            "elevation_mm": 3000.0,
+            "ceiling_height_mm": 2700.0,
+        },
+    )
+
+    assert created is not None
+    assert created.is_a("IfcBuildingStorey")
+    assert created.Name == "2F"
+    assert created.Elevation == pytest.approx(3000.0)
+
+    updated = update_handler.execute(
+        model,
+        None,
+        {"name": "Level 2", "elevation_mm": 3200.0},
+        {"tag": "floor-2"},
+    )
+
+    assert updated == [created.GlobalId]
+    assert created.Name == "Level 2"
+    assert created.Elevation == pytest.approx(3200.0)
+
+    deleted = delete_handler.execute(model, None, {"reason": "test"}, {"global_ids": [created.GlobalId]})
+
+    assert deleted == [created.GlobalId]
+    assert all(storey.GlobalId != created.GlobalId for storey in model.by_type("IfcBuildingStorey"))
 
 
 def test_create_element_supports_ifc_space_with_storey_id() -> None:

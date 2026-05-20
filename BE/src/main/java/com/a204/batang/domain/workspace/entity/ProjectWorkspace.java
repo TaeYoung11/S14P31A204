@@ -48,6 +48,10 @@ public class ProjectWorkspace extends BaseEntity {
     @Column(name = "bubble_snapshot_json", columnDefinition = "jsonb")
     private JsonNode bubbleSnapshotJson;
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "floor_plan_snapshot_json", columnDefinition = "jsonb")
+    private JsonNode floorPlanSnapshotJson;
+
     @Column(name = "ifc_storage_url", length = 2048)
     private String ifcStorageUrl;
 
@@ -79,6 +83,16 @@ public class ProjectWorkspace extends BaseEntity {
     }
 
     /**
+     * 2D/3D floor-plan 편집 스냅샷을 최신 값으로 갱신한다.
+     *
+     * @param floorPlanSnapshotJson floor-plan payload JSON
+     */
+    public void updateFloorPlanSnapshot(JsonNode floorPlanSnapshotJson) {
+        this.floorPlanSnapshotJson = floorPlanSnapshotJson;
+        this.phaseStatus = PhaseStatus.IFC_EDIT;
+    }
+
+    /**
      * 최신 IFC storage 경로를 갱신한다.
      *
      * @param ifcStorageUrl 최신 IFC storage URL
@@ -105,5 +119,6 @@ public class ProjectWorkspace extends BaseEntity {
     public void updateIfcOutput(String ifcStorageUrl, UUID revisionId) {
         updateIfcStorageUrl(ifcStorageUrl);
         updateCurrentRevision(revisionId);
+        this.phaseStatus = PhaseStatus.IFC_EDIT;
     }
 }

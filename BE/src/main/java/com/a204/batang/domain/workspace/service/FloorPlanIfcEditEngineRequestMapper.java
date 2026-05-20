@@ -56,11 +56,22 @@ public class FloorPlanIfcEditEngineRequestMapper {
 
         ObjectNode params = objectMapper.createObjectNode();
         String entity = envelope.command().entity();
+        if ("floorLayer".equals(entity)) {
+            putText(params, "name", firstText(data, "storeyName", "name"));
+            putText(params, "local_id", envelope.command().id());
+            putNumber(params, "elevation_mm", firstNumber(data, "elevationMm", "elevation_mm"));
+            putNumber(params, "ceiling_height_mm", firstNumber(data, "ceilingHeightMm", "ceiling_height_mm"));
+            if (!params.has("name")) {
+                return null;
+            }
+            return operation(envelope.commandId().toString(), "create_storey", null, params);
+        }
         String elementType = toIfcClass(entity, text(data, "ifcClass"));
         if (elementType == null) {
             return null;
         }
         params.put("element_type", elementType);
+        putText(params, "floor_layer_id", firstText(data, "floorLayerId", "floor_layer_id"));
         putText(params, "storey_id", firstText(data, "storeyGlobalId", "storey_global_id", "storey_id"));
         putText(params, "storey", firstText(data, "storeyName", "storey"));
         putPoint(params, "start_mm", firstPoint(data, "startMm", "start_mm"));
@@ -85,6 +96,24 @@ public class FloorPlanIfcEditEngineRequestMapper {
         }
 
         String entity = envelope.command().entity();
+        if ("floorLayer".equals(entity)) {
+            String globalId = firstText(patch, "storeyGlobalId", "storey_global_id", "globalId", "global_id");
+            if (globalId == null || globalId.isBlank()) {
+                globalId = envelope.command().id();
+            }
+            if (globalId == null || globalId.isBlank()) {
+                return null;
+            }
+            ObjectNode params = objectMapper.createObjectNode();
+            putText(params, "name", firstText(patch, "storeyName", "name"));
+            putNumber(params, "elevation_mm", firstNumber(patch, "elevationMm", "elevation_mm"));
+            putNumber(params, "ceiling_height_mm", firstNumber(patch, "ceilingHeightMm", "ceiling_height_mm"));
+            if (params.isEmpty()) {
+                return null;
+            }
+            ObjectNode selector = isIfcGlobalId(globalId) ? selector(globalId) : localFloorLayerSelector(globalId);
+            return operation(envelope.commandId().toString(), "update_storey", selector, params);
+        }
         String globalId = firstText(patch, "globalId", "global_id");
         if (globalId == null || globalId.isBlank()) {
             globalId = envelope.command().id();
@@ -158,11 +187,15 @@ public class FloorPlanIfcEditEngineRequestMapper {
         if (globalId == null || globalId.isBlank()) {
             return null;
         }
+        ObjectNode params = objectMapper.createObjectNode();
+        params.put("reason", "workspace-command-delete");
+        if ("floorLayer".equals(envelope.command().entity())) {
+            ObjectNode selector = isIfcGlobalId(globalId) ? selector(globalId) : localFloorLayerSelector(globalId);
+            return operation(envelope.commandId().toString(), "delete_storey", selector, params);
+        }
         if (!isIfcGlobalId(globalId)) {
             return null;
         }
-        ObjectNode params = objectMapper.createObjectNode();
-        params.put("reason", "workspace-command-delete");
         return operation(envelope.commandId().toString(), "delete_elements", selector(globalId), params);
     }
 
@@ -181,6 +214,12 @@ public class FloorPlanIfcEditEngineRequestMapper {
         ObjectNode selector = objectMapper.createObjectNode();
         ArrayNode ids = selector.putArray("global_ids");
         ids.add(globalId);
+        return selector;
+    }
+
+    private ObjectNode localFloorLayerSelector(String floorLayerId) {
+        ObjectNode selector = objectMapper.createObjectNode();
+        selector.put("tag", floorLayerId);
         return selector;
     }
 

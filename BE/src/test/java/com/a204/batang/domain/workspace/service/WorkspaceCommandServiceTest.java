@@ -15,6 +15,7 @@ import com.a204.batang.domain.workspace.dto.SaveFloorPlanSnapshotResponse;
 import com.a204.batang.domain.workspace.entity.PhaseStatus;
 import com.a204.batang.domain.workspace.entity.ProjectWorkspace;
 import com.a204.batang.domain.workspace.repository.ProjectWorkspaceRepository;
+import com.a204.batang.domain.workspace.repository.WorkspaceBubbleSnapshotRedisRepository;
 import com.a204.batang.global.exception.CustomException;
 import com.a204.batang.global.exception.ErrorCode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -51,6 +52,9 @@ class WorkspaceCommandServiceTest {
     @Mock
     private RevisionRepository revisionRepository;
 
+    @Mock
+    private WorkspaceBubbleSnapshotRedisRepository workspaceBubbleSnapshotRedisRepository;
+
     private WorkspaceCommandService workspaceCommandService;
 
     private UUID projectId;
@@ -65,7 +69,8 @@ class WorkspaceCommandServiceTest {
                 projectWorkspaceRepository,
                 bubbleSnapshotHelper,
                 projectAccessService,
-                revisionRepository
+                revisionRepository,
+                workspaceBubbleSnapshotRedisRepository
         );
 
         projectId = UUID.randomUUID();
@@ -163,6 +168,7 @@ class WorkspaceCommandServiceTest {
         UUID userId = UUID.randomUUID();
         SaveFloorPlanSnapshotRequest request = new SaveFloorPlanSnapshotRequest(
                 null,
+                null,
                 "s3://bucket/projects/%s/revisions/%s/ifc/model.v1.ifc".formatted(projectId, UUID.randomUUID())
         );
 
@@ -198,6 +204,7 @@ class WorkspaceCommandServiceTest {
         UUID userId = UUID.randomUUID();
         SaveFloorPlanSnapshotRequest request = new SaveFloorPlanSnapshotRequest(
                 "invalid-revision-id",
+                null,
                 "s3://bucket/projects/%s/revisions/%s/ifc/model.v1.ifc".formatted(projectId, UUID.randomUUID())
         );
 

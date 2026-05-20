@@ -492,12 +492,36 @@ class AuthoringWorker(BaseWorker):
         if op_type == "create_wall":
             params = {"element_type": "IfcWall", **params}
 
-        storey_name: str = params.get("storey") or "1F"
+        storey_name: str = str(params.get("storey") or "1F").strip() or "1F"
         storeys = model.by_type("IfcBuildingStorey")
-        storey = next(
-            (s for s in storeys if storey_name.lower() in (s.Name or "").lower()),
-            storeys[0] if storeys else None,
-        )
+        storey_id = params.get("storey_id")
+        storey = None
+        if isinstance(storey_id, str) and storey_id.strip():
+            try:
+                candidate = model.by_guid(storey_id.strip())
+            except RuntimeError:
+                candidate = None
+            if candidate is not None and candidate.is_a("IfcBuildingStorey"):
+                storey = candidate
+        if storey is None:
+            storey_key = storey_name.lower()
+            storey = next(
+                (s for s in storeys if storey_key == (s.Name or "").strip().lower()),
+                None,
+            )
+        if storey is None:
+            storey = next(
+                (s for s in storeys if storey_name.lower() in (s.Name or "").lower()),
+                None,
+            )
+        if storey is None and params.get("storey"):
+            create_storey_handler = get_op_handler("create_storey")
+            storey = create_storey_handler.execute(model, None, {
+                "name": storey_name,
+                "local_id": params.get("floor_layer_id"),
+            }) if create_storey_handler is not None else None
+        if storey is None:
+            storey = storeys[0] if storeys else None
         if storey is None:
             return _op_result(op_id, op_type, "rejected", 0, [], [
                 _issue("NO_STOREY", "error", "IFC 모델에 IfcBuildingStorey 가 없습니다"),

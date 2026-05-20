@@ -289,6 +289,18 @@ public class WorkspaceRealtimeService {
     private WorkspaceHistorySnapshotResponse.WorkspaceHistoryState resolveLatestFloorPlanHistoryState(UUID projectId) {
         int historySize = getFloorPlanSnapshotHistorySizeOrThrow(projectId);
         if (historySize <= 0) {
+            ProjectWorkspace workspace = projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId)
+                    .orElse(null);
+            if (workspace != null
+                    && workspace.getFloorPlanSnapshotJson() != null
+                    && workspace.getFloorPlanSnapshotJson().isObject()) {
+                String s3Url = resolveHistoryFloorPlanS3Url(workspace.getIfcStorageUrl());
+                return WorkspaceHistorySnapshotResponse.WorkspaceHistoryState.latest(
+                        0,
+                        workspace.getFloorPlanSnapshotJson(),
+                        s3Url
+                );
+            }
             return WorkspaceHistorySnapshotResponse.WorkspaceHistoryState.empty();
         }
 

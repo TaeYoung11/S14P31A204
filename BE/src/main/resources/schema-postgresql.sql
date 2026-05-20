@@ -192,6 +192,7 @@ CREATE TABLE IF NOT EXISTS project_workspaces (
     project_id UUID PRIMARY KEY,
     phase_status VARCHAR(30) NOT NULL,
     bubble_snapshot_json JSONB,
+    floor_plan_snapshot_json JSONB,
     ifc_storage_url VARCHAR(2048),
     current_revision VARCHAR(50),
     created_at TIMESTAMP NOT NULL DEFAULT now(),
@@ -202,6 +203,9 @@ CREATE TABLE IF NOT EXISTS project_workspaces (
 
 CREATE INDEX IF NOT EXISTS idx_project_workspaces_phase_status
     ON project_workspaces (phase_status);
+
+ALTER TABLE IF EXISTS project_workspaces
+    ADD COLUMN IF NOT EXISTS floor_plan_snapshot_json JSONB;
 
 CREATE TABLE IF NOT EXISTS project_members (
     project_member_id UUID PRIMARY KEY,
