@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 import ifcopenshell
+
+from ai_common.logging import get_logger
 
 from ai_authoring.engine_3d import (
     create_generic_element,
@@ -22,6 +25,43 @@ from ai_authoring.engine_3d import (
 )
 from ai_authoring.operations.space_support import transform_scope_for_product
 from ai_authoring.operations.registry import get as get_operation
+
+logger = get_logger(__name__)
+
+_TEXT_PREVIEW_LIMIT = 160
+_MAX_LOG_IDS = 20
+
+
+def _bind_logger(log_context: dict[str, Any] | None) -> Any:
+    if log_context and hasattr(logger, "bind"):
+        return logger.bind(**log_context)
+    return logger
+
+
+def _capped_target_ids(matched: list[dict[str, Any]]) -> dict[str, Any]:
+    ids = [str(item.get("global_id") or "") for item in matched if item.get("global_id")]
+    return {
+        "targetIds": ids[:_MAX_LOG_IDS],
+        "targetIdsOmitted": max(len(ids) - _MAX_LOG_IDS, 0),
+    }
+
+
+def _summary_preview_fields(summary: str | None) -> dict[str, Any]:
+    value = summary or ""
+    compact = " ".join(value.split())
+    return {
+        "failureSummarySha256": hashlib.sha256(value.encode("utf-8")).hexdigest(),
+        "failureSummaryPreview": compact[:_TEXT_PREVIEW_LIMIT],
+    }
+
+
+def _apply_result_fields(result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "applyStatus": result.get("status"),
+        "appliedCount": result.get("applied_count"),
+        "missingCount": len(result.get("missing_ids") or []),
+        "failedCount": len(result.get("failed_ids") or []),
+    }
 
 
 def _required_number(params: dict[str, Any], key: str) -> float:
@@ -111,11 +151,22 @@ def apply_llm3d_modify_delete_to_ifc(
     output_path: str,
     scale: float,
     failure_summary: str,
+    log_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Apply a parsed LLM3D MODIFY/DELETE command and write the IFC result."""
     command_type = str(command.get("command_type") or "")
     target = command.get("target") or {}
     changes = command.get("changes") or {}
+    apply_logger = _bind_logger(log_context)
+    apply_logger.info(
+        "llm3d_authoring_apply_started",
+        commandType=command_type,
+        targetElementType=target.get("element_type"),
+        selectAll=bool(target.get("select_all")),
+        changeKeys=sorted(changes.keys()),
+        matchedCount=len(matched),
+        **_capped_target_ids(matched),
+    )
     applied_count = 0
     missing_ids: list[str] = []
     failed_ids: list[str] = []
@@ -187,17 +238,26 @@ def apply_llm3d_modify_delete_to_ifc(
             failed_ids.append(global_id)
 
     if applied_count == 0:
-        return {
+        result = {
             "status": "not_applied",
             "applied_count": 0,
             "summary": failure_summary,
             "missing_ids": missing_ids,
             "failed_ids": failed_ids,
         }
+        apply_logger.warning(
+            "llm3d_authoring_apply_completed",
+            commandType=command_type,
+            matchedCount=len(matched),
+            **_apply_result_fields(result),
+            **_summary_preview_fields(failure_summary),
+            **_capped_target_ids(matched),
+        )
+        return result
 
     model.write(output_path)
     status = "partial_applied" if missing_ids or failed_ids else "applied"
-    return {
+    result = {
         "status": status,
         "applied_count": applied_count,
         "ifc_path": output_path,
@@ -205,3 +265,12 @@ def apply_llm3d_modify_delete_to_ifc(
         "failed_ids": failed_ids,
         "summary": f"{applied_count}개 요소 반영 완료",
     }
+    level = apply_logger.info if status == "applied" else apply_logger.warning
+    level(
+        "llm3d_authoring_apply_completed",
+        commandType=command_type,
+        matchedCount=len(matched),
+        **_apply_result_fields(result),
+        **_capped_target_ids(matched),
+    )
+    return result

@@ -24,6 +24,7 @@ from ai_common.worker_sdk.event_factory import (
     FailedResult,
     WorkerResult,
 )
+from ai_common.worker_sdk.context import WorkerContext
 from ai_domain.worker_messages.command import CommandMessage
 from ai_domain.worker_messages.event import EventOutputRef
 
@@ -35,6 +36,41 @@ _PIPELINE_TO_SCHEMA_STATUS: dict[str, str] = {
     "preview_ready": "ready",
     "needs_clarification": "clarification_required",
 }
+
+
+def _bind_logger(log_context: dict[str, Any]) -> Any:
+    if hasattr(_logger, "bind"):
+        return _logger.bind(**log_context)
+    return _logger
+
+
+def _planning_log_context(command: CommandMessage, worker_id: str) -> dict[str, Any]:
+    ctx = WorkerContext.from_command(command)
+    return {
+        **ctx.to_log_fields(),
+        "workerId": worker_id,
+        "commandId": ctx.job_step_id,
+    }
+
+
+def _operation_summary(operations: list[dict[str, Any]] | None) -> dict[str, Any]:
+    ops = operations or []
+    return {
+        "operationCount": len(ops),
+        "operationTypes": [str(op.get("type") or "") for op in ops],
+    }
+
+
+def _result_summary(result: dict[str, Any]) -> dict[str, Any]:
+    split_results = result.get("split_results") or []
+    return {
+        "pipelineStatus": result.get("status"),
+        "sessionId": result.get("session_id"),
+        "splitResultCount": len(split_results),
+        "collisionWarningCount": len(result.get("collision_warnings") or []),
+        "structuralWarningCount": len(result.get("structural_warnings") or []),
+        "clarificationQuestionCount": len(result.get("clarification_questions") or []),
+    }
 
 
 class PlanningWorker(BaseWorker):
@@ -51,6 +87,8 @@ class PlanningWorker(BaseWorker):
         self._s3 = s3
 
     def process(self, command: CommandMessage) -> WorkerResult:
+        log_context = _planning_log_context(command, self.worker_id)
+        log = _bind_logger(log_context)
         payload = command.payload  # ThreeDLlmCommandPayload
         ifc_url: str = payload.sourceSceneStorageUrl
         user_instruction: str = _resolve_effective_instruction(
@@ -59,18 +97,28 @@ class PlanningWorker(BaseWorker):
             payload.plannerOptions,
         )
         output_url: str | None = command.expectedOutput.threeDPlanStorageUrl
+        log.info(
+            "planning_3d_command_received",
+            instructionLen=len(user_instruction),
+            conversationMessageCount=len(payload.conversationHistory),
+            plannerOptionKeys=sorted((payload.plannerOptions or {}).keys()),
+            outputStorageUrlPresent=bool(output_url),
+        )
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             ifc_path = Path(tmp_dir) / "input.ifc"
             try:
-                ifc_path.write_bytes(self._s3.read_bytes(ifc_url))
+                log.info("planning_3d_ifc_download_started", sourceStorageUrlPresent=bool(ifc_url))
+                ifc_bytes = self._s3.read_bytes(ifc_url)
+                ifc_path.write_bytes(ifc_bytes)
+                log.info("planning_3d_ifc_download_completed", ifcBytes=len(ifc_bytes))
             except Exception as exc:
                 raise RetryableWorkerError(
                     code="IFC_DOWNLOAD_FAILED",
                     message=f"IFC 파일 다운로드 실패: {exc}",
                 ) from exc
 
-            pipeline = LLM3DPipeline(ifc_path=str(ifc_path))
+            pipeline = LLM3DPipeline(ifc_path=str(ifc_path), log_context=log_context)
             try:
                 result = asyncio.run(
                     _run_pipeline_preview(
@@ -79,30 +127,38 @@ class PlanningWorker(BaseWorker):
                         payload.plannerOptions,
                     )
                 )
+                log.info("planning_3d_pipeline_preview_completed", **_result_summary(result))
             except Exception as exc:
+                log.error(
+                    "planning_3d_pipeline_preview_failed",
+                    errorClass=type(exc).__name__,
+                    errorMessage=str(exc),
+                )
                 raise NonRetryableWorkerError(
                     code="PIPELINE_FAILED",
                     message=f"Pipeline 실행 실패: {exc}",
                 ) from exc
 
-        return self._map_result(result, command, output_url)
+        return self._map_result(result, command, output_url, log_context=log_context)
 
     def _map_result(
         self,
         result: dict[str, Any],
         command: CommandMessage,
         output_url: str | None,
+        log_context: dict[str, Any] | None = None,
     ) -> WorkerResult:
+        log = _bind_logger(log_context or _planning_log_context(command, self.worker_id))
         status = result.get("status")
-        stored_url = self._store_result(result, command, output_url)
+        stored_url = self._store_result(result, command, output_url, log=log)
 
         if status == "needs_clarification":
             # ambiguity_question 경로는 session_id가 없으므로 UUID로 대체
             session_id = result.get("session_id") or str(uuid.uuid4())
-            _logger.info(
+            log.warning(
                 "planning_needs_clarification",
-                session_id=session_id,
-                question_count=len(result.get("clarification_questions", [])),
+                sessionId=session_id,
+                questionCount=len(result.get("clarification_questions", [])),
             )
             clarification_url = self._store_clarification_artifact(result, session_id, output_url)
             return ClarificationResult(
@@ -115,8 +171,18 @@ class PlanningWorker(BaseWorker):
             )
 
         if status == "preview_ready":
+            log.info(
+                "planning_3d_downstream_result_ready",
+                outputStorageUrlPresent=bool(stored_url),
+                **_result_summary(result),
+            )
             return CompletedResult(output=EventOutputRef(storageUrl=stored_url))
 
+        log.warning(
+            "planning_3d_downstream_result_ready",
+            outputStorageUrlPresent=bool(stored_url),
+            **_result_summary(result),
+        )
         return FailedResult(
             error=NonRetryableWorkerError(
                 code=f"PLANNING_{(status or 'unknown').upper()}",
@@ -129,13 +195,24 @@ class PlanningWorker(BaseWorker):
         result: dict[str, Any],
         command: CommandMessage,
         output_url: str | None,
+        log: Any | None = None,
     ) -> str | None:
+        log = log or _bind_logger(_planning_log_context(command, self.worker_id))
         if not output_url:
+            log.info("planning_3d_result_upload_started", outputStorageUrlPresent=False)
             return None
         try:
             payload = _build_result_payload(result, command)
+            log.info(
+                "planning_3d_result_payload_built",
+                schemaStatus=payload.get("status"),
+                commandCount=len(payload.get("commands") or []),
+                issueCount=len(payload.get("issues") or []),
+                **_operation_summary(payload.get("operations") or []),
+            )
             loc = parse_s3_url(output_url)
-            return cast(
+            log.info("planning_3d_result_upload_started", outputStorageUrlPresent=True)
+            stored_url = cast(
                 str,
                 self._s3.write_text(
                     key=loc.key,
@@ -144,6 +221,11 @@ class PlanningWorker(BaseWorker):
                     bucket=loc.bucket,
                 ),
             )
+            log.info(
+                "planning_3d_result_upload_completed",
+                outputStorageUrlPresent=bool(stored_url),
+            )
+            return stored_url
         except Exception as exc:
             raise RetryableWorkerError(
                 code="RESULT_UPLOAD_FAILED",
@@ -215,6 +297,11 @@ async def _execute_preview_for_instruction(
     )
 
     command_texts = pipeline.split_chat_commands(user_instruction)
+    pipeline._logger.info(
+        "llm3d_chat_split",
+        commandCount=len(command_texts),
+        instructionLen=len(user_instruction),
+    )
     if len(command_texts) <= 1:
         if not has_host_wall_override:
             return await pipeline.execute_preview(user_instruction)
@@ -230,11 +317,26 @@ async def _execute_preview_for_instruction(
 
     previews: list[dict[str, Any]] = []
     for index, command_text in enumerate(command_texts, start=1):
+        pipeline._logger.info(
+            "llm3d_chat_command_started",
+            commandIndex=index,
+            splitInstructionLen=len(command_text),
+        )
         if not has_host_wall_override:
             preview = await pipeline.execute_preview(command_text)
             preview["split_index"] = index
             preview["split_instruction"] = command_text
             previews.append(preview)
+            pipeline._logger.info(
+                "llm3d_chat_command_completed",
+                commandIndex=index,
+                previewStatus=preview.get("status"),
+                sessionId=preview.get("session_id"),
+                matchedCount=preview.get(
+                    "matched_count",
+                    len(preview.get("matched_elements") or []),
+                ),
+            )
 
             if preview.get("status") != "preview_ready":
                 return _split_command_blocked_result(preview, index, command_text, previews)
@@ -253,6 +355,16 @@ async def _execute_preview_for_instruction(
         preview["split_index"] = index
         preview["split_instruction"] = command_text
         previews.append(preview)
+        pipeline._logger.info(
+            "llm3d_chat_command_completed",
+            commandIndex=index,
+            previewStatus=preview.get("status"),
+            sessionId=preview.get("session_id"),
+            matchedCount=preview.get(
+                "matched_count",
+                len(preview.get("matched_elements") or []),
+            ),
+        )
 
         if preview.get("status") != "preview_ready":
             return _split_command_blocked_result(preview, index, command_text, previews)
