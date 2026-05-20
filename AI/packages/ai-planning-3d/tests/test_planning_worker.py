@@ -137,6 +137,18 @@ def test_engine_request_schema_constrains_roof_propagation_flag() -> None:
             )
         )
     )
+    assert not list(
+        validator.iter_errors(
+            _engine_request_with_update_parameters(
+                {
+                    "dimensions_mm": {
+                        "length": {"mode": "ABSOLUTE", "value": 3000.0}
+                    },
+                    "propagate_roof_appearance": False,
+                }
+            )
+        )
+    )
     assert list(
         validator.iter_errors(
             _engine_request_with_update_parameters({"propagate_roof_appearance": True})
@@ -474,6 +486,7 @@ def test_map_operations_broad_roof_appearance_uses_preview_global_ids() -> None:
     command = _load_sample_command()
     roof_id_1 = "0123456789ABCDEFGHIJKL"
     roof_id_2 = "ABCDEFGHIJKL0123456789"
+    wall_id = "ZYXWVUTSRQ9876543210__"
     operations = worker_module._map_operations(
         [
             {
@@ -484,7 +497,14 @@ def test_map_operations_broad_roof_appearance_uses_preview_global_ids() -> None:
                 "raw_instruction": "roof is blue",
             }
         ],
-        [[{"global_id": roof_id_1}, {"global_id": roof_id_2}, {"global_id": roof_id_1}]],
+        [
+            [
+                {"global_id": roof_id_1, "element_type": "IfcRoof"},
+                {"global_id": wall_id, "element_type": "IfcWall"},
+                {"global_id": roof_id_2, "element_type": "IfcRoof"},
+                {"global_id": roof_id_1, "element_type": "IfcRoof"},
+            ]
+        ],
     )
 
     _validate_authoring_operations_contract(command, operations)
@@ -515,7 +535,7 @@ def test_build_result_payload_keeps_split_preview_matches_per_operation() -> Non
                     "confidence": 1.0,
                     "raw_instruction": "roof is blue",
                 },
-                "matched_elements": [{"global_id": roof_id}],
+                "matched_elements": [{"global_id": roof_id, "element_type": "IfcRoof"}],
             },
             {
                 "command": {
@@ -525,7 +545,7 @@ def test_build_result_payload_keeps_split_preview_matches_per_operation() -> Non
                     "confidence": 1.0,
                     "raw_instruction": "walls are gray",
                 },
-                "matched_elements": [{"global_id": wall_id}],
+                "matched_elements": [{"global_id": wall_id, "element_type": "IfcWall"}],
             },
         ],
     }
