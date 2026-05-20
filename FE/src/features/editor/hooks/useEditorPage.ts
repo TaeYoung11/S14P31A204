@@ -202,6 +202,7 @@ interface PendingServerPublishRecord {
   revisionId?: string | null
   sceneType?: FloorPlanSceneType
   workspaceCommand?: WorkspaceCommand | null
+  unsavedDbChangeVersion?: number
 }
 
 interface AwaitingServerSyncRecord {
@@ -210,6 +211,7 @@ interface AwaitingServerSyncRecord {
   historyDomain: 'bubble' | 'floorPlan'
   baseIndex: number
   startedAt: number
+  unsavedDbChangeVersion?: number
 }
 
 interface WorkspaceSiteBoundaryState {
@@ -1087,6 +1089,13 @@ export function useEditorPage() {
   const [overlayOpacityByLayerId, setOverlayOpacityByLayerId] = useState<Record<string, number>>({})
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
   const saveStatusRef = useRef<SaveStatus>(saveStatus)
+  const [hasUnsavedDbChanges, setHasUnsavedDbChanges] = useState(false)
+  const hasUnsavedDbChangesRef = useRef(false)
+  const unsavedDbChangeVersionRef = useRef(0)
+  const manualBubbleDbSaveStartVersionRef = useRef<number | null>(null)
+  const bubbleDbSaveUnsavedVersionRef = useRef<number | null>(null)
+  const pendingBubbleHistoryActionUnsavedVersionRef = useRef<number | null>(null)
+  const pendingFloorPlanHistoryActionUnsavedVersionRef = useRef<number | null>(null)
   const [latestFloorPlanJobId, setLatestFloorPlanJobId] = useState<string | null>(null)
   const [floorPlanGenerateStatusText, setFloorPlanGenerateStatusText] = useState<string>('')
   const [autosaveReadyProjectId, setAutosaveReadyProjectId] = useState<string | null>(null)
@@ -1095,6 +1104,8 @@ export function useEditorPage() {
   const [floorPlanHistoryCursor, setFloorPlanHistoryCursor] = useState({ baseIndex: -1, redoDepth: 0 })
   const attemptedInitialIfcImportProjectIdRef = useRef<string | null>(null)
   const [historyIfcHydratedProjectIds, setHistoryIfcHydratedProjectIds] = useState<string[]>([])
+  /** 2D/3D 진입 시 IFC source 조회를 1회 완료한 projectId 목록 (성공/없음 둘 다 포함) */
+  const [ifcSourceHydrationAttemptedProjectIds, setIfcSourceHydrationAttemptedProjectIds] = useState<string[]>([])
   const bubbleHistoryBaseIndexRef = useRef(-1)
   const bubbleHistoryRedoDepthRef = useRef(0)
   const floorPlanHistoryBaseIndexRef = useRef(-1)
@@ -1179,11 +1190,43 @@ export function useEditorPage() {
     saveStatusRef.current = saveStatus
   }, [saveStatus])
 
+  const markUnsavedDbChanges = useCallback(() => {
+    const hadUnsavedDbChanges = hasUnsavedDbChangesRef.current
+    unsavedDbChangeVersionRef.current += 1
+    hasUnsavedDbChangesRef.current = true
+    setHasUnsavedDbChanges(true)
+    return {
+      hadUnsavedDbChanges,
+      version: unsavedDbChangeVersionRef.current,
+    }
+  }, [])
+
+  const clearUnsavedDbChangesIfUnchanged = useCallback((saveStartVersion: number) => {
+    if (unsavedDbChangeVersionRef.current !== saveStartVersion) return
+    hasUnsavedDbChangesRef.current = false
+    setHasUnsavedDbChanges(false)
+  }, [])
+
+  const restoreUnsavedDbChangesIfUnchanged = useCallback((
+    markVersion: number,
+    hadUnsavedDbChanges: boolean,
+  ) => {
+    if (unsavedDbChangeVersionRef.current !== markVersion) return
+    hasUnsavedDbChangesRef.current = hadUnsavedDbChanges
+    setHasUnsavedDbChanges(hadUnsavedDbChanges)
+  }, [])
+
   useEffect(() => {
     lastLoadedIfcStorageUrlRef.current = null
     ifcLoadInFlightStorageUrlRef.current = null
     suppressGeneratedFloorPlanAutosaveRef.current = false
     pendingOpenThreeDOnGenerateCompleteRef.current = false
+    unsavedDbChangeVersionRef.current = 0
+    manualBubbleDbSaveStartVersionRef.current = null
+    bubbleDbSaveUnsavedVersionRef.current = null
+    pendingBubbleHistoryActionUnsavedVersionRef.current = null
+    pendingFloorPlanHistoryActionUnsavedVersionRef.current = null
+    hasUnsavedDbChangesRef.current = false
   }, [projectId])
 
   const [serverPublishRetryTick, setServerPublishRetryTick] = useState(0)
@@ -1252,6 +1295,12 @@ export function useEditorPage() {
     pendingServerPublishRef.current = null
     awaitingServerSyncRef.current = null
   }, [])
+
+  const clearUnsavedDbChangesOnHistorySync = useCallback((awaitingSync: AwaitingServerSyncRecord) => {
+    if (awaitingSync.historyDomain !== 'floorPlan') return
+    if (awaitingSync.unsavedDbChangeVersion === undefined) return
+    clearUnsavedDbChangesIfUnchanged(awaitingSync.unsavedDbChangeVersion)
+  }, [clearUnsavedDbChangesIfUnchanged])
 
   /**
    * 원격 floorPlan snapshot 반영 시, payload에 누락된 필드를 보완할 기본값이다.
@@ -2056,6 +2105,7 @@ export function useEditorPage() {
         historyDomain: resolveServerHistoryDomain(persistedSnapshot),
         baseIndex,
         startedAt: Date.now(),
+        unsavedDbChangeVersion: hasUnsavedDbChangesRef.current ? unsavedDbChangeVersionRef.current : undefined,
       }
       try {
         await workspaceRealtimeService.publishSnapshot({
@@ -2575,6 +2625,7 @@ export function useEditorPage() {
       historyDomain: resolveServerHistoryDomain(pendingServerPublish.snapshot),
       baseIndex: pendingServerPublish.baseIndex,
       startedAt: Date.now(),
+      unsavedDbChangeVersion: pendingServerPublish.unsavedDbChangeVersion,
     }
     logBubbleDebug('publish:retry-begin', {
       projectId,
@@ -2722,6 +2773,7 @@ export function useEditorPage() {
       revisionId: historyDomain === 'floorPlan' ? currentIfcRevisionId : undefined,
       sceneType: historyDomain === 'floorPlan' ? resolveFloorPlanSceneType() : undefined,
       workspaceCommand,
+      unsavedDbChangeVersion: hasUnsavedDbChangesRef.current ? unsavedDbChangeVersionRef.current : undefined,
     }
 
     window.setTimeout(() => {
@@ -2736,6 +2788,7 @@ export function useEditorPage() {
       historyDomain,
       baseIndex: serverPublishRecord.baseIndex,
       startedAt: Date.now(),
+      unsavedDbChangeVersion: serverPublishRecord.unsavedDbChangeVersion,
     }
     // STOMP 자동저장 publish 직전의 층 분포를 기록한다.
     const publishDebugSummary = summarizeBubbleSnapshotForDebug(
@@ -2829,12 +2882,26 @@ export function useEditorPage() {
     loadHistorySnapshot: workspaceSaveService.loadHistorySnapshot,
     isCursorInvalidCode,
     isNonRetriableServerErrorCode: (code) => code === IFC_EDIT_COMMAND_DLQ_CODE,
+    onHistorySyncSuccess: clearUnsavedDbChangesOnHistorySync,
     maxHistoryIndex: WORKSPACE_HISTORY_MAX_INDEX,
   })
 
   useEffect(() => {
     refreshHistoryCursorFromServerRef.current = refreshHistoryCursorFromServer
   }, [refreshHistoryCursorFromServer])
+
+  const handleBubbleHistoryCursorChanged = useCallback((baseIndex: number, redoDepth: number) => {
+    updateBubbleHistoryCursor(baseIndex, redoDepth)
+    pendingBubbleHistoryActionUnsavedVersionRef.current = null
+  }, [updateBubbleHistoryCursor])
+
+  const handleFloorPlanHistoryCursorChanged = useCallback((baseIndex: number, redoDepth: number) => {
+    updateFloorPlanHistoryCursor(baseIndex, redoDepth)
+    const pendingVersion = pendingFloorPlanHistoryActionUnsavedVersionRef.current
+    if (pendingVersion === null) return
+    pendingFloorPlanHistoryActionUnsavedVersionRef.current = null
+    clearUnsavedDbChangesIfUnchanged(pendingVersion)
+  }, [clearUnsavedDbChangesIfUnchanged, updateFloorPlanHistoryCursor])
 
   const { applyRemoteBubbleSnapshot, applyRemoteFloorPlanSnapshot } =
     useWorkspaceRemoteSnapshotHandlers({
@@ -2914,8 +2981,8 @@ export function useEditorPage() {
         skipFloorProjectImport: hasAuthoritativeFloorProject,
       })
     },
-    onBubbleHistoryCursorChanged: updateBubbleHistoryCursor,
-    onFloorPlanHistoryCursorChanged: updateFloorPlanHistoryCursor,
+    onBubbleHistoryCursorChanged: handleBubbleHistoryCursorChanged,
+    onFloorPlanHistoryCursorChanged: handleFloorPlanHistoryCursorChanged,
     onBubbleHistoryCursorInvalid: handleBubbleHistoryCursorInvalid,
     onFloorPlanHistoryCursorInvalid: handleFloorPlanHistoryCursorInvalid,
     onServerError: handleWorkspaceServerError,
@@ -2963,6 +3030,9 @@ export function useEditorPage() {
     resolveDebounceMs: resolveBubbleDbSaveDebounceMs,
     callbacks: {
       onSaveBegin: ({ force, saveStartVersion, snapshot }) => {
+        bubbleDbSaveUnsavedVersionRef.current = hasUnsavedDbChangesRef.current
+          ? unsavedDbChangeVersionRef.current
+          : null
         logBubbleDebug('db-save:begin', {
           projectId,
           force,
@@ -2991,12 +3061,23 @@ export function useEditorPage() {
           saveStartVersion,
           changedDuringSave,
         })
+        if (!changedDuringSave && bubbleDbSaveUnsavedVersionRef.current !== null) {
+          clearUnsavedDbChangesIfUnchanged(bubbleDbSaveUnsavedVersionRef.current)
+          bubbleDbSaveUnsavedVersionRef.current = null
+        }
+        if (force && manualBubbleDbSaveStartVersionRef.current !== null) {
+          manualBubbleDbSaveStartVersionRef.current = null
+        }
       },
       onSaveFailure: ({ error, force }) => {
         const errorSummary = summarizeBubbleSnapshotSaveError(error)
         console.warn('[editor] Bubble snapshot DB 저장 실패:', { projectId, error })
         console.warn('[editor] Bubble snapshot DB 저장 실패 상세:', { projectId, error: errorSummary })
         logBubbleDebug('db-save:failed', { projectId, force, error: errorSummary })
+        bubbleDbSaveUnsavedVersionRef.current = null
+        if (force) {
+          manualBubbleDbSaveStartVersionRef.current = null
+        }
       },
     },
   })
@@ -3021,6 +3102,9 @@ export function useEditorPage() {
     resetWorkspaceTransactionRefs()
     isBubbleDragTransactionActiveRef.current = false
     hasUserEditedRef.current = false
+    unsavedDbChangeVersionRef.current += 1
+    hasUnsavedDbChangesRef.current = false
+    setHasUnsavedDbChanges(false)
 
     applyRemoteBubbleSnapshot({
       bubbles: parsedSnapshot.bubbles,
@@ -3041,6 +3125,7 @@ export function useEditorPage() {
 
   const saveFloorPlanSnapshotToDb = useCallback(async () => {
     if (!projectId) return null
+    const dbSaveStartVersion = unsavedDbChangeVersionRef.current
 
     const baseIndex = floorPlanHistoryBaseIndexRef.current
     const hasValidBaseIndex = Number.isInteger(baseIndex) && baseIndex >= 0
@@ -3099,6 +3184,7 @@ export function useEditorPage() {
       }
 
       setSaveStatus('synced')
+      clearUnsavedDbChangesIfUnchanged(dbSaveStartVersion)
       return saved
     } catch (error: unknown) {
       const parsedError = isAxiosError(error)
@@ -3112,7 +3198,15 @@ export function useEditorPage() {
       setSaveStatus('error')
       return null
     }
-  }, [currentIfcAssetId, currentIfcRevisionId, currentIfcStorageUrl, currentIfcUrl, projectId, workspacePhaseStatus])
+  }, [
+    clearUnsavedDbChangesIfUnchanged,
+    currentIfcAssetId,
+    currentIfcRevisionId,
+    currentIfcStorageUrl,
+    currentIfcUrl,
+    projectId,
+    workspacePhaseStatus,
+  ])
 
   const flushPendingLocalBubbleChange = useCallback(() => {
     if (localBubbleChangeFlushRafRef.current !== null) {
@@ -3127,6 +3221,7 @@ export function useEditorPage() {
 
   const markLocalBubbleSnapshotChanged = useCallback(() => {
     hasUserEditedRef.current = true
+    markUnsavedDbChanges()
     bubbleSnapshotChangeVersionRef.current += 1
     pendingLocalBubbleChangeTaskRef.current = () => {
       writeBubbleLocalDraftToStorage(projectId, latestBubbleSnapshotRef.current)
@@ -3145,10 +3240,17 @@ export function useEditorPage() {
       localBubbleChangeFlushRafRef.current = null
       flushPendingLocalBubbleChange()
     })
-  }, [flushPendingLocalBubbleChange, markLocalBubbleSnapshotChangedRealtime, projectId, scheduleBubbleSnapshotSaveToDb])
+  }, [
+    flushPendingLocalBubbleChange,
+    markLocalBubbleSnapshotChangedRealtime,
+    markUnsavedDbChanges,
+    projectId,
+    scheduleBubbleSnapshotSaveToDb,
+  ])
 
   const markLocalFloorPlanSnapshotChanged = useCallback(() => {
     hasUserEditedRef.current = true
+    markUnsavedDbChanges()
     if (!floorPlanSnapshotCommitScheduledRef.current) {
       floorPlanSnapshotCommitScheduledRef.current = true
       window.setTimeout(() => {
@@ -3157,15 +3259,16 @@ export function useEditorPage() {
       }, 0)
     }
     setSaveStatus('dirty')
-  }, [])
+  }, [markUnsavedDbChanges])
 
   const beginWorkspaceSnapshotTransaction = useCallback(() => {
     hasUserEditedRef.current = true
+    markUnsavedDbChanges()
     workspaceEditTransactionDepthRef.current += 1
     lastWorkspaceSnapshotTransactionAtRef.current = Date.now()
     floorRoomMoveSessionRef.current = null
     setSaveStatus('dirty')
-  }, [])
+  }, [markUnsavedDbChanges])
 
   /**
    * 열린 편집 트랜잭션을 서버 발행 대상 스냅샷으로 확정한다.
@@ -3208,7 +3311,13 @@ export function useEditorPage() {
     flushOpenWorkspaceSnapshotTransaction()
     if (workspacePhaseStatus === 'BUBBLE_DRAFT') {
       markBubbleSnapshotDirty()
-      void flushBubbleSnapshotSaveToDb(true)
+      const manualDbSaveStartVersion = unsavedDbChangeVersionRef.current
+      manualBubbleDbSaveStartVersionRef.current = manualDbSaveStartVersion
+      void flushBubbleSnapshotSaveToDb(true).then((saved) => {
+        if (!saved) return
+        clearUnsavedDbChangesIfUnchanged(manualDbSaveStartVersion)
+        manualBubbleDbSaveStartVersionRef.current = null
+      })
       setSaveStatus('dirty')
       setWorkspaceSnapshotCommitVersion((version) => version + 1)
     } else {
@@ -3220,6 +3329,7 @@ export function useEditorPage() {
     flushPendingLocalBubbleChange,
     isEditorReadOnly,
     markBubbleSnapshotDirty,
+    clearUnsavedDbChangesIfUnchanged,
     saveFloorPlanSnapshotToDb,
     workspacePhaseStatus,
   ])
@@ -5219,6 +5329,13 @@ export function useEditorPage() {
       return
     }
     if (bubbles.length === 0) return
+    // 기존 IFC가 이미 존재하는 프로젝트에서 사용자가 실수로 자동 생성을 트리거하면
+    // current revision pointer가 새 revision으로 덮여 기존 IFC가 사라진다.
+    // 명시적 재생성 UX가 도입되기 전까지는 여기서 차단한다.
+    if (currentIfcUrl || currentIfcRevisionId) {
+      setFloorPlanGenerateStatusText('이미 생성된 IFC가 있어 자동 생성을 중단했습니다. 기존 IFC를 3D로 열거나 새 프로젝트에서 시도하세요.')
+      return
+    }
     if (workspacePhaseStatus === 'CONVERTING') {
       setFloorPlanGenerateStatusText('이미 평면도 생성 중입니다. 잠시만 기다려주세요.')
       return
@@ -5339,6 +5456,8 @@ export function useEditorPage() {
     authUser?.user_type,
     bubbles.length,
     clearFloorPlanGenerateTimeout,
+    currentIfcRevisionId,
+    currentIfcUrl,
     currentProjectName,
     floorLayers,
     flushBubbleSnapshotSaveToDb,
@@ -5353,8 +5472,17 @@ export function useEditorPage() {
     workspacePhaseStatus,
   ])
 
+  // 2D/3D 진입 시 IFC source 조회가 아직 끝나지 않은 경우, 자동 생성 버튼 활성화를 막는다.
+  // 이 윈도우에서 사용자가 버튼을 누르면 기존 IFC가 새 revision으로 덮일 수 있다.
+  const isIfcSourceHydrationPending =
+    Boolean(projectId)
+    && !currentIfcUrl
+    && (mode === '2d' || mode === '3d')
+    && !ifcSourceHydrationAttemptedProjectIds.includes(projectId ?? '')
+
   const canGenerateFloorPlanFromBubble = bubbles.length > 0
     && !currentIfcUrl
+    && !isIfcSourceHydrationPending
     && authUser?.user_type === 'DESIGNER'
     && (!isCurrentProjectOwnerKnown || isCurrentProjectOwner)
 
@@ -6078,9 +6206,13 @@ export function useEditorPage() {
         return
       }
       if (bubbleHistoryBaseIndexRef.current <= 0) return
+      const unsavedMark = markUnsavedDbChanges()
       try {
         publishBubbleUndoRequest(projectId, { baseIndex: bubbleHistoryBaseIndexRef.current })
+        pendingBubbleHistoryActionUnsavedVersionRef.current = unsavedMark.version
       } catch (error: unknown) {
+        pendingBubbleHistoryActionUnsavedVersionRef.current = null
+        restoreUnsavedDbChangesIfUnchanged(unsavedMark.version, unsavedMark.hadUnsavedDbChanges)
         console.warn('[editor] Bubble undo publish failed.', { projectId, error })
       }
       return
@@ -6092,12 +6224,16 @@ export function useEditorPage() {
       await refreshHistoryCursorFromServer({ republishOnFailure: false, republishWhenStale: false })
     }
     if (floorPlanHistoryBaseIndexRef.current <= 0) return
+    const unsavedMark = markUnsavedDbChanges()
     try {
       floorPlanHistoryCommandInFlightRef.current = true
       setSaveStatus('syncing')
       publishFloorPlanUndoRequest(projectId, { baseIndex: floorPlanHistoryBaseIndexRef.current })
+      pendingFloorPlanHistoryActionUnsavedVersionRef.current = unsavedMark.version
     } catch (error: unknown) {
       floorPlanHistoryCommandInFlightRef.current = false
+      pendingFloorPlanHistoryActionUnsavedVersionRef.current = null
+      restoreUnsavedDbChangesIfUnchanged(unsavedMark.version, unsavedMark.hadUnsavedDbChanges)
       setSaveStatus('synced')
       console.warn('[editor] Floor-plan undo publish failed.', { projectId, error })
     }
@@ -6106,9 +6242,11 @@ export function useEditorPage() {
     canEditFloorPlan,
     hasBubbleUndoHistory,
     isFloorPlanHistoryMode,
+    markUnsavedDbChanges,
     mode,
     projectId,
     refreshHistoryCursorFromServer,
+    restoreUnsavedDbChangesIfUnchanged,
     saveStatus,
     undoUnsyncedLocalBubbleChange,
   ])
@@ -6118,9 +6256,13 @@ export function useEditorPage() {
     if (mode === 'bubble') {
       if (!canRedo) return
       if (bubbleHistoryRedoDepthRef.current <= 0) return
+      const unsavedMark = markUnsavedDbChanges()
       try {
         publishBubbleRedoRequest(projectId, { baseIndex: bubbleHistoryBaseIndexRef.current })
+        pendingBubbleHistoryActionUnsavedVersionRef.current = unsavedMark.version
       } catch (error: unknown) {
+        pendingBubbleHistoryActionUnsavedVersionRef.current = null
+        restoreUnsavedDbChangesIfUnchanged(unsavedMark.version, unsavedMark.hadUnsavedDbChanges)
         console.warn('[editor] Bubble redo publish failed.', { projectId, error })
       }
       return
@@ -6129,16 +6271,27 @@ export function useEditorPage() {
     if (!isFloorPlanHistoryMode || !canRedo) return
     if (floorPlanHistoryCommandInFlightRef.current) return
     if (floorPlanHistoryRedoDepthRef.current <= 0) return
+    const unsavedMark = markUnsavedDbChanges()
     try {
       floorPlanHistoryCommandInFlightRef.current = true
       setSaveStatus('syncing')
       publishFloorPlanRedoRequest(projectId, { baseIndex: floorPlanHistoryBaseIndexRef.current })
+      pendingFloorPlanHistoryActionUnsavedVersionRef.current = unsavedMark.version
     } catch (error: unknown) {
       floorPlanHistoryCommandInFlightRef.current = false
+      pendingFloorPlanHistoryActionUnsavedVersionRef.current = null
+      restoreUnsavedDbChangesIfUnchanged(unsavedMark.version, unsavedMark.hadUnsavedDbChanges)
       setSaveStatus('synced')
       console.warn('[editor] Floor-plan redo publish failed.', { projectId, error })
     }
-  }, [canRedo, isFloorPlanHistoryMode, mode, projectId])
+  }, [
+    canRedo,
+    isFloorPlanHistoryMode,
+    markUnsavedDbChanges,
+    mode,
+    projectId,
+    restoreUnsavedDbChangesIfUnchanged,
+  ])
 
   /** 표준 FloorProject를 버블/2D/3D 공통 상태로 반영
    *  walls/openings 필드가 있으면(IFC 경로) 직접 매핑, 없으면 빈 배열 → autoWalls/autoOpenings 폴백
@@ -6630,10 +6783,14 @@ export function useEditorPage() {
     resolveSnapshotSyncStatus,
   ])
 
-  // 에디터 첫 진입 시 프로젝트 IFC 소스를 1회 조회해 handleOutputIfcStorageUrl로 로드한다.
+  // 에디터 첫 진입 시 프로젝트 IFC 소스를 1회 조회한다.
+  // - 3D 모드: handleOutputIfcStorageUrl로 IFC 파싱/로드까지 수행한다.
+  // - 2D 모드: state(currentIfcUrl/revisionId)만 채워 자동 생성 버튼이 활성화되지 않도록 한다.
+  //   2D에서 IFC 파싱은 사용자가 3D로 진입할 때 수행한다 (위 3D 분기 또는 useInitialIfcImport).
   useEffect(() => {
-    if (mode !== '3d') return
     if (!projectId) return
+    if (mode !== '2d' && mode !== '3d') return
+    if (currentIfcUrl) return
     if (saveStatus === 'syncing') return
     if (modeSwitchFloorPlanHydrationInFlightRef.current?.startsWith(`${projectId}:`)) return
     if (threeDIfcSourceHydrationInFlightRef.current === projectId) return
@@ -6641,12 +6798,19 @@ export function useEditorPage() {
     let cancelled = false
     threeDIfcSourceHydrationInFlightRef.current = projectId
 
-    const hydrateLatestIfcSource = async () => {
+    const hydrateLatestIfcSource = async (): Promise<{ fetchFailed: boolean }> => {
+      let fetchFailed = false
       const [history, source] = await Promise.all([
         workspaceSaveService.loadHistorySnapshot(projectId).catch(() => null),
-        projectService.getIfcSource(projectId).catch(() => null),
+        projectService.getIfcSource(projectId).catch((error: unknown) => {
+          fetchFailed = true
+          if (import.meta.env.DEV) {
+            console.warn('[ifc-source][hydrate-failed]', { projectId, mode, error })
+          }
+          return null
+        }),
       ])
-      if (cancelled) return
+      if (cancelled) return { fetchFailed }
 
       const floorPlanHistory = history?.floorPlan ?? null
       const floorPlanSnapshot = floorPlanHistory?.snapshot ?? null
@@ -6664,39 +6828,82 @@ export function useEditorPage() {
           historyRevision,
           { skipFloorProjectImport: hasHistoryFloorProject },
         )
-        return
+        return { fetchFailed: false }
       }
 
-      if (historyRevision !== null && historyRevision === currentRevision) {
-        return
+      if (mode === '3d' && historyRevision !== null && historyRevision === currentRevision) {
+        return { fetchFailed: false }
       }
 
       if (!source?.currentIfcUrl) {
-        return
+        if (import.meta.env.DEV && !fetchFailed) {
+          console.warn('[ifc-source][hydrate-empty]', { projectId, mode })
+        }
+        return { fetchFailed }
       }
       const sourceRevision = source.currentRevision?.trim() || null
       if (historyRevision !== null && sourceRevision !== historyRevision) {
-        return
+        return { fetchFailed: false }
       }
       const shouldApplyLatestIfc =
         !currentIfcUrl ||
         (sourceRevision !== null && sourceRevision !== currentRevision)
       if (!shouldApplyLatestIfc) {
-        return
+        return { fetchFailed: false }
       }
-      await handleIfcSyncMessageRef.current(
-        source.currentIfcStorageUrl ?? source.currentIfcUrl,
-        null,
-        source.currentIfcAssetId,
-        source.currentRevision,
-      )
+      if (import.meta.env.DEV) {
+        console.log('[ifc-source][hydrate]', {
+          projectId,
+          mode,
+          currentIfcUrl: source.currentIfcUrl,
+          currentIfcAssetId: source.currentIfcAssetId,
+          currentRevision: source.currentRevision,
+        })
+      }
+      if (mode === '3d') {
+        await handleIfcSyncMessageRef.current(
+          source.currentIfcStorageUrl ?? source.currentIfcUrl,
+          null,
+          source.currentIfcAssetId,
+          source.currentRevision,
+        )
+        return { fetchFailed: false }
+      }
+      // 2D: floor project를 IFC로 덮지 않도록 state만 채운다.
+      const resolvedUrl = source.currentIfcUrl
+      setIfcSourceByProjectId((prev) => ({
+        ...prev,
+        [projectId]: {
+          url: resolvedUrl,
+          storageUrl: source.currentIfcStorageUrl ?? resolvedUrl,
+          assetId: source.currentIfcAssetId ?? null,
+        },
+      }))
+      if (source.currentRevision !== undefined) {
+        setIfcRevisionByProjectId((prev) => ({
+          ...prev,
+          [projectId]: source.currentRevision ?? null,
+        }))
+      }
+      return { fetchFailed: false }
     }
 
-    void hydrateLatestIfcSource().finally(() => {
-      if (threeDIfcSourceHydrationInFlightRef.current === projectId) {
-        threeDIfcSourceHydrationInFlightRef.current = null
-      }
-    })
+    void hydrateLatestIfcSource()
+      .then(({ fetchFailed }) => {
+        // IFC source 조회 실패는 attempted로 기록하지 않는다.
+        // 일시적 실패로 자동 생성 버튼이 다시 열려 기존 IFC가 덮이는 것을 막고,
+        // 의존성이 바뀌면 재시도할 여지를 남긴다.
+        if (!cancelled && !fetchFailed) {
+          setIfcSourceHydrationAttemptedProjectIds((prev) =>
+            prev.includes(projectId) ? prev : [...prev, projectId],
+          )
+        }
+      })
+      .finally(() => {
+        if (threeDIfcSourceHydrationInFlightRef.current === projectId) {
+          threeDIfcSourceHydrationInFlightRef.current = null
+        }
+      })
 
     return () => {
       cancelled = true
@@ -7373,6 +7580,7 @@ export function useEditorPage() {
     handleGenerateFloorPlan,
     handleAutoLayoutBubbles,
     canGenerateFloorPlanFromBubble,
+    isIfcSourceHydrationPending,
     canAutoLayoutBubbles: bubbles.length > 1,
     handleEditIfc,
     handleIfcUndo,
@@ -7402,6 +7610,7 @@ export function useEditorPage() {
     handleSetGridSnapIntervalMm,
     // 도구 선택
     saveStatus,
+    hasUnsavedDbChanges,
     selectedTool,
     isThreeDEditingLocked,
     isDeleteActionLocked: isTwoDOrThreeDConverting,

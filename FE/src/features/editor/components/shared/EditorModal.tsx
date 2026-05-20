@@ -61,14 +61,14 @@ export default function EditorModal({
         <div className="px-7 pb-7 pt-3 border-t border-[#EEF1FA] grid grid-cols-2 gap-3">
           <button
             onClick={onClose}
-            className="h-11 rounded-xl border border-[#D5DBE9] text-[13px] font-black text-[#7A8599] hover:text-[#1C1C1E] hover:border-[#BBC5D9] transition-colors"
+            className="project-secondary-button h-11"
           >
             취소
           </button>
           <button
             onClick={onConfirm}
             disabled={confirmDisabled}
-            className="h-11 rounded-xl bg-[#3B45B3] disabled:bg-[#ADB5BD] text-white text-[13px] font-black shadow-lg shadow-[#3B45B3]/20 hover:bg-[#2D3691] disabled:shadow-none transition-all"
+            className="project-primary-button h-11"
           >
             {confirmLabel}
           </button>

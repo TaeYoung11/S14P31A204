@@ -1,5 +1,5 @@
 ﻿import uuid
-import logging
+import hashlib
 import re
 from typing import Any
 import ifcopenshell
@@ -35,8 +35,77 @@ from .validators import (
     StructuralCheckResult,
 )
 from .query.adjacency import AdjacencyQueryEngine, AdjacencyResult
+from ai_common.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
+
+_TEXT_PREVIEW_LIMIT = 160
+_MAX_LOG_IDS = 20
+
+
+def _bind_logger(log_context: dict[str, Any] | None) -> Any:
+    if log_context and hasattr(logger, "bind"):
+        return logger.bind(**log_context)
+    return logger
+
+
+def _text_summary_fields(text: str | None, prefix: str) -> dict[str, Any]:
+    value = text or ""
+    compact = " ".join(value.split())
+    return {
+        f"{prefix}Len": len(value),
+        f"{prefix}Sha256": hashlib.sha256(value.encode("utf-8")).hexdigest(),
+        f"{prefix}Preview": compact[:_TEXT_PREVIEW_LIMIT],
+    }
+
+
+def _target_summary(command: LLM3DCommand | None) -> dict[str, Any]:
+    if command is None:
+        return {}
+    target = command.target
+    changes = command.changes.model_dump(exclude_none=True) if command.changes else {}
+    create_info = command.create_info
+    return {
+        "commandType": str(command.command_type),
+        "targetElementType": str(target.element_type),
+        "targetStorey": target.storey,
+        "targetSpaceName": target.space_name,
+        "targetDirection": target.direction,
+        "selectAll": target.select_all,
+        "changeKeys": sorted(changes.keys()),
+        "createElementType": str(create_info.element_type) if create_info else None,
+    }
+
+
+def _capped_ids(items: list[dict[str, Any]], key: str = "global_id") -> dict[str, Any]:
+    ids = [str(item.get(key) or "") for item in items if item.get(key)]
+    return {
+        "targetIds": ids[:_MAX_LOG_IDS],
+        "targetIdsOmitted": max(len(ids) - _MAX_LOG_IDS, 0),
+    }
+
+
+def _preview_result_fields(result: dict[str, Any]) -> dict[str, Any]:
+    questions = result.get("clarification_questions") or []
+    matched = result.get("matched_elements") or []
+    return {
+        "previewStatus": result.get("status"),
+        "sessionId": result.get("session_id"),
+        "matchedCount": result.get("matched_count", len(matched)),
+        "collisionWarningCount": len(result.get("collision_warnings") or []),
+        "structuralWarningCount": len(result.get("structural_warnings") or []),
+        "clarificationQuestionCount": len(questions),
+        **_capped_ids(matched),
+    }
+
+
+def _apply_result_fields(result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "applyStatus": result.get("status"),
+        "appliedCount": result.get("applied_count"),
+        "missingCount": len(result.get("missing_ids") or []),
+        "failedCount": len(result.get("failed_ids") or []),
+    }
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -75,14 +144,26 @@ class PreviewSession:
 
 
 class LLM3DPipeline:
-    def __init__(self, ifc_path: str | None = None, model_name: str | None = None):
-        self.engine = LLM3DEngine(model=model_name)
+    def __init__(
+        self,
+        ifc_path: str | None = None,
+        model_name: str | None = None,
+        log_context: dict[str, Any] | None = None,
+    ):
+        self._log_context = log_context or {}
+        self._logger = _bind_logger(self._log_context)
+        self.engine = LLM3DEngine(model=model_name, log_context=self._log_context)
         ifc_model = None
         if ifc_path:
             try:
                 ifc_model = ifcopenshell.open(ifc_path)
             except Exception as e:
-                logger.error(f"IFC 파일을 열 수 없습니다 ({ifc_path}): {e}")
+                self._logger.error(
+                    "llm3d_ifc_open_failed",
+                    errorClass=type(e).__name__,
+                    errorMessage=str(e),
+                    ifcPath=str(ifc_path),
+                )
 
         self.query_engine = IFCQueryEngine(ifc_model=ifc_model)
         self.store: dict[str, PreviewSession] = {}
@@ -420,9 +501,22 @@ class LLM3DPipeline:
     ) -> list[dict[str, Any]]:
         records: list[dict[str, Any]] = []
         record_index = 1
-        for command_text in self.split_chat_commands(user_text):
+        command_texts = self.split_chat_commands(user_text)
+        self._logger.info(
+            "llm3d_chat_split",
+            commandCount=len(command_texts),
+            **_text_summary_fields(user_text, "instruction"),
+        )
+        for command_index, command_text in enumerate(command_texts, start=1):
             repeat_count = self._requested_repeat_count(command_text)
             for copy_index in range(repeat_count):
+                self._logger.info(
+                    "llm3d_chat_command_started",
+                    commandIndex=command_index,
+                    copyIndex=copy_index + 1,
+                    repeatCount=repeat_count,
+                    **_text_summary_fields(command_text, "splitInstruction"),
+                )
                 preview = await self.execute_preview(command_text)
                 if preview.get("status") == "preview_ready":
                     self._offset_repeated_create_session(
@@ -460,6 +554,14 @@ class LLM3DPipeline:
                         or "Preview did not reach preview_ready, so IFC was not written."
                     )
                     records.append(record)
+                    self._logger.warning(
+                        "llm3d_chat_command_completed",
+                        commandIndex=command_index,
+                        copyIndex=copy_index + 1,
+                        repeatCount=repeat_count,
+                        **_preview_result_fields(preview),
+                        applyStatus=record["apply_status"],
+                    )
                     continue
 
                 result = await self.execute_apply(
@@ -474,6 +576,14 @@ class LLM3DPipeline:
                 else:
                     record["not_applied_reason"] = result.get("summary") or "IFC was not written."
                 records.append(record)
+                self._logger.info(
+                    "llm3d_chat_command_completed",
+                    commandIndex=command_index,
+                    copyIndex=copy_index + 1,
+                    repeatCount=repeat_count,
+                    **_preview_result_fields(preview),
+                    **_apply_result_fields(result),
+                )
         return records
 
     # ── 단위 변환 헬퍼 ────────────────────────────────────────────────────
@@ -1374,35 +1484,65 @@ class LLM3DPipeline:
 
     async def execute_command_preview(self, command: LLM3DCommand) -> dict[str, Any]:
         """Run preview validation for an already parsed command object."""
+        self._logger.info("llm3d_preview_started", **_target_summary(command))
         if command.ambiguity_question:
-            return {
+            result = {
                 "status": "needs_clarification",
                 "summary": command.ambiguity_question,
                 "command": command.model_dump(),
             }
+            self._logger.warning(
+                "llm3d_preview_completed",
+                **_target_summary(command),
+                **_preview_result_fields(result),
+            )
+            return result
 
         if command.command_type == LLM3DCommandType.CREATE:
-            return await self._execute_create_preview(command)
+            result = await self._execute_create_preview(command)
+            level = (
+                self._logger.info
+                if result.get("status") == "preview_ready"
+                else self._logger.warning
+            )
+            level(
+                "llm3d_preview_completed",
+                **_target_summary(command),
+                **_preview_result_fields(result),
+            )
+            return result
 
         matched = self.query_engine.find_elements(command)
         if not matched:
             summary = self.query_engine.get_last_query_reason() or "대상 요소를 찾을 수 없습니다."
-            return {
+            result = {
                 "status": "not_found",
                 "summary": summary,
                 "command": command.model_dump(),
             }
+            self._logger.warning(
+                "llm3d_preview_completed",
+                **_target_summary(command),
+                **_preview_result_fields(result),
+            )
+            return result
 
         # ── DELETE: 내력벽 구조 차단 검사 ──────────────────────────
         if command.command_type == LLM3DCommandType.DELETE:
             structural_result = self._run_structural_delete_check(matched)
             if structural_result.blocked:
-                return {
+                result = {
                     "status": "failed_structural_check",
                     "summary": structural_result.warnings[0],
                     "structural_warnings": structural_result.to_summary_lines(),
                     "command": command.model_dump(),
                 }
+                self._logger.warning(
+                    "llm3d_preview_completed",
+                    **_target_summary(command),
+                    **_preview_result_fields(result),
+                )
+                return result
 
         # ModelingQualityValidator 품질 검증
         all_errors = []
@@ -1422,7 +1562,7 @@ class LLM3DPipeline:
         if command.command_type == LLM3DCommandType.DELETE and self._structural_validator:
             session.structural_warnings = structural_result.to_summary_lines()
 
-        return {
+        result = {
             "status": "preview_ready" if quality_ok else "failed_quality_check",
             "session_id": session.session_id,
             "command": command.model_dump(),
@@ -1432,38 +1572,86 @@ class LLM3DPipeline:
             # 검증 결과 포함
             "structural_warnings": session.structural_warnings,
         }
+        level = self._logger.info if quality_ok else self._logger.warning
+        level(
+            "llm3d_preview_completed",
+            **_target_summary(command),
+            **_preview_result_fields(result),
+        )
+        return result
 
     async def execute_apply(
         self, session_id: str, output_path: str = "result.ifc"
     ) -> dict[str, Any]:
         session = self.store.get(session_id)
         if not session:
-            return {"status": "session_not_found"}
+            result = {"status": "session_not_found"}
+            self._logger.warning(
+                "llm3d_apply_failed",
+                sessionId=session_id,
+                **_apply_result_fields(result),
+            )
+            return result
+
+        self._logger.info(
+            "llm3d_apply_started",
+            sessionId=session_id,
+            matchedCount=len(session.matched),
+            **_target_summary(session.command),
+            **_capped_ids(session.matched),
+        )
 
         if not session.quality_ok:
-            return {
+            result = {
                 "status": "failed_quality_check",
                 "summary": "품질 검증을 통과하지 못한 명령은 적용할 수 없습니다.",
                 "errors": session.quality_errors,
             }
+            self._logger.warning(
+                "llm3d_apply_failed",
+                sessionId=session_id,
+                **_target_summary(session.command),
+                **_apply_result_fields(result),
+            )
+            return result
 
         command = session.command
         model = self.query_engine.get_model()
         if not model:
-            return {
+            result = {
                 "status": "error",
                 "summary": "IFC 모델이 로드되지 않아 적용할 수 없습니다.",
             }
+            self._logger.error(
+                "llm3d_apply_failed",
+                sessionId=session_id,
+                **_target_summary(command),
+                **_apply_result_fields(result),
+            )
+            return result
 
         if command.command_type == LLM3DCommandType.CREATE:
             try:
-                return await self._execute_create_apply(session_id, output_path)
+                result = await self._execute_create_apply(session_id, output_path)
+                level = (
+                    self._logger.info
+                    if result.get("status") == "applied"
+                    else self._logger.warning
+                )
+                level(
+                    "llm3d_apply_completed",
+                    sessionId=session_id,
+                    createdId=result.get("created_id"),
+                    **_target_summary(command),
+                    **_apply_result_fields(result),
+                )
+                return result
             finally:
                 self.store.pop(session_id, None)
 
         try:
             matched_ids = [str(item.get("global_id") or "") for item in session.matched]
-            return apply_llm3d_modify_delete_to_ifc(
+            result = apply_llm3d_modify_delete_to_ifc(
                 model=model,
                 command=command.model_dump(),
                 matched=session.matched,
@@ -1474,7 +1662,20 @@ class LLM3DPipeline:
                     missing_ids=[],
                     failed_ids=matched_ids,
                 ),
+                log_context=self._log_context,
             )
+            level = (
+                self._logger.info
+                if result.get("status") == "applied"
+                else self._logger.warning
+            )
+            level(
+                "llm3d_apply_completed",
+                sessionId=session_id,
+                **_target_summary(command),
+                **_apply_result_fields(result),
+            )
+            return result
         finally:
             self.store.pop(session_id, None)
 

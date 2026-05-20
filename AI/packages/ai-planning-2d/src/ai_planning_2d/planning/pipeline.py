@@ -12,6 +12,7 @@ from ..command import (
     IFCCommand,
     IFCContext,
     OpeningContext,
+    SpaceContext,
     WallContext,
     WindowContext,
 )
@@ -80,6 +81,7 @@ _LOCKED_PARTITION_WALL_CANDIDATE = {
 }
 _CREATE_DOOR_EDGE_MARGIN_MM = 100.0
 _CREATE_DOOR_OVERLAP_MARGIN_MM = 100.0
+_MERGE_WINDOWS_TOUCH_TOLERANCE_MM = 350.0
 _MSG_DELETE_WALL_VOID_NOT_FOUND = (
     "선택한 door/window/opening 요소를 IFC context에서 찾지 못했습니다."
 )
@@ -117,7 +119,7 @@ def _opening_like_intervals(
         width = item["width"]
         if width <= 0.0:
             continue
-        intervals.append((position, position + width))
+        intervals.append((position - (width / 2), position + (width / 2)))
 
     for item in ifc_context["windows"]:
         if item["host_wall_id"] != host_wall_id:
@@ -126,7 +128,7 @@ def _opening_like_intervals(
         width = item["width"]
         if width <= 0.0:
             continue
-        intervals.append((position, position + width))
+        intervals.append((position - (width / 2), position + (width / 2)))
 
     # IFCContext openings currently do not expose axis position/width, so this
     # helper only uses filled openings from doors/windows.
@@ -170,6 +172,192 @@ def _point_along_wall(
         start[0] + (end[0] - start[0]) * ratio,
         start[1] + (end[1] - start[1]) * ratio,
     )
+
+
+def _polygon_bbox(points: list[tuple[float, float]]) -> tuple[float, float, float, float] | None:
+    if not points:
+        return None
+    xs = [point[0] for point in points]
+    ys = [point[1] for point in points]
+    return (min(xs), min(ys), max(xs), max(ys))
+
+
+def _space_bbox(space: SpaceContext) -> tuple[float, float, float, float] | None:
+    bbox = _polygon_bbox(space.get("polygon", []))
+    if bbox is not None:
+        return bbox
+    x = space.get("x")
+    y = space.get("y")
+    width = space.get("width")
+    height = space.get("height")
+    if x is None or y is None or width is None or height is None:
+        return None
+    return (x, y, x + width, y + height)
+
+
+def _interval_overlap(
+    first: tuple[float, float],
+    second: tuple[float, float],
+) -> float:
+    return max(0.0, min(first[1], second[1]) - max(first[0], second[0]))
+
+
+def _wall_bbox(wall: WallContext) -> tuple[float, float, float, float]:
+    start = wall["start"]
+    end = wall["end"]
+    return (
+        min(start[0], end[0]),
+        min(start[1], end[1]),
+        max(start[0], end[0]),
+        max(start[1], end[1]),
+    )
+
+
+def _wall_touches_space(wall: WallContext, space: SpaceContext) -> bool:
+    space_box = _space_bbox(space)
+    if space_box is None:
+        return False
+    sx1, sy1, sx2, sy2 = space_box
+    wx1, wy1, wx2, wy2 = _wall_bbox(wall)
+    tolerance = _MERGE_WINDOWS_TOUCH_TOLERANCE_MM
+    return (
+        wx2 >= sx1 - tolerance
+        and wx1 <= sx2 + tolerance
+        and wy2 >= sy1 - tolerance
+        and wy1 <= sy2 + tolerance
+    )
+
+
+def _space_axis_interval_for_wall(
+    wall: WallContext,
+    space: SpaceContext,
+) -> tuple[float, float] | None:
+    space_box = _space_bbox(space)
+    if space_box is None:
+        return None
+    sx1, sy1, sx2, sy2 = space_box
+    start = wall["start"]
+    end = wall["end"]
+    length = _wall_length_mm(wall)
+    if length <= 0.0:
+        return None
+    unit_x = (end[0] - start[0]) / length
+    unit_y = (end[1] - start[1]) / length
+    offsets = [
+        (corner_x - start[0]) * unit_x + (corner_y - start[1]) * unit_y
+        for corner_x, corner_y in (
+            (sx1, sy1),
+            (sx1, sy2),
+            (sx2, sy1),
+            (sx2, sy2),
+        )
+    ]
+    return (max(0.0, min(offsets)), min(length, max(offsets)))
+
+
+def _select_two_windows(
+    windows: list[WindowContext],
+) -> list[WindowContext]:
+    ordered = sorted(windows, key=lambda item: float(item["position"]))
+    if len(ordered) <= 2:
+        return ordered
+    pairs = []
+    for index in range(len(ordered) - 1):
+        first = ordered[index]
+        second = ordered[index + 1]
+        first_end = float(first["position"]) + (float(first["width"]) / 2.0)
+        second_start = float(second["position"]) - (float(second["width"]) / 2.0)
+        gap = abs(second_start - first_end)
+        pairs.append((gap, index, [first, second]))
+    return min(pairs, key=lambda item: (item[0], item[1]))[2]
+
+
+def _find_merge_windows_plan(
+    *,
+    space: SpaceContext,
+    ifc_context: IFCContext,
+) -> dict[str, Any] | None:
+    walls_by_id = {wall["id"]: wall for wall in ifc_context["walls"]}
+    grouped: dict[str, list[tuple[WindowContext, float]]] = {}
+
+    for window in ifc_context["windows"]:
+        if window.get("floor") != space.get("floor"):
+            continue
+        adjacent_space_id = window.get("adjacent_space_id")
+        if adjacent_space_id is not None and adjacent_space_id != space["id"]:
+            continue
+        wall = walls_by_id.get(window["host_wall_id"])
+        if wall is None or not _wall_touches_space(wall, space):
+            continue
+        # 삭제 작업이므로 대상 방과의 명확한 근거가 있을 때만 후보로 삼는다.
+        # 1) 창이 adjacent_space_id로 직접 연결되었거나
+        # 2) host wall이 대상 방의 벽(space_ids 포함)일 때만 인정한다.
+        # boundary가 없는 IFC나 L자 방에서 bbox tolerance만으로 무관한 창을
+        # 지우는 것을 막는다. 근거가 부족하면 후보에서 빠지고, 그 결과 창이
+        # 2개 미만이면 호출부에서 clarification으로 이어진다.
+        explicit_window_link = adjacent_space_id == space["id"]
+        wall_hosts_space = space["id"] in wall.get("space_ids", [])
+        if not explicit_window_link and not wall_hosts_space:
+            continue
+        space_interval = _space_axis_interval_for_wall(wall, space)
+        if space_interval is None:
+            continue
+        window_interval = (
+            float(window["position"]) - (float(window["width"]) / 2.0),
+            float(window["position"]) + (float(window["width"]) / 2.0),
+        )
+        overlap = _interval_overlap(window_interval, space_interval)
+        if overlap <= 0.0 and not explicit_window_link:
+            continue
+        grouped.setdefault(wall["id"], []).append((window, overlap))
+
+    candidates = [
+        (wall_id, windows)
+        for wall_id, windows in grouped.items()
+        if len(windows) >= 2
+    ]
+    if not candidates:
+        return None
+
+    wall_id, window_scores = max(
+        candidates,
+        key=lambda item: (len(item[1]), sum(score for _, score in item[1])),
+    )
+    wall = walls_by_id[wall_id]
+    selected_windows = _select_two_windows([window for window, _ in window_scores])
+    if len(selected_windows) < 2:
+        return None
+
+    merge_start = min(
+        float(window["position"]) - (float(window["width"]) / 2.0)
+        for window in selected_windows
+    )
+    merge_end = max(
+        float(window["position"]) + (float(window["width"]) / 2.0)
+        for window in selected_windows
+    )
+    merge_length = merge_end - merge_start
+    if merge_length <= 0.0:
+        return None
+
+    # 새 통창은 삭제되는 두 창이 차지하던 구간의 중심에 배치한다.
+    # 방 bbox 중심으로 잡으면 창이 벽 한쪽에 몰려 있을 때 통창이 엉뚱한 위치에
+    # 생기거나, 선택하지 않은 다른 창과 겹칠 수 있다.
+    center_offset = (merge_start + merge_end) / 2.0
+    wall_length = _wall_length_mm(wall)
+    if wall_length > 0.0:
+        half_length = merge_length / 2.0
+        center_offset = max(half_length, min(wall_length - half_length, center_offset))
+    location = _point_along_wall(wall, center_offset)
+    return {
+        "space": space,
+        "wall": wall,
+        "windows": selected_windows,
+        "location": location,
+        "length": round(merge_length),
+        "height": max(round(float(window["height"])) for window in selected_windows),
+        "sill_height": min(round(float(window["sill_height"])) for window in selected_windows),
+    }
 
 
 def _find_create_door_location(
@@ -272,11 +460,16 @@ def to_ifc_commands(
             name = m.group(2).strip()
         spaces = ifc_context["spaces"]
         target_type = resolve_space_type_from_name(name)
-        matched = [
+        exact_matches = [
             space for space in spaces
-            if (space["name"] == name or (target_type and space.get("type") == target_type))
-            and space["id"]
+            if space["name"] == name and space["id"]
         ]
+        matched = exact_matches
+        if not matched and target_type:
+            matched = [
+                space for space in spaces
+                if space.get("type") == target_type and space["id"]
+            ]
         effective_floor = floor_from_name if floor_from_name is not None else command.target_floor
         if effective_floor is not None:
             matched = [s for s in matched if s["floor"] == effective_floor]
@@ -312,6 +505,96 @@ def to_ifc_commands(
             requires_clarification=True,
             clarification_question=command.clarification_question or _MSG_DEFAULT_CLARIFICATION,
         )
+
+    if command.action == "merge_windows":
+        if ifc_context is None:
+            return CommandBatch(
+                commands=[],
+                requires_clarification=True,
+                clarification_question="IFC context is required to merge windows.",
+            )
+        target_space_ids = _find_space_ids(command.target_room_name)
+        if len(target_space_ids) != 1:
+            return CommandBatch(
+                commands=[],
+                requires_clarification=True,
+                clarification_question=(
+                    "Select one room for picture-window conversion. "
+                    "Example: 1번방 창문 2개를 통창으로 바꿔줘"
+                ),
+            )
+        target_space = next(
+            (space for space in ifc_context["spaces"] if space["id"] == target_space_ids[0]),
+            None,
+        )
+        if target_space is None:
+            return CommandBatch(
+                commands=[],
+                requires_clarification=True,
+                clarification_question="The selected room was not found in the IFC context.",
+            )
+        storey_id = _find_storey_id(target_space["floor"])
+        if storey_id is None:
+            return CommandBatch(
+                commands=[],
+                requires_clarification=True,
+                clarification_question=_TMPL_STOREY_NOT_FOUND.format(name=target_space["name"]),
+            )
+        plan = _find_merge_windows_plan(space=target_space, ifc_context=ifc_context)
+        if plan is None:
+            return CommandBatch(
+                commands=[],
+                requires_clarification=True,
+                clarification_question=(
+                    f"Could not find two windows adjacent to '{target_space['name']}'."
+                ),
+            )
+        wall = plan["wall"]
+        location = plan["location"]
+        commands = [
+            IFCCommand(
+                action=ActionType.DELETE_WINDOW,
+                target_id=window["id"],
+                params={
+                    "metadata": {
+                        "target_kind": "window",
+                        "host_wall_id": window["host_wall_id"],
+                    }
+                },
+                confidence=command.confidence,
+                reason="delete existing window before picture-window merge",
+            )
+            for window in plan["windows"]
+        ]
+        commands.append(
+            IFCCommand(
+                action=ActionType.CREATE_WINDOW,
+                target_id=None,
+                params={
+                    "entity_type": "Window",
+                    "metadata": {
+                        "storey_id": storey_id,
+                        "host_wall_id": wall["id"],
+                        "merged_window_ids": [window["id"] for window in plan["windows"]],
+                    },
+                    "geometry": {
+                        "location": [location[0], location[1], 0.0],
+                        "dimensions": {
+                            "length": plan["length"],
+                            "width": wall.get("thickness") or 200,
+                            "height": plan["height"],
+                        },
+                    },
+                    "properties": {
+                        "sill_height": plan["sill_height"],
+                        "window_style": "picture",
+                    },
+                },
+                confidence=command.confidence,
+                reason="create merged picture window",
+            )
+        )
+        return CommandBatch(commands=commands, requires_clarification=False)
 
     if command.action == "create_door":
         wall = _find_wall(command.target_wall_id)

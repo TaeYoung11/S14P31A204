@@ -2723,7 +2723,7 @@
       });
 
       renderer.render(scene, camera);
-      requestAnimationFrame(tick);
+      introAnimationFrame = requestAnimationFrame(tick);
     }
 
     function resize() {
@@ -2734,7 +2734,26 @@
     window.addEventListener('resize', resize);
     resize();
 
-    requestAnimationFrame(tick);
+    let introAnimationFrame = 0;
+    let introAnimationPaused = false;
+    function setIntroAnimationPaused(paused) {
+      if (introAnimationPaused === paused) return;
+      introAnimationPaused = paused;
+      if (paused) {
+        cancelAnimationFrame(introAnimationFrame);
+        introAnimationFrame = 0;
+        return;
+      }
+      introAnimationFrame = requestAnimationFrame(tick);
+    }
+
+    window.addEventListener('message', (event) => {
+      const data = event.data || {};
+      if (data.type !== '__batang_intro_animation') return;
+      setIntroAnimationPaused(Boolean(data.paused));
+    });
+
+    introAnimationFrame = requestAnimationFrame(tick);
 
     // 첫 렌더 이후 로딩 화면을 숨긴다.
     setTimeout(() => {

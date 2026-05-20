@@ -61,8 +61,8 @@ export default function EmailDomainField<T extends string>({
             <button
               type="button"
               onClick={() => onSelectDomain(domainOptions[0])}
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md px-1.5 py-1 text-[11px] font-medium text-[#64748b] transition-colors hover:bg-[#f3f4f6] hover:text-[#4f46e5]"
-              aria-label="도메인 선택으로 돌아가기"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md px-1.5 py-1 text-[11px] font-medium text-[#64748b] transition-colors hover:bg-[#f3f4f6] hover:text-[#3B45B3]"
+              aria-label="이메일 선택으로 돌아가기"
             >
               선택
             </button>
@@ -74,10 +74,10 @@ export default function EmailDomainField<T extends string>({
             className={`h-11 w-full min-w-0 appearance-none rounded-r-xl border-0 bg-transparent py-0 pl-3 pr-12 text-sm font-medium outline-none ${selectClassName}`}
             value={domain}
             onChange={(e) => onSelectDomain(e.target.value as T | 'custom')}
-            aria-label="이메일 도메인 선택"
+            aria-label="이메일 선택"
           >
             <option value="" disabled>
-              도메인 선택
+              이메일 선택
             </option>
             {domainOptions.map((domainOption) => (
               <option key={domainOption} value={domainOption}>

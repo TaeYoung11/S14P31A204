@@ -54,8 +54,6 @@ export function TwoDOpeningShape({
   const doorHingeSide = opening.doorHingeSide ?? 'left'
   const doorSwingDirection = opening.doorSwingDirection ?? 'inward'
   const hingeX = doorHingeSide === 'left' ? -openingWidthPx / 2 : openingWidthPx / 2
-  const doorLeafEndX = doorHingeSide === 'left' ? openingWidthPx / 2 : -openingWidthPx / 2
-  const doorLeafEndY = doorSwingDirection === 'outward' ? -openingWidthPx : openingWidthPx
   const arcRotation = doorHingeSide === 'left'
     ? (doorSwingDirection === 'outward' ? -90 : 0)
     : (doorSwingDirection === 'outward' ? 180 : 90)
@@ -78,11 +76,6 @@ export function TwoDOpeningShape({
         />
       ) : (
         <>
-          <Line
-            points={[hingeX, 0, doorLeafEndX, doorLeafEndY]}
-            stroke={openingStrokeColor}
-            strokeWidth={1.4}
-          />
           <Arc
             x={hingeX}
             y={0}

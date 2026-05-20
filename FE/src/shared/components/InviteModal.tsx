@@ -205,16 +205,16 @@ export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center">
       <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={handleClose} />
-      <div className="relative w-[500px] bg-white rounded-[24px] shadow-[0_20px_60px_rgba(0,0,0,0.2)] overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+      <div className="relative w-[500px] overflow-hidden rounded-[24px] border border-white/80 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.22)] animate-in fade-in zoom-in-95 duration-200">
         {/* 헤더 */}
-        <div className="px-8 pt-8 pb-6 border-b border-[#F0F2F9]">
+        <div className="border-b border-[#eef2f7] bg-white px-6 pb-5 pt-6">
           <div className="flex items-center justify-between mb-1">
-            <h2 className="text-[22px] font-black text-[#1C1C1E]">공유 초대</h2>
-            <button onClick={handleClose} className="p-1 text-[#ADB5BD] hover:text-[#1C1C1E] transition-colors">
+            <h2 className="text-xl font-black text-[#111827]">공유 초대</h2>
+            <button onClick={handleClose} className="project-icon-button h-9 w-9">
               <X size={24} />
             </button>
           </div>
-          <p className="text-[13px] font-medium text-[#8E95A3]">
+          <p className="text-xs font-semibold text-[#8E95A3]">
             {projectIds.length > 1
               ? `${projectIds.length}개 프로젝트에 초대합니다.`
               : '새로운 고객을 프로젝트에 추가합니다.'}
@@ -222,7 +222,7 @@ export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
         </div>
 
         {/* 본문 */}
-        <div className="p-8">
+        <div className="p-6">
           <div className="mb-6 relative">
             <input
               type="text"
@@ -235,7 +235,7 @@ export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
                   handleSearch()
                 }
               }}
-              className="w-full bg-[#F8F9FD] border border-[#E2E6EF] rounded-xl pl-4 pr-20 py-3.5 text-sm font-medium text-[#1C1C1E] placeholder-[#ADB5BD] focus:outline-none focus:border-[#3B45B3] focus:ring-4 focus:ring-[#3B45B3]/5 transition-all"
+              className="project-input pr-20"
             />
             <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 inline-flex items-center gap-1 rounded-md border border-[#D1D5DB] bg-[#F3F4F6] px-2 py-0.5 text-[10px] font-bold text-[#6B7280]">
               <span aria-hidden="true">↵</span>
@@ -301,11 +301,11 @@ export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
                 <div
                   key={user.userId}
                   onClick={() => toggleSelect(user)}
-                  className={`group flex items-center justify-between p-4 rounded-2xl transition-all border ${isAlreadyInvited
+                  className={`group flex items-center justify-between rounded-2xl border p-4 transition-all ${isAlreadyInvited
                       ? 'cursor-not-allowed bg-[#F3F4F6] border-transparent opacity-60'
                       : `cursor-pointer ${isSelected
-                          ? 'bg-[#F0F2FF]/50 border-[#3B45B3]/20 shadow-sm'
-                          : 'bg-white border-transparent hover:bg-[#F8F9FD]'
+                          ? 'bg-[#eef2ff] border-[#c7d2fe] shadow-sm'
+                          : 'bg-white border-[#eef2f7] hover:bg-[#F8F9FD]'
                         }`
                     }`}
                 >
@@ -338,21 +338,21 @@ export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
         </div>
 
         {/* 하단 */}
-        <div className="px-8 py-6 bg-[#F8F9FD] flex items-center justify-between">
+        <div className="flex items-center justify-between bg-[#F8F9FD] px-6 py-5">
           <p className="text-[12px] text-[#ADB5BD]">
             {selectedUsers.length > 0 ? `${selectedUsers.length}명 선택됨` : 'CUSTOMER로 초대됩니다.'}
           </p>
           <div className="flex items-center gap-3">
             <button
               onClick={handleClose}
-              className="px-6 py-3 text-sm font-black text-[#6B7A99] hover:text-[#1C1C1E] transition-colors"
+              className="project-ghost-button"
             >
               취소
             </button>
             <button
               onClick={handleSubmit}
               disabled={selectedUsers.length === 0 || projectIds.length === 0 || submitStatus === 'loading' || submitStatus === 'success'}
-              className="px-8 py-3 bg-[#3B45B3] text-white text-sm font-black rounded-2xl shadow-lg shadow-[#3B45B3]/30 hover:bg-[#2D3691] hover:-translate-y-0.5 transition-all active:translate-y-0 disabled:opacity-50 disabled:translate-y-0 disabled:shadow-none disabled:cursor-not-allowed flex items-center gap-2"
+              className="project-primary-button px-8"
             >
               {submitStatus === 'loading' && <Loader2 size={14} className="animate-spin" />}
               {submitStatus === 'success' ? '초대 완료!' : '초대 발송'}
@@ -363,7 +363,7 @@ export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
 
       {pendingDeleteUser && (
         <div className="absolute inset-0 z-[110] flex items-center justify-center bg-black/45">
-          <div className="w-[360px] rounded-2xl bg-white p-6 shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
+          <div className="w-[360px] rounded-2xl border border-[#e5e7eb] bg-white p-6 shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
             <p className="text-[15px] font-bold text-[#1C1C1E]">
               '{pendingDeleteUser.name}' 님을 초대 목록에서 제거할까요?
             </p>
@@ -371,14 +371,14 @@ export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
               <button
                 type="button"
                 onClick={() => setPendingDeleteUser(null)}
-                className="rounded-lg px-4 py-2 text-sm font-semibold text-[#6B7280] hover:bg-[#F3F4F6]"
+                className="project-secondary-button"
               >
                 취소
               </button>
               <button
                 type="button"
                 onClick={() => void handleConfirmRemoveAlreadyInvitedUser()}
-                className="rounded-lg bg-[#DC2626] px-4 py-2 text-sm font-semibold text-white hover:bg-[#B91C1C]"
+                className="project-danger-button"
               >
                 삭제
               </button>

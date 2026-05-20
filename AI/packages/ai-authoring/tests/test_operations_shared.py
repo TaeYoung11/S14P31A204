@@ -10,6 +10,7 @@ import pytest
 
 from ai_authoring import apply_ifc_edit_payload
 import ai_authoring.operations  # noqa: F401
+import ai_authoring.operations.update_element_properties as update_element_properties
 from ai_authoring.operations.registry import all_types, get
 from ai_domain import IfcEditCommandPayload
 
@@ -358,6 +359,47 @@ def test_update_element_properties_accepts_wrapped_wall_dimensions() -> None:
     assert body.SweptArea.XDim == pytest.approx(4.5)
     assert body.SweptArea.YDim == pytest.approx(0.25)
     assert body.Depth == pytest.approx(2.8)
+
+
+@pytest.mark.parametrize(
+    ("ifc_class", "expected_propagation"),
+    [("IfcWall", False), ("IfcRoof", True)],
+)
+def test_update_element_properties_limits_roof_appearance_propagation_to_roofs(
+    monkeypatch,
+    ifc_class: str,
+    expected_propagation: bool,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    def fake_modify_color(*args: object, **kwargs: object) -> bool:
+        del args
+        calls.append(dict(kwargs))
+        return True
+
+    monkeypatch.setattr(update_element_properties, "modify_color", fake_modify_color)
+    bundle = _make_model()
+    product = bundle["model"].create_entity(
+        ifc_class,
+        GlobalId=ifcopenshell.guid.new(),
+        Name=f"Test {ifc_class}",
+    )
+    update_handler = get("update_element_properties")
+
+    updated = update_handler.execute(
+        bundle["model"],
+        None,
+        {"color": "#3B82F6", "propagate_roof_appearance": True},
+        {"global_ids": [product.GlobalId]},
+    )
+
+    assert updated == [product.GlobalId]
+    assert calls == [
+        {
+            "propagate_mapped_sources": expected_propagation,
+            "propagate_roof_descendants": expected_propagation,
+        }
+    ]
 
 
 def test_update_element_properties_skips_space_pset_name_only_update() -> None:

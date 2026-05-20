@@ -100,14 +100,14 @@ export function Generate3DModal({ isOpen, onClose, onConfirm }: Generate3DModalP
           <div className="flex w-full gap-3">
             <button
               onClick={handleClose}
-              className="flex-1 rounded-2xl border border-[#E2E6EF] bg-white py-3 text-[13px] font-semibold text-[#6B7A99] transition-colors hover:bg-[#F0F2FF] hover:text-[#3B45B3]"
+              className="project-secondary-button flex-1 py-3"
             >
               취소
             </button>
             <button
               onClick={handleConfirm}
               disabled={!isValid}
-              className="flex-1 inline-flex items-center justify-center gap-2 rounded-2xl bg-[#3B45B3] py-3 text-[13px] font-extrabold text-white shadow-md transition-all hover:bg-[#2D3599] hover:shadow-lg active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+              className="project-primary-button flex-1 py-3"
             >
               <Box size={14} />
               3D 생성

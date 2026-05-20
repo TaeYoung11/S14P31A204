@@ -236,15 +236,17 @@ const extractSpacePolygon = (
 
 const normalizeIfcRoomType = (objectTypeRaw: string | null): string => {
   const value = (objectTypeRaw ?? '').trim().toLowerCase()
-  if (!value) return 'other'
+  if (!value) return '미선택'
   const token = value.replace(/[\s_-]+/g, '')
-  if (token === 'living') return 'living'
-  if (token === 'bedroom') return 'bedroom'
-  if (token === 'kitchen') return 'kitchen'
-  if (token === 'bathroom') return 'bathroom'
-  if (token === 'office') return 'office'
-  if (token === 'corridor') return 'corridor'
-  return 'other'
+  if (token === 'living' || token === 'livingroom' || token === '거실') return '거실'
+  if (token === 'bedroom' || token === 'masterbedroom' || token === '침실') return '침실'
+  if (token === 'room' || token === 'study' || token === 'studyroom' || token === '방') return '방'
+  if (token === 'kitchen' || token === '주방') return '주방'
+  if (token === 'bathroom' || token === 'restroom' || token === 'toilet' || token === 'wc' || token === '화장실') return '화장실'
+  if (token === 'corridor' || token === 'hall' || token === 'hallway' || token === '복도') return '복도'
+  if (token === 'entrance' || token === 'entrancehall' || token === 'entrancestairhall' || token === '현관') return '현관'
+  if (token === 'other' || token === 'notdefined' || token === 'undefined' || token === 'unknown' || token === '미선택') return '미선택'
+  return '미선택'
 }
 
 const resolveSpaceStoreyMap = (entities: Map<number, StepEntity>): Map<number, number> => {

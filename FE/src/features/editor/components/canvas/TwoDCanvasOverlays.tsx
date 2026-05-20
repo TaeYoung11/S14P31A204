@@ -7,15 +7,20 @@ import { rotatePointAround } from '../../utils/canvasViewTransform'
 interface FloorPlanEmptyProps {
   onGenerate?: () => void
   canGenerate?: boolean
+  /** 기존 IFC source 조회가 끝나지 않은 상태 */
+  isCheckingIfcSource?: boolean
 }
 
 /**
  * 평면도가 아직 생성되지 않은 경우 표시되는 안내 화면
  */
-export function FloorPlanEmpty({ onGenerate, canGenerate = true }: FloorPlanEmptyProps) {
-  const description = canGenerate
-    ? '생성 후 2D 편집이 열립니다.'
-    : '버블 공간을 1개 이상 추가해 주세요.'
+export function FloorPlanEmpty({ onGenerate, canGenerate = true, isCheckingIfcSource = false }: FloorPlanEmptyProps) {
+  const isButtonEnabled = canGenerate && !isCheckingIfcSource
+  const description = isCheckingIfcSource
+    ? '기존 IFC 상태를 확인하는 중입니다...'
+    : canGenerate
+      ? '생성 후 2D 편집이 열립니다.'
+      : '버블 공간을 1개 이상 추가해 주세요.'
 
   return (
     <div className="absolute inset-0 flex items-center justify-center bg-white">
@@ -36,7 +41,7 @@ export function FloorPlanEmpty({ onGenerate, canGenerate = true }: FloorPlanEmpt
 
           <button
             onClick={onGenerate}
-            disabled={!canGenerate}
+            disabled={!isButtonEnabled}
             className="inline-flex items-center gap-2 rounded-2xl bg-[#3B45B3] px-6 py-3 text-[12px] font-extrabold text-white shadow-md transition-all hover:bg-[#2D3599] hover:shadow-lg active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Sparkles size={15} />

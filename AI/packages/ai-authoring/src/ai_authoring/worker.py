@@ -51,11 +51,70 @@ from ai_domain.worker_messages.command import CommandMessage
 from ai_domain.worker_messages.payloads_ifc_edit import IfcEditCommandPayload
 
 _logger = get_logger(__name__)
+_MAX_LOG_IDS = 20
 
 
 def _pad_step(step_no: int) -> str:
     """MinIO 경로용 3자리 zero-padding 변환."""
     return f"{step_no:03d}"
+
+
+def _bind_logger(log_context: dict[str, Any]) -> Any:
+    if hasattr(_logger, "bind"):
+        return _logger.bind(**log_context)
+    return _logger
+
+
+def _authoring_log_context(ctx: WorkerContext, worker_id: str) -> dict[str, Any]:
+    return {
+        **ctx.to_log_fields(),
+        "workerId": worker_id,
+        "commandId": ctx.job_step_id,
+    }
+
+
+def _operation_summary(operations: list[dict[str, Any]] | None) -> dict[str, Any]:
+    ops = operations or []
+    return {
+        "operationCount": len(ops),
+        "operationTypes": [str(op.get("type") or "") for op in ops],
+        "operationIds": [str(op.get("id") or "") for op in ops],
+    }
+
+
+def _selector_summary(selector: dict[str, Any] | None) -> dict[str, Any]:
+    selector = selector or {}
+    global_ids = list(selector.get("global_ids") or [])
+    return {
+        "selectorElementType": selector.get("element_type"),
+        "selectorStorey": selector.get("storey"),
+        "selectorSpaceName": selector.get("space_name"),
+        "selectorDirection": selector.get("direction"),
+        "selectAll": bool(selector.get("select_all")),
+        "selectorGlobalIdCount": len(global_ids),
+        "selectorTargetIds": [str(item) for item in global_ids[:_MAX_LOG_IDS]],
+        "selectorTargetIdsOmitted": max(len(global_ids) - _MAX_LOG_IDS, 0),
+    }
+
+
+def _result_target_id_fields(result: dict[str, Any]) -> dict[str, Any]:
+    matched = result.get("matched_elements") or []
+    ids = [str(item.get("global_id") or "") for item in matched if item.get("global_id")]
+    return {
+        "targetIds": ids[:_MAX_LOG_IDS],
+        "targetIdsOmitted": max(len(ids) - _MAX_LOG_IDS, 0),
+    }
+
+
+def _issue_codes(result: dict[str, Any]) -> list[str]:
+    return [str(issue.get("code") or "") for issue in result.get("issues") or []]
+
+
+def _validation_issue_count(report: dict[str, Any]) -> int:
+    issues = report.get("issues")
+    if isinstance(issues, list):
+        return len(issues)
+    return 0
 
 
 def _rotation_axis_angle(
@@ -101,8 +160,16 @@ class AuthoringWorker(BaseWorker):
 
     def process(self, command: CommandMessage) -> WorkerResult:
         ctx = WorkerContext.from_command(command)
+        log = _bind_logger(_authoring_log_context(ctx, self.worker_id))
         payload: IfcEditCommandPayload = command.payload
+        engine_request_source = "inline" if payload.engineRequest is not None else "storage"
         engine_req = self._resolve_engine_request(payload)
+        log.info(
+            "authoring_engine_request_resolved",
+            requestId=engine_req.get("request_id"),
+            source=engine_request_source,
+            **_operation_summary(engine_req.get("operations") or []),
+        )
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp = Path(tmpdir)
@@ -119,18 +186,34 @@ class AuthoringWorker(BaseWorker):
                     message=f"IFC 파싱 실패: {exc}",
                 ) from exc
 
-            self._validate_operations_before_mutation(engine_req)
-            op_results = self._run_operations(model, engine_req, ctx)
+            try:
+                self._validate_operations_before_mutation(engine_req)
+                op_results = self._run_operations(model, engine_req, ctx)
+            except Exception as exc:
+                log.error(
+                    "authoring_operation_batch_failed",
+                    errorClass=type(exc).__name__,
+                    errorMessage=str(exc),
+                    **_operation_summary(engine_req.get("operations") or []),
+                )
+                raise
 
             applied_count = sum(1 for r in op_results if r["status"] == "applied")
             if applied_count == 0:
                 failed_ids = [r["operation_id"] for r in op_results]
+                log.warning(
+                    "authoring_operation_batch_failed",
+                    reason="no_operations_applied",
+                    failedOperationIds=failed_ids,
+                    **_operation_summary(engine_req.get("operations") or []),
+                )
                 raise NonRetryableWorkerError(
                     code="NO_OPERATIONS_APPLIED",
                     message=f"적용된 오퍼레이션이 없습니다. ops={failed_ids}",
                 )
 
             validation_report = PostEditValidator(model).validate(op_results, engine_req)
+            validation_report_dict = validation_report.to_dict()
 
             out = tmp / "result.ifc"
             model.write(str(out))
@@ -141,14 +224,16 @@ class AuthoringWorker(BaseWorker):
             ifc_url = self._upload_ifc(result_bytes, command, ctx)
             manifest_url = self._upload_manifest(
                 ifc_url, result_bytes, sha256, op_results, ctx,
-                validation_report=validation_report.to_dict(),
+                validation_report=validation_report_dict,
             )
 
-        _logger.info(
+        log.info(
             "ifc_edit_apply_completed",
             jobId=ctx.job_id,
             stepNo=_pad_step(ctx.step_no),
             appliedOps=applied_count,
+            **_operation_summary(engine_req.get("operations") or []),
+            validationIssueCount=_validation_issue_count(validation_report_dict),
             ifcUrl=ifc_url,
         )
         output: dict[str, Any] = {
@@ -215,13 +300,36 @@ class AuthoringWorker(BaseWorker):
         engine_req: dict[str, Any],
         ctx: WorkerContext,
     ) -> list[dict[str, Any]]:
+        log = _bind_logger(_authoring_log_context(ctx, self.worker_id))
+        operations = engine_req.get("operations", []) or []
+        log.info("authoring_operation_batch_started", **_operation_summary(operations))
         results = []
-        for op in engine_req.get("operations", []):
+        for op in operations:
             op_id: str = op.get("id", "")
             op_type: str = op.get("type", "")
             selector: dict[str, Any] = op.get("selector") or {}
             params: dict[str, Any] = op.get("parameters") or {}
-            results.append(self._apply_operation(model, op_id, op_type, selector, params))
+            result = self._apply_operation(model, op_id, op_type, selector, params)
+            results.append(result)
+            level = log.info if result.get("status") == "applied" else log.warning
+            level(
+                "authoring_operation_applied",
+                operationId=op_id,
+                operationType=op_type,
+                status=result.get("status"),
+                targetCount=result.get("target_count"),
+                appliedCount=len(result.get("matched_elements") or []),
+                issueCodes=_issue_codes(result),
+                **_selector_summary(selector),
+                **_result_target_id_fields(result),
+            )
+        log.info(
+            "authoring_operation_batch_completed",
+            appliedCount=sum(1 for item in results if item.get("status") == "applied"),
+            rejectedCount=sum(1 for item in results if item.get("status") == "rejected"),
+            skippedCount=sum(1 for item in results if item.get("status") == "skipped"),
+            **_operation_summary(operations),
+        )
         return results
 
     def _validate_operations_before_mutation(self, engine_req: dict[str, Any]) -> None:
@@ -572,10 +680,29 @@ class AuthoringWorker(BaseWorker):
                 changed |= bool(modify_length(el, dims["length"], scale=1000.0))
             if dims.get("height"):
                 changed |= bool(modify_height(el, dims["height"], scale=1000.0))
+            propagate_roof_appearance = bool(
+                params.get("propagate_roof_appearance")
+            ) and el.is_a("IfcRoof")
             if params.get("material"):
-                changed |= bool(modify_material(model, el, {"name": params["material"]}))
+                changed |= bool(
+                    modify_material(
+                        model,
+                        el,
+                        {"name": params["material"]},
+                        propagate_mapped_sources=propagate_roof_appearance,
+                        propagate_roof_descendants=propagate_roof_appearance,
+                    )
+                )
             if params.get("color"):
-                changed |= bool(modify_color(model, el, str(params["color"])))
+                changed |= bool(
+                    modify_color(
+                        model,
+                        el,
+                        str(params["color"]),
+                        propagate_mapped_sources=propagate_roof_appearance,
+                        propagate_roof_descendants=propagate_roof_appearance,
+                    )
+                )
             face_offset = params.get("face_offset_mm")
             if face_offset is not None:
                 direction = str(selector.get("direction") or "")
@@ -612,7 +739,11 @@ class AuthoringWorker(BaseWorker):
     ) -> list[ifcopenshell.entity_instance]:
         global_ids: list[str] = selector.get("global_ids") or []
         if global_ids:
-            return [el for gid in global_ids if (el := model.by_guid(gid)) is not None]
+            elements = [el for gid in global_ids if (el := model.by_guid(gid)) is not None]
+            element_type_filter: str | None = selector.get("element_type")
+            if element_type_filter:
+                elements = [el for el in elements if el.is_a(element_type_filter)]
+            return elements
 
         element_type: str = selector.get("element_type") or "IfcProduct"
         elements: list[ifcopenshell.entity_instance] = list(model.by_type(element_type))
