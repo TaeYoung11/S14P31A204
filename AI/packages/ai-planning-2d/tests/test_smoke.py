@@ -878,11 +878,13 @@ def test_extract_storeys_prefers_named_floor_levels(tmp_path):
 
     context = extract_ifc_context(_write_ifc(tmp_path, bundle["ifc"]))
 
-    assert [storey["id"] for storey in context["storeys"]] == [
-        bundle["storey_a"].GlobalId,
-        bundle["storey_b"].GlobalId,
-    ]
-    assert [storey["floor"] for storey in context["storeys"]] == [1, 2]
+    floor_by_id = {storey["id"]: storey["floor"] for storey in context["storeys"]}
+    # 이름 기반(1F/2F)은 파싱된 번호를 그대로 쓴다.
+    assert floor_by_id[bundle["storey_a"].GlobalId] == 1
+    assert floor_by_id[bundle["storey_b"].GlobalId] == 2
+    # 패턴(\d+F)에 맞지 않는 storey도 누락되지 않고 충돌하지 않는 번호로 포함된다.
+    assert foundation.GlobalId in floor_by_id
+    assert floor_by_id[foundation.GlobalId] not in {1, 2}
 
 
 def test_extract_space_from_pset(tmp_path):
@@ -2824,7 +2826,7 @@ def _picture_window_ctx() -> IFCContext:
                 "floor": 1,
                 "host_wall_id": "wall-west",
                 "host_wall_body_class": "parametric",
-                "adjacent_space_id": None,
+                "adjacent_space_id": "sp-room-1",
                 "width": 900,
                 "height": 1200,
                 "sill_height": 0,
@@ -2835,7 +2837,7 @@ def _picture_window_ctx() -> IFCContext:
                 "floor": 1,
                 "host_wall_id": "wall-west",
                 "host_wall_body_class": "parametric",
-                "adjacent_space_id": None,
+                "adjacent_space_id": "sp-room-1",
                 "width": 1000,
                 "height": 1200,
                 "sill_height": 0,
@@ -2879,6 +2881,27 @@ def test_to_ifc_commands_merge_windows_selects_adjacent_room_windows():
     }
     assert create.params["properties"]["sill_height"] == 0
     assert create.params["properties"]["window_style"] == "picture"
+
+
+def test_to_ifc_commands_merge_windows_clarifies_when_window_link_is_ambiguous():
+    """대상 방과의 명확한 근거(adjacent_space_id/host wall space_ids)가 없는 창은
+    자동 삭제 후보로 삼지 않고 clarification으로 돌린다."""
+    ctx = _picture_window_ctx()
+    for window in ctx["windows"]:
+        window["adjacent_space_id"] = None
+    for wall in ctx["walls"]:
+        wall["space_ids"] = []
+    command = FloorNLPCommand(
+        action="merge_windows",
+        target_room_name="1번방",
+        target_floor=1,
+        confidence=0.99,
+    )
+
+    batch = to_ifc_commands(command, ctx)
+
+    assert batch.requires_clarification is True
+    assert batch.commands == []
 
 
 def test_build_engine_request_merge_windows_emits_delete_then_create_window():

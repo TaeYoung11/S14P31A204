@@ -289,6 +289,16 @@ def _find_merge_windows_plan(
         wall = walls_by_id.get(window["host_wall_id"])
         if wall is None or not _wall_touches_space(wall, space):
             continue
+        # 삭제 작업이므로 대상 방과의 명확한 근거가 있을 때만 후보로 삼는다.
+        # 1) 창이 adjacent_space_id로 직접 연결되었거나
+        # 2) host wall이 대상 방의 벽(space_ids 포함)일 때만 인정한다.
+        # boundary가 없는 IFC나 L자 방에서 bbox tolerance만으로 무관한 창을
+        # 지우는 것을 막는다. 근거가 부족하면 후보에서 빠지고, 그 결과 창이
+        # 2개 미만이면 호출부에서 clarification으로 이어진다.
+        explicit_window_link = adjacent_space_id == space["id"]
+        wall_hosts_space = space["id"] in wall.get("space_ids", [])
+        if not explicit_window_link and not wall_hosts_space:
+            continue
         space_interval = _space_axis_interval_for_wall(wall, space)
         if space_interval is None:
             continue
@@ -297,7 +307,7 @@ def _find_merge_windows_plan(
             float(window["position"]) + (float(window["width"]) / 2.0),
         )
         overlap = _interval_overlap(window_interval, space_interval)
-        if overlap <= 0.0 and adjacent_space_id != space["id"]:
+        if overlap <= 0.0 and not explicit_window_link:
             continue
         grouped.setdefault(wall["id"], []).append((window, overlap))
 

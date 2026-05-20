@@ -629,15 +629,12 @@ class LLM2DPipeline:
             return []
         spaces = self.ifc_context.get("spaces", [])
         target_type = resolve_space_type_from_name(target_name)
-        exact_matching = [
-            s for s in spaces
-            if s.get("name") == target_name
-        ]
-        matching = exact_matching
-        if len(matching) < 2 and target_type:
-            type_matching = [s for s in spaces if s.get("type") == target_type]
-            if len(type_matching) >= 2:
-                matching = type_matching
+        # apply 단계 _find_space_ids의 target resolution과 동일한 규칙을 쓴다.
+        # exact name 매칭이 하나라도 있으면 type fallback을 하지 않는다.
+        # (그렇지 않으면 type 기준으로 만든 층 선택지를 apply 단계에서 못 찾는다.)
+        matching = [s for s in spaces if s.get("name") == target_name]
+        if not matching and target_type:
+            matching = [s for s in spaces if s.get("type") == target_type]
         if len(matching) < 2:
             return []
         # 모든 매칭 공간이 같은 층이면 층으로 구분할 수 없다 → alternatives 미생성

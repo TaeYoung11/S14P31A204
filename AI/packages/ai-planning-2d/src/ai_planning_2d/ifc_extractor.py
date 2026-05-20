@@ -115,15 +115,31 @@ def _extract_storeys(ifc: ifcopenshell.file) -> list[StoreyContext]:
         seen_named_floors.add(floor_from_name)
 
     if named_floor_storeys:
-        for floor, storey in sorted(named_floor_storeys, key=lambda item: item[0]):
+        assigned_floor_by_id: dict[str, int] = {
+            storey.GlobalId: floor for floor, storey in named_floor_storeys
+        }
+        # 패턴(\d+F)에 맞지 않는 storey(RF, PH, B1 등)도 element 누락을 막기 위해
+        # 포함한다. 이름 기반 번호와 충돌하지 않는 번호를 elevation 순서로 부여한다.
+        used_floors = set(assigned_floor_by_id.values())
+        next_floor = 1
+        for storey in storey_entities:
+            if storey.GlobalId in assigned_floor_by_id:
+                continue
+            while next_floor in used_floors:
+                next_floor += 1
+            assigned_floor_by_id[storey.GlobalId] = next_floor
+            used_floors.add(next_floor)
+            next_floor += 1
+        for storey in storey_entities:
             elevation = getattr(storey, "Elevation", None)
             storeys.append(
                 {
                     "id": storey.GlobalId,
-                    "floor": floor,
+                    "floor": assigned_floor_by_id[storey.GlobalId],
                     "elevation": None if elevation is None else _model_to_mm(elevation),
                 }
             )
+        storeys.sort(key=lambda item: item["floor"])
         return storeys
 
     for floor, storey in enumerate(storey_entities, start=1):
