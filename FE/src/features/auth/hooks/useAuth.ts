@@ -5,6 +5,17 @@ import type { LoginDto, WithdrawDto } from '@/features/auth/services/auth.servic
 import { authService } from '@/features/auth/services/auth.service'
 import { useAuthStore } from '@/shared/stores/authStore'
 
+interface LoginOptions {
+  redirectTo?: string
+}
+
+const isSafeInternalRedirect = (redirectTo?: string): redirectTo is string => {
+  if (!redirectTo) return false
+  if (!redirectTo.startsWith('/')) return false
+  if (redirectTo.startsWith('//')) return false
+  return !/^[a-z][a-z\d+.-]*:/i.test(redirectTo)
+}
+
 export const useAuth = () => {
   const queryClient = useQueryClient()
   const {
@@ -32,7 +43,6 @@ export const useAuth = () => {
       setToken(access_token)
       setRefreshToken(refresh_token)
       setUser(nextUser)
-      navigate('/projects')
     },
   })
 
@@ -64,7 +74,12 @@ export const useAuth = () => {
     refreshToken,
     isAuthenticated: !!token,
     isMeLoading,
-    login: (data: LoginDto) => loginMutation.mutate(data),
+    login: (data: LoginDto, options?: LoginOptions) => loginMutation.mutate(data, {
+      onSuccess: () => {
+        const redirectTo = options?.redirectTo
+        navigate(isSafeInternalRedirect(redirectTo) ? redirectTo : '/projects', { replace: true })
+      },
+    }),
     loginError: loginMutation.error,
     isLoggingIn: loginMutation.isPending,
     logout: () => logoutMutation.mutate(),
