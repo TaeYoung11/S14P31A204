@@ -516,13 +516,19 @@ export function mapAdjacencyToConnections(adjacency: FloorProject['adjacency']):
 export function mapFloorProjectToWalls(project: FloorProject, options: MapperOptions): FloorWall[] {
   if (!project.walls || project.walls.length === 0) return []
   const { scale, offsetX, offsetY } = computeProjectTransform(project.rooms, options)
+  const floorById = new Map(project.floors.map((floor) => [floor.id, floor]))
+  const toFloorLayerId = (floorId: string): string => {
+    const floorNumber = floorById.get(floorId)?.number
+    return `floor-${floorNumber ?? floorId}`
+  }
   return project.walls.map((wall) => {
     const wallType = toFloorWallType(wall.type)
     return {
       id: wall.id,
       globalId: wall.id,
+      floorLayerId: toFloorLayerId(wall.floor),
       storeyGlobalId: wall.floor,
-      storeyName: project.floors.find((floor) => floor.id === wall.floor)?.name,
+      storeyName: floorById.get(wall.floor)?.name,
       sourceIfcClass: wall.ifc_class,
       start: { x: wall.start.x * scale + offsetX, y: wall.start.y * scale + offsetY },
       end: { x: wall.end.x * scale + offsetX, y: wall.end.y * scale + offsetY },

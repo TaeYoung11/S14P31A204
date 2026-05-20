@@ -152,19 +152,79 @@ function requireWorkspaceCommand(workspaceCommand?: WorkspaceCommand | null): Wo
   return workspaceCommand
 }
 
+const STOMP_PAYLOAD_SIZE_WARN_BYTES = 64 * 1024
+const STOMP_PAYLOAD_SIZE_ERROR_BYTES = 4 * 1024 * 1024
+
+const measureUtf8Bytes = (value: string): number =>
+  typeof TextEncoder !== 'undefined' ? new TextEncoder().encode(value).byteLength : value.length
+
+const measureJsonBytes = (value: unknown): number => {
+  if (value === undefined) return 0
+  try {
+    return measureUtf8Bytes(JSON.stringify(value))
+  } catch {
+    return 0
+  }
+}
+
+const formatBytes = (bytes: number): string => {
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(2)}MB`
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(2)}KB`
+  return `${bytes}B`
+}
+
+const summarizeFloorPlanPayloadSizes = (body: unknown): Record<string, string> => {
+  if (typeof body !== 'object' || body === null) return {}
+  const record = body as Record<string, unknown>
+  const layout = (record.layout ?? null) as Record<string, unknown> | null
+  const sizes: Record<string, number> = {
+    bubbles: measureJsonBytes(record.bubbles),
+    connections: measureJsonBytes(record.connections),
+    zones: measureJsonBytes(record.zones),
+    floorMeta: measureJsonBytes(record.floorMeta),
+    workspaceCommand: measureJsonBytes(record.workspaceCommand),
+  }
+  if (layout) {
+    Object.assign(sizes, {
+      'layout.floorLayers': measureJsonBytes(layout.floorLayers),
+      'layout.floorWalls': measureJsonBytes(layout.floorWalls),
+      'layout.floorOpenings': measureJsonBytes(layout.floorOpenings),
+      'layout.ifcElementChanges': measureJsonBytes(layout.ifcElementChanges),
+      'layout.hiddenAutoWallIds': measureJsonBytes(layout.hiddenAutoWallIds),
+      'layout.hiddenAutoOpeningIds': measureJsonBytes(layout.hiddenAutoOpeningIds),
+    })
+  }
+  return Object.fromEntries(
+    Object.entries(sizes)
+      .filter(([, bytes]) => bytes > 0)
+      .sort(([, a], [, b]) => b - a)
+      .map(([key, bytes]) => [key, formatBytes(bytes)]),
+  )
+}
+
 const publishJson = async (destination: string, body: unknown): Promise<void> => {
   const client = await ensureStompConnected()
   const bodyJson = JSON.stringify(body)
-  if (
-    import.meta.env.DEV &&
-    destination.includes('/floor-plan/update') &&
-    bodyJson.includes('"entity":"ifcElement"') &&
-    bodyJson.includes('"rotation_degrees"')
-  ) {
-    console.log('[ifc-rotate-save][stomp-publish-json]', {
-      destination,
-      bodyJson,
-    })
+  const isFloorPlanUpdate = destination.includes('/floor-plan/update')
+  // floor-plan/update는 누적된 layout 페이로드를 통째로 전송하므로,
+  // BE WebSocket 한계(4MB)에 근접하기 전에 경고를 남긴다.
+  if (isFloorPlanUpdate) {
+    const totalBytes = measureUtf8Bytes(bodyJson)
+    if (totalBytes >= STOMP_PAYLOAD_SIZE_ERROR_BYTES) {
+      console.error('[stomp-publish-size][over-limit]', {
+        destination,
+        totalBytes,
+        totalSize: formatBytes(totalBytes),
+        breakdown: summarizeFloorPlanPayloadSizes(body),
+      })
+    } else if (totalBytes >= STOMP_PAYLOAD_SIZE_WARN_BYTES) {
+      console.warn('[stomp-publish-size][warn]', {
+        destination,
+        totalBytes,
+        totalSize: formatBytes(totalBytes),
+        breakdown: summarizeFloorPlanPayloadSizes(body),
+      })
+    }
   }
   client.publish({
     destination,

@@ -1,4 +1,4 @@
-import { lazy, useEffect, useMemo } from 'react'
+import { lazy, useMemo } from 'react'
 import { useFreshIfcUrl } from '@/features/editor/hooks/useFreshIfcUrl'
 import { DEFAULT_MOCK_IFC_URL } from '@/features/editor/components/canvas/threeDCanvas.utils'
 import type { EditorCanvasRenderProps } from '../../types/editorCanvasContentProps'
@@ -81,27 +81,6 @@ export default function ThreeDModeCanvas({
     editorProps.currentIfcUrl ?? DEFAULT_MOCK_IFC_URL,
     editorProps.projectId ?? null,
   )
-
-  useEffect(() => {
-    if (!import.meta.env.DEV) return
-    console.log('[3d-ifc-url]', {
-      currentIfcUrl: editorProps.currentIfcUrl,
-      currentIfcAssetId: editorProps.currentIfcAssetId,
-      freshIfcUrl,
-      selectedFloorOpeningId: editorProps.selectedFloorOpeningId,
-      selectedFloorWallId: editorProps.selectedFloorWallId,
-      selectedId: editorProps.selectedId,
-      preferredSelectedElementId,
-    })
-  }, [
-    editorProps.currentIfcAssetId,
-    editorProps.currentIfcUrl,
-    editorProps.selectedFloorOpeningId,
-    editorProps.selectedFloorWallId,
-    editorProps.selectedId,
-    freshIfcUrl,
-    preferredSelectedElementId,
-  ])
 
   const overlayIfcStoreyOpacityByExpressId = useMemo(() => {
     const overlayIds = editorProps.overlayIfcStoreyExpressIds ?? []

@@ -9,6 +9,8 @@ interface TwoDWallEndpointHandleProps {
   isGridSnapEnabled: boolean
   gridSnapStepPx: number
   onWallEndpointChange?: (wallId: string, endpoint: 'start' | 'end', point: Point2D) => void
+  onWorkspaceEditStart?: () => void
+  onWorkspaceEditCommit?: () => void
 }
 
 /**
@@ -22,6 +24,8 @@ export function TwoDWallEndpointHandle({
   isGridSnapEnabled,
   gridSnapStepPx,
   onWallEndpointChange,
+  onWorkspaceEditStart,
+  onWorkspaceEditCommit,
 }: TwoDWallEndpointHandleProps) {
   return (
     <Circle
@@ -32,10 +36,19 @@ export function TwoDWallEndpointHandle({
       stroke="#3B45B3"
       strokeWidth={2}
       draggable
+      onDragStart={(e) => {
+        e.cancelBubble = true
+        onWorkspaceEditStart?.()
+      }}
       onDragMove={(e) => {
+        e.cancelBubble = true
         const x = snapCoordinate(e.target.x(), isGridSnapEnabled, gridSnapStepPx)
         const y = snapCoordinate(e.target.y(), isGridSnapEnabled, gridSnapStepPx)
         onWallEndpointChange?.(wallId, endpoint, { x, y })
+      }}
+      onDragEnd={(e) => {
+        e.cancelBubble = true
+        onWorkspaceEditCommit?.()
       }}
       onMouseDown={(e) => {
         e.cancelBubble = true

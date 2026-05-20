@@ -97,10 +97,7 @@ type FloorHitCandidate = {
 
 const PRESET_MOVE_DEBUG = import.meta.env.DEV || import.meta.env.VITE_3D_MOVE_DEBUG === 'true'
 
-const logRoofDebug = (...args: unknown[]) => {
-  if (!import.meta.env.DEV) return
-  console.log('[roof-debug][FloorPlan3DCanvas]', ...args)
-}
+const logRoofDebug = (..._args: unknown[]) => {}
 
 const logSelectionDebug = (...args: unknown[]) => {
   if (!import.meta.env.DEV) return
