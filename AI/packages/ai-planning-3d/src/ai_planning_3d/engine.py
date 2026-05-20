@@ -527,6 +527,33 @@ class LLM3DEngine:
                 return self._ambiguous(user_text, "수정할 대상 요소가 명확하지 않습니다.")
             heuristic_target: LLM3DTarget | None = None
             target = command.target
+            if target.element_type == LLM3DElementType.WALL:
+                heuristic_target = heuristic_target or self._target(user_text)
+                target = target.model_copy(update={"element_type": heuristic_target.element_type})
+            if self._is_unqualified_roof_appearance_request(
+                user_text,
+                target,
+                command.changes,
+            ):
+                target = target.model_copy(
+                    update={
+                        "element_type": LLM3DElementType.ROOF,
+                        "global_id": None,
+                        "name": None,
+                        "storey": None,
+                        "space_name": None,
+                        "direction": None,
+                        "tag": None,
+                        "select_all": True,
+                    }
+                )
+                return command.model_copy(
+                    update={
+                        "target": target,
+                        "ambiguity_question": None,
+                        "confidence": max(command.confidence, 1.0),
+                    }
+                )
             if target.storey is None:
                 heuristic_target = heuristic_target or self._target(user_text)
                 target = target.model_copy(update={"storey": heuristic_target.storey})
@@ -616,6 +643,41 @@ class LLM3DEngine:
             "this",
         )
         return any(re.search(pattern, text, re.IGNORECASE) for pattern in contextual_patterns)
+
+    @staticmethod
+    def _is_unqualified_roof_appearance_request(
+        text: str,
+        target: LLM3DTarget,
+        changes: LLM3DChanges,
+    ) -> bool:
+        if target.element_type != LLM3DElementType.ROOF:
+            return False
+        if changes.color is None and changes.material is None:
+            return False
+        if not re.search(r"\uc9c0\ubd95|\broof\b", text, re.IGNORECASE):
+            return False
+        if LLM3DEngine._has_contextual_target_reference(text):
+            return False
+
+        selector_patterns = (
+            r"\bRF\b",
+            r"\brooftop\b",
+            r"\broof\s*floor\b",
+            r"\uc625\uc0c1",
+            r"\ub8e8\ud504\ud0d1",
+            r"\d+\s*\uce35",
+            r"\b(?:B\d+|\d+\s*F)\b",
+            r"\b\d+(?:st|nd|rd|th)\s*floor\b",
+            r"\uc9c0\ud558",
+            r"\ubd81\ucabd|\ub0a8\ucabd|\ub3d9\ucabd|\uc11c\ucabd",
+            r"\uc67c\ucabd|\uc624\ub978\ucabd",
+            r"\bnorth\b|\bsouth\b|\beast\b|\bwest\b",
+            r"\uac70\uc2e4|\uc548\ubc29|\uce68\uc2e4|\ud654\uc7a5\uc2e4|\uc695\uc2e4|\uc8fc\ubc29|\ud604\uad00",
+            r"\bliving\s*room\b|\bbedroom\b|\bbathroom\b|\bkitchen\b|\bentrance\b",
+            r"#[0-9]+\b",
+            r"\b[0-9A-Za-z_$]{22}\b",
+        )
+        return not any(re.search(pattern, text, re.IGNORECASE) for pattern in selector_patterns)
 
     @staticmethod
     def _has_multiple_target_value_pairs(text: str) -> bool:
