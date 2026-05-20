@@ -1,11 +1,15 @@
 import { Link, useSearchParams } from 'react-router-dom'
 import { CheckCircle2, MailOpen, UserPlus } from 'lucide-react'
+import { useAuthStore } from '@/shared/stores/authStore'
 
 // 초대 수락 페이지 - 비로그인 접근 가능 (Public)
 // URL: /invite/accept?token=<초대토큰>
 export default function InviteAcceptPage() {
   const [searchParams] = useSearchParams()
+  const isAuthenticated = Boolean(useAuthStore((state) => state.token))
   const token = searchParams.get('token')
+  const invitePath = `/invite/accept${token ? `?token=${encodeURIComponent(token)}` : ''}`
+  const loginPath = `/login?redirect=${encodeURIComponent(invitePath)}`
 
   return (
     <main className="public-state-shell">
@@ -30,9 +34,9 @@ export default function InviteAcceptPage() {
         </div>
 
         <div className="mt-8 flex flex-wrap justify-center gap-2">
-          <Link to="/login" className="project-primary-button">
+          <Link to={isAuthenticated ? '/projects' : loginPath} className="project-primary-button">
             <CheckCircle2 className="h-4 w-4" />
-            로그인하고 수락
+            {isAuthenticated ? '프로젝트 목록으로 이동' : '로그인하고 수락'}
           </Link>
           <Link to="/projects" className="project-secondary-button">
             프로젝트 목록
