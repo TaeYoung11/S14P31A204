@@ -30,6 +30,7 @@ from ai_planning_2d import (
 )
 from ai_planning_2d.add_room_placement import suggest_add_room_start_mm
 from ai_planning_2d.engine import _apply_relative_adjustment, _infer_resize_direction
+from ai_planning_2d.planning.session_pipeline import PreviewSession2D
 from ai_planning_2d.remove_healing import build_remove_merge_plan
 from ai_planning_2d.toilet_demo import build_toilet_insertion_geometry_plan
 from ai_planning_2d.validators.batch import validate_command_batch
@@ -2959,6 +2960,115 @@ async def test_engine_parse_picture_window_command_keeps_duplicate_room_floor_am
     assert result.target_floor is None
     # 층이 명시되지 않았고 안방이 1·2층에 모두 있으므로 엔진이 직접 재질문을 강제한다.
     assert result.needs_clarification is True
+
+
+def _merge_windows_command_batch() -> CommandBatch:
+    """delete_window 2개 + create_window 1개로 구성된 통창 변환 배치."""
+    delete_commands = [
+        IFCCommand(
+            action=ActionType.DELETE_WINDOW,
+            target_id=window_id,
+            params={"metadata": {"target_kind": "window", "host_wall_id": "wall-1"}},
+            confidence=0.99,
+        )
+        for window_id in ("window-a", "window-b")
+    ]
+    create_command = IFCCommand(
+        action=ActionType.CREATE_WINDOW,
+        target_id=None,
+        params={
+            "entity_type": "Window",
+            "metadata": {
+                "storey_id": "storey-1",
+                "host_wall_id": "wall-1",
+                "merged_window_ids": ["window-a", "window-b"],
+            },
+            "geometry": {
+                "location": [1000.0, 0.0, 0.0],
+                "dimensions": {"length": 1950, "width": 200, "height": 1200},
+            },
+            "properties": {"sill_height": 0, "window_style": "picture"},
+        },
+        confidence=0.99,
+    )
+    return CommandBatch(
+        commands=[*delete_commands, create_command],
+        requires_clarification=False,
+    )
+
+
+def _seed_merge_windows_session(pipeline: LLM2DPipeline) -> str:
+    command = FloorNLPCommand(
+        action="merge_windows",
+        target_room_name="1번방",
+        target_floor=1,
+        confidence=0.99,
+    )
+    session = PreviewSession2D(
+        session_id="merge-windows-apply",
+        command=command,
+        command_batch=_merge_windows_command_batch(),
+        policy_plan=None,
+        validation_warnings=[],
+    )
+    pipeline.store[session.session_id] = session
+    return session.session_id
+
+
+@pytest.mark.asyncio
+async def test_pipeline_apply_merge_windows_fails_when_picture_window_not_created(
+    tmp_path, monkeypatch
+):
+    """통창 생성이 실패(created_ids 비어 있음)하면 apply 전체를 실패 처리해야 한다."""
+    pipeline = LLM2DPipeline(
+        ifc_path=str(tmp_path / "in.ifc"),
+        ifc_context=_picture_window_ctx(),
+    )
+    session_id = _seed_merge_windows_session(pipeline)
+
+    def _fake_apply(*, ifc_path, output_path, payload):
+        return {"status": "applied", "created_ids": [], "affected_ids": ["window-a", "window-b"]}
+
+    monkeypatch.setattr(
+        "ai_planning_2d.planning.session_pipeline.apply_ifc_edit_payload",
+        _fake_apply,
+    )
+
+    result = await pipeline.execute_apply(session_id, output_path=str(tmp_path / "out.ifc"))
+
+    assert result["status"] == "apply_failed"
+    assert result["apply_mode"] == "shared_authoring"
+    assert "picture window was not created" in result["summary"]
+
+
+@pytest.mark.asyncio
+async def test_pipeline_apply_merge_windows_succeeds_when_picture_window_created(
+    tmp_path, monkeypatch
+):
+    """통창 생성이 성공하면 apply가 정상적으로 applied 처리되어야 한다."""
+    pipeline = LLM2DPipeline(
+        ifc_path=str(tmp_path / "in.ifc"),
+        ifc_context=_picture_window_ctx(),
+    )
+    session_id = _seed_merge_windows_session(pipeline)
+
+    def _fake_apply(*, ifc_path, output_path, payload):
+        return {
+            "status": "applied",
+            "created_ids": ["window-merged"],
+            "affected_ids": ["window-a", "window-b", "window-merged"],
+        }
+
+    monkeypatch.setattr(
+        "ai_planning_2d.planning.session_pipeline.apply_ifc_edit_payload",
+        _fake_apply,
+    )
+
+    result = await pipeline.execute_apply(session_id, output_path=str(tmp_path / "out.ifc"))
+
+    assert result["status"] == "applied"
+    assert result["apply_mode"] == "shared_authoring"
+    assert result["created_ids"] == ["window-merged"]
 
 
 

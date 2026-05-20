@@ -332,6 +332,26 @@ class LLM2DPipeline:
                             }
                         )
                         return response
+                    if (
+                        session.command.action == "merge_windows"
+                        and not result.get("created_ids", [])
+                    ):
+                        # 통창 생성이 실패하면 기존 창 2개만 삭제된 IFC가 남는다.
+                        # create 성공(created_ids 존재) 시에만 applied로 처리하고,
+                        # 실패 시 job 전체를 실패시켜 새 revision이 커밋되지 않게 한다.
+                        response.update(result)
+                        response.update(
+                            {
+                                "status": "apply_failed",
+                                "apply_mode": "shared_authoring",
+                                "summary": (
+                                    "shared authoring apply failed: "
+                                    "merged picture window was not created; "
+                                    "no revision is committed."
+                                ),
+                            }
+                        )
+                        return response
                     response.update(result)
                     response["apply_mode"] = "shared_authoring"
                     if len(result.get("created_ids", [])) == 1:
