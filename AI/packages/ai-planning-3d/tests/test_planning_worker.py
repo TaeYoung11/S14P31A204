@@ -106,6 +106,56 @@ def _validate_authoring_operations_contract(
     )
 
 
+def _engine_request_with_update_parameters(parameters: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "schema_version": "v2",
+        "request_id": "req-schema-update-propagation",
+        "mode": "apply",
+        "project_id": "project-layout-001",
+        "base_revision_id": "rev-layout-001",
+        "operations": [
+            {
+                "id": "op-update-roof",
+                "type": "update_element_properties",
+                "selector": {"global_ids": ["0123456789ABCDEFGHIJKL"]},
+                "parameters": parameters,
+            }
+        ],
+    }
+
+
+def test_engine_request_schema_constrains_roof_propagation_flag() -> None:
+    validator = Draft202012Validator(_authoring_engine_request_schema())
+
+    assert not list(
+        validator.iter_errors(_engine_request_with_update_parameters({"color": "#AABBCC"}))
+    )
+    assert not list(
+        validator.iter_errors(
+            _engine_request_with_update_parameters(
+                {"color": "#3B82F6", "propagate_roof_appearance": True}
+            )
+        )
+    )
+    assert list(
+        validator.iter_errors(
+            _engine_request_with_update_parameters({"propagate_roof_appearance": True})
+        )
+    )
+    assert list(
+        validator.iter_errors(
+            _engine_request_with_update_parameters(
+                {
+                    "dimensions_mm": {
+                        "length": {"mode": "ABSOLUTE", "value": 3000.0}
+                    },
+                    "propagate_roof_appearance": True,
+                }
+            )
+        )
+    )
+
+
 def _with_user_instruction(command: CommandMessage, user_instruction: str) -> CommandMessage:
     return command.model_copy(
         deep=True,
@@ -418,6 +468,82 @@ def test_planning_worker_stores_engine_operations_for_modify_and_delete() -> Non
         "translation_mm": {"x": 100.0, "y": 0.0, "z": 0.0},
         "rotation_deg": {"x": 0.0, "y": 0.0, "z": 15.0},
     }
+
+
+def test_map_operations_broad_roof_appearance_uses_preview_global_ids() -> None:
+    command = _load_sample_command()
+    roof_id_1 = "0123456789ABCDEFGHIJKL"
+    roof_id_2 = "ABCDEFGHIJKL0123456789"
+    operations = worker_module._map_operations(
+        [
+            {
+                "command_type": "MODIFY",
+                "target": {"element_type": "IfcRoof", "select_all": True},
+                "changes": {"color": "#3B82F6"},
+                "confidence": 1.0,
+                "raw_instruction": "roof is blue",
+            }
+        ],
+        [[{"global_id": roof_id_1}, {"global_id": roof_id_2}, {"global_id": roof_id_1}]],
+    )
+
+    _validate_authoring_operations_contract(command, operations)
+    [operation] = operations
+    assert operation["type"] == "update_element_properties"
+    assert operation["selector"] == {
+        "global_ids": [roof_id_1, roof_id_2],
+        "element_type": "IfcRoof",
+    }
+    assert operation["parameters"] == {
+        "color": "#3B82F6",
+        "propagate_roof_appearance": True,
+    }
+
+
+def test_build_result_payload_keeps_split_preview_matches_per_operation() -> None:
+    command = _load_sample_command()
+    roof_id = "0123456789ABCDEFGHIJKL"
+    wall_id = "ZYXWVUTSRQ9876543210__"
+    result = {
+        "status": "preview_ready",
+        "split_results": [
+            {
+                "command": {
+                    "command_type": "MODIFY",
+                    "target": {"element_type": "IfcRoof", "select_all": True},
+                    "changes": {"color": "#3B82F6"},
+                    "confidence": 1.0,
+                    "raw_instruction": "roof is blue",
+                },
+                "matched_elements": [{"global_id": roof_id}],
+            },
+            {
+                "command": {
+                    "command_type": "MODIFY",
+                    "target": {"element_type": "IfcWall", "select_all": True},
+                    "changes": {"color": "#AABBCC"},
+                    "confidence": 1.0,
+                    "raw_instruction": "walls are gray",
+                },
+                "matched_elements": [{"global_id": wall_id}],
+            },
+        ],
+    }
+
+    payload = worker_module._build_result_payload(result, command)
+
+    _validate_authoring_operations_contract(command, payload["operations"])
+    roof_operation, wall_operation = payload["operations"]
+    assert roof_operation["selector"] == {
+        "global_ids": [roof_id],
+        "element_type": "IfcRoof",
+    }
+    assert roof_operation["parameters"]["propagate_roof_appearance"] is True
+    assert wall_operation["selector"] == {
+        "element_type": "IfcWall",
+        "select_all": True,
+    }
+    assert "propagate_roof_appearance" not in wall_operation["parameters"]
 
 
 def test_planning_worker_split_chat_fails_fast_without_partial_commands() -> None:
