@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, model_validator
 
@@ -21,6 +21,7 @@ class EventOutputRef(BaseModel):
         alias="error_detail_storage_url",
     )
     hasWarnings: bool | None = Field(default=None, alias="has_warnings")
+    floorPlanProject: dict[str, Any] | None = Field(default=None, alias="floor_plan_project")
 
 
 class EventError(BaseModel):

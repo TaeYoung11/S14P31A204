@@ -529,14 +529,27 @@ def _extract_space_body_polygon(space: Any) -> list[tuple[float, float]] | None:
             if item.is_a("IfcExtrudedAreaSolid"):
                 swept_area = getattr(item, "SweptArea", None)
                 if swept_area is not None and swept_area.is_a("IfcRectangleProfileDef"):
-                    width = float(swept_area.XDim) * 1000.0
-                    height = float(swept_area.YDim) * 1000.0
-                    return [(0.0, 0.0), (width, 0.0), (width, height), (0.0, height)]
+                    return _rectangle_profile_polygon_mm(swept_area)
             if item.is_a("IfcFacetedBrep"):
                 polygon = _brep_to_footprint_polygon(item)
                 if polygon:
                     return polygon
     return None
+
+
+def _rectangle_profile_polygon_mm(profile: Any) -> list[tuple[float, float]]:
+    width_m = float(profile.XDim)
+    height_m = float(profile.YDim)
+    points_m = [
+        (-width_m / 2.0, -height_m / 2.0),
+        (width_m / 2.0, -height_m / 2.0),
+        (width_m / 2.0, height_m / 2.0),
+        (-width_m / 2.0, height_m / 2.0),
+    ]
+    return [
+        _apply_axis2_placement2d_m_to_mm(point, getattr(profile, "Position", None))
+        for point in points_m
+    ]
 
 
 def _extract_space_footprint_polygon(space: Any) -> list[tuple[float, float]] | None:
@@ -639,6 +652,10 @@ def _extract_wall_start_end(wall: Any) -> tuple[tuple[float, float], tuple[float
     if axis_points is not None:
         return axis_points
 
+    body_segment = _extract_wall_body_segment_mm(wall, placement)
+    if body_segment is not None:
+        return body_segment
+
     if placement is None:
         return None
 
@@ -689,14 +706,206 @@ def _get_wall_length_mm(wall: Any) -> float | None:
     if representation is None:
         return None
     for shape in representation.Representations or []:
+        if getattr(shape, "RepresentationIdentifier", None) == "Box":
+            for item in shape.Items or []:
+                length = _wall_box_length_mm(item)
+                if length is not None:
+                    return length
         if getattr(shape, "RepresentationIdentifier", None) != "Body":
             continue
         for item in shape.Items or []:
-            if item.is_a("IfcExtrudedAreaSolid"):
-                depth = getattr(item, "Depth", None)
-                if isinstance(depth, int | float):
-                    return float(depth) * 1000.0
+            length = _wall_body_item_length_mm(item)
+            if length is not None:
+                return length
     return None
+
+
+def _extract_wall_body_segment_mm(
+    wall: Any, placement: Any | None
+) -> tuple[tuple[float, float], tuple[float, float]] | None:
+    representation = getattr(wall, "Representation", None)
+    if representation is None:
+        return None
+
+    for shape in representation.Representations or []:
+        if getattr(shape, "RepresentationIdentifier", None) != "Body":
+            continue
+        for item in shape.Items or []:
+            local_segment = _wall_body_item_plan_segment_mm(item)
+            if local_segment is not None:
+                start, end = local_segment
+                return _apply_placement_mm(start, placement), _apply_placement_mm(end, placement)
+
+    for shape in representation.Representations or []:
+        if getattr(shape, "RepresentationIdentifier", None) != "Box":
+            continue
+        for item in shape.Items or []:
+            local_segment = _wall_box_plan_segment_mm(item)
+            if local_segment is not None:
+                start, end = local_segment
+                return _apply_placement_mm(start, placement), _apply_placement_mm(end, placement)
+    return None
+
+
+def _wall_body_item_plan_segment_mm(
+    item: Any,
+) -> tuple[tuple[float, float], tuple[float, float]] | None:
+    current = item
+    while hasattr(current, "FirstOperand"):
+        current = current.FirstOperand
+
+    if not current.is_a("IfcExtrudedAreaSolid"):
+        return None
+
+    segment = _wall_profile_plan_segment_mm(getattr(current, "SweptArea", None))
+    if segment is None:
+        return None
+    return (
+        _apply_axis2_placement3d_mm(segment[0], getattr(current, "Position", None)),
+        _apply_axis2_placement3d_mm(segment[1], getattr(current, "Position", None)),
+    )
+
+
+def _wall_profile_plan_segment_mm(
+    profile: Any | None,
+) -> tuple[tuple[float, float], tuple[float, float]] | None:
+    if profile is None:
+        return None
+    if profile.is_a("IfcRectangleProfileDef"):
+        x_dim = getattr(profile, "XDim", None)
+        y_dim = getattr(profile, "YDim", None)
+        if not isinstance(x_dim, int | float) or not isinstance(y_dim, int | float):
+            return None
+        x_dim = float(x_dim)
+        y_dim = float(y_dim)
+        if x_dim <= 0.0 or y_dim <= 0.0:
+            return None
+        if x_dim >= y_dim:
+            points_m = ((-x_dim / 2.0, 0.0), (x_dim / 2.0, 0.0))
+        else:
+            points_m = ((0.0, -y_dim / 2.0), (0.0, y_dim / 2.0))
+        return tuple(
+            _apply_axis2_placement2d_m_to_mm(point, getattr(profile, "Position", None))
+            for point in points_m
+        )  # type: ignore[return-value]
+
+    if not profile.is_a("IfcArbitraryClosedProfileDef"):
+        return None
+    curve = getattr(profile, "OuterCurve", None)
+    if curve is None or not curve.is_a("IfcPolyline"):
+        return None
+    points = getattr(curve, "Points", []) or []
+    coordinates = [
+        tuple(getattr(point, "Coordinates", ()) or ())
+        for point in points
+    ]
+    xy_points = [(float(coords[0]), float(coords[1])) for coords in coordinates if len(coords) >= 2]
+    if len(xy_points) < 2:
+        return None
+    xs = [point[0] for point in xy_points]
+    ys = [point[1] for point in xy_points]
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+    if (max_x - min_x) >= (max_y - min_y):
+        points_m = ((min_x, (min_y + max_y) / 2.0), (max_x, (min_y + max_y) / 2.0))
+    else:
+        points_m = (((min_x + max_x) / 2.0, min_y), ((min_x + max_x) / 2.0, max_y))
+    return tuple(
+        _apply_axis2_placement2d_m_to_mm(point, getattr(profile, "Position", None))
+        for point in points_m
+    )  # type: ignore[return-value]
+
+
+def _wall_box_plan_segment_mm(
+    item: Any,
+) -> tuple[tuple[float, float], tuple[float, float]] | None:
+    if not item.is_a("IfcBoundingBox"):
+        return None
+    corner = getattr(item, "Corner", None)
+    coordinates = tuple(getattr(corner, "Coordinates", ()) or ())
+    if len(coordinates) < 2:
+        return None
+    x_dim = getattr(item, "XDim", None)
+    y_dim = getattr(item, "YDim", None)
+    if not isinstance(x_dim, int | float) or not isinstance(y_dim, int | float):
+        return None
+    x_dim = float(x_dim)
+    y_dim = float(y_dim)
+    if x_dim <= 0.0 or y_dim <= 0.0:
+        return None
+    x0 = float(coordinates[0])
+    y0 = float(coordinates[1])
+    if x_dim >= y_dim:
+        start = (x0, y0 + y_dim / 2.0)
+        end = (x0 + x_dim, y0 + y_dim / 2.0)
+    else:
+        start = (x0 + x_dim / 2.0, y0)
+        end = (x0 + x_dim / 2.0, y0 + y_dim)
+    return (
+        (start[0] * 1000.0, start[1] * 1000.0),
+        (end[0] * 1000.0, end[1] * 1000.0),
+    )
+
+
+def _wall_box_length_mm(item: Any) -> float | None:
+    if not item.is_a("IfcBoundingBox"):
+        return None
+    dimensions = [
+        float(value) * 1000.0
+        for value in (getattr(item, "XDim", None), getattr(item, "YDim", None))
+        if isinstance(value, int | float) and float(value) > 0.0
+    ]
+    return max(dimensions) if dimensions else None
+
+
+def _wall_body_item_length_mm(item: Any) -> float | None:
+    current = item
+    while hasattr(current, "FirstOperand"):
+        current = current.FirstOperand
+
+    if not current.is_a("IfcExtrudedAreaSolid"):
+        return None
+
+    profile_length = _wall_profile_plan_length_mm(getattr(current, "SweptArea", None))
+    if profile_length is not None:
+        return profile_length
+
+    direction = getattr(current, "ExtrudedDirection", None)
+    ratios = tuple(getattr(direction, "DirectionRatios", ()) or ())
+    z_ratio = abs(float(ratios[2])) if len(ratios) >= 3 else 1.0
+    depth = getattr(current, "Depth", None)
+    if z_ratio < 0.5 and isinstance(depth, int | float):
+        return float(depth) * 1000.0
+    return None
+
+
+def _wall_profile_plan_length_mm(profile: Any | None) -> float | None:
+    if profile is None:
+        return None
+    if profile.is_a("IfcRectangleProfileDef"):
+        dimensions = [
+            float(value) * 1000.0
+            for value in (getattr(profile, "XDim", None), getattr(profile, "YDim", None))
+            if isinstance(value, int | float) and float(value) > 0.0
+        ]
+        return max(dimensions) if dimensions else None
+
+    if not profile.is_a("IfcArbitraryClosedProfileDef"):
+        return None
+    curve = getattr(profile, "OuterCurve", None)
+    if curve is None or not curve.is_a("IfcPolyline"):
+        return None
+    points = getattr(curve, "Points", []) or []
+    coordinates = [
+        tuple(getattr(point, "Coordinates", ()) or ())
+        for point in points
+    ]
+    xy_points = [(float(coords[0]), float(coords[1])) for coords in coordinates if len(coords) >= 2]
+    if len(xy_points) < 2:
+        return None
+    xs = [point[0] for point in xy_points]
+    ys = [point[1] for point in xy_points]
+    return max(max(xs) - min(xs), max(ys) - min(ys)) * 1000.0
 
 
 def _get_host_wall_id(element: Any) -> str | None:
@@ -788,6 +997,43 @@ def _apply_placement_mm(point: tuple[float, float], placement: Any | None) -> tu
     wx = placement[0][0] * lx + placement[0][1] * ly + placement[0][3] * 1000.0
     wy = placement[1][0] * lx + placement[1][1] * ly + placement[1][3] * 1000.0
     return (float(wx), float(wy))
+
+
+def _axis2_ref_direction_xy(placement: Any | None) -> tuple[float, float]:
+    ref_direction = getattr(placement, "RefDirection", None) if placement is not None else None
+    ratios = tuple(getattr(ref_direction, "DirectionRatios", ()) or ())
+    x_axis = float(ratios[0]) if len(ratios) >= 1 else 1.0
+    y_axis = float(ratios[1]) if len(ratios) >= 2 else 0.0
+    length = math.hypot(x_axis, y_axis)
+    if length <= 0.0:
+        return (1.0, 0.0)
+    return (x_axis / length, y_axis / length)
+
+
+def _apply_axis2_placement2d_m_to_mm(
+    point_m: tuple[float, float],
+    placement: Any | None,
+) -> tuple[float, float]:
+    location = getattr(placement, "Location", None) if placement is not None else None
+    coordinates = tuple(getattr(location, "Coordinates", ()) or ())
+    loc_x = float(coordinates[0]) if len(coordinates) >= 1 else 0.0
+    loc_y = float(coordinates[1]) if len(coordinates) >= 2 else 0.0
+    x_axis, y_axis = _axis2_ref_direction_xy(placement)
+    parent_x = loc_x + point_m[0] * x_axis - point_m[1] * y_axis
+    parent_y = loc_y + point_m[0] * y_axis + point_m[1] * x_axis
+    return (parent_x * 1000.0, parent_y * 1000.0)
+
+
+def _apply_axis2_placement3d_mm(
+    point_mm: tuple[float, float],
+    placement: Any | None,
+) -> tuple[float, float]:
+    if placement is None:
+        return point_mm
+    return _apply_axis2_placement2d_m_to_mm(
+        (point_mm[0] / 1000.0, point_mm[1] / 1000.0),
+        placement,
+    )
 
 
 def _point_to_mm(coords: Any, placement: Any | None) -> tuple[float, float]:
