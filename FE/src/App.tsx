@@ -1,11 +1,10 @@
 import { Suspense, lazy } from 'react'
-import { BrowserRouter, Route, Routes, useParams } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes, useParams } from 'react-router-dom'
 import { ProtectedRoute } from './shared/components/ProtectedRoute'
 import PublicLandingHeader from './shared/components/PublicLandingHeader'
 import RouteLoadingFallback from './shared/components/RouteLoadingFallback'
 
 const IntroPage = lazy(() => import('./pages/intro/IntroPage'))
-const AboutPage = lazy(() => import('./pages/about/AboutPage'))
 const LoginPage = lazy(() => import('./pages/auth/LoginPage'))
 const RegisterPage = lazy(() => import('./pages/auth/RegisterPage'))
 const ProjectListPage = lazy(() => import('./pages/projects/ProjectListPage'))
@@ -27,7 +26,7 @@ export default function App() {
       <Suspense fallback={<RouteLoadingFallback />}>
         <Routes>
           <Route path="/" element={<IntroPage />} />
-          <Route path="/about" element={<AboutPage />} />
+          <Route path="/about" element={<Navigate to="/" replace />} />
 
           <Route path="/login" element={<LoginPage />} />
           <Route path="/register" element={<RegisterPage />} />

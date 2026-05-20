@@ -8,6 +8,8 @@ interface StaticHtmlFrameProps {
   sourceHtml: string
   /** Intro.html의 버튼 스크립트를 React Router 이동으로 바꿔야 하는 경우에만 켠다. */
   shouldRewriteLoginButtonScript?: boolean
+  injectedStyle?: string
+  className?: string
 }
 
 /**
@@ -18,10 +20,12 @@ export default function StaticHtmlFrame({
   title,
   sourceHtml,
   shouldRewriteLoginButtonScript = false,
+  injectedStyle,
+  className = 'block h-screen w-screen border-0',
 }: StaticHtmlFrameProps) {
   const htmlSource = useMemo(
-    () => buildStaticHtmlSource(sourceHtml, { shouldRewriteLoginButtonScript }),
-    [sourceHtml, shouldRewriteLoginButtonScript],
+    () => buildStaticHtmlSource(sourceHtml, { shouldRewriteLoginButtonScript, injectedStyle }),
+    [sourceHtml, shouldRewriteLoginButtonScript, injectedStyle],
   )
 
   return (
@@ -29,7 +33,7 @@ export default function StaticHtmlFrame({
       title={title}
       srcDoc={htmlSource}
       sandbox="allow-scripts allow-top-navigation-by-user-activation"
-      className="block h-screen w-screen border-0"
+      className={className}
     />
   )
 }

@@ -1,7 +1,7 @@
 import { Link, useLocation } from 'react-router-dom'
 import BrandLogo from '@/shared/components/BrandLogo'
 
-const PUBLIC_LANDING_PATHS = new Set(['/', '/about'])
+const PUBLIC_LANDING_PATHS = new Set(['/'])
 
 /** 공개 랜딩 화면에서만 노출되는 고정 헤더. */
 export default function PublicLandingHeader() {
