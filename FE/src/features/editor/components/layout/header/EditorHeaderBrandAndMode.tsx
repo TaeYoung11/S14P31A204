@@ -60,7 +60,7 @@ export default function EditorHeaderBrandAndMode({
           title={TEXT_PROJECT_HOME}
           aria-label={TEXT_PROJECT_LIST_GO}
         >
-          <BrandLogo inverted={isViewer} logoClassName="h-[22px] w-auto opacity-80" />
+          <BrandLogo logoClassName="h-[22px] w-auto" textClassName={isViewer ? 'text-[13px] text-white' : 'text-[13px]'} />
         </Link>
       </div>
 
