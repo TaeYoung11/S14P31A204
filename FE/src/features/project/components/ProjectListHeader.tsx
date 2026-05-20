@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { AlertCircle, Bell, KeyRound, LogOut, MessageSquareText, UserRoundX } from 'lucide-react'
 import BrandLogo from '@/shared/components/BrandLogo'
+import ActionModal, { ActionModalNotice } from '@/shared/components/ActionModal'
 import Modal from '@/shared/components/Modal'
 
 interface ProjectListHeaderProps {
@@ -145,13 +146,21 @@ export default function ProjectListHeader({
         </div>
       </Modal>
 
-      <Modal
+      <ActionModal
         isOpen={isWithdrawModalOpen}
         onClose={() => setIsWithdrawModalOpen(false)}
+        group="destructive"
         title="회원탈퇴"
+        icon={<UserRoundX className="h-5 w-5" />}
         maxWidth="max-w-[420px]"
       >
         <div className="space-y-3.5">
+          <ActionModalNotice
+            group="destructive"
+            title="계정을 탈퇴하시겠습니까?"
+            description="탈퇴 후에는 계정과 프로젝트 접근 권한을 복구할 수 없습니다."
+          />
+
           <div className="withdraw-account-card">
             <div className="min-w-0">
               <p className="truncate text-sm font-black leading-5 text-[#111827]">{userName ?? '사용자'}</p>
@@ -208,7 +217,7 @@ export default function ProjectListHeader({
             </button>
           </div>
         </div>
-      </Modal>
+      </ActionModal>
     </>
   )
 }

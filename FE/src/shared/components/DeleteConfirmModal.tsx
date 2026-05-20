@@ -1,4 +1,4 @@
-import Modal from './Modal'
+import ActionModal, { ActionModalSummary } from './ActionModal'
 
 interface DeleteConfirmModalProps {
   isOpen: boolean
@@ -24,18 +24,23 @@ export function DeleteConfirmModal({
   onConfirm,
 }: DeleteConfirmModalProps) {
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={title} maxWidth="max-w-[420px]">
-      <div className="space-y-5">
-        <div className="space-y-2">
-          <p className="text-sm font-semibold text-[#111827]">{message}</p>
-          {description && <p className="text-xs leading-5 text-[#9CA3AF]">{description}</p>}
-        </div>
+    <ActionModal
+      isOpen={isOpen}
+      onClose={onClose}
+      group="destructive"
+      title={title}
+      maxWidth="max-w-[420px]"
+    >
+      <div className="space-y-4">
+        <ActionModalSummary description={description}>
+          <p className="text-sm font-black text-[#111827]">{message}</p>
+        </ActionModalSummary>
         <div className="flex justify-end gap-2">
           <button
             type="button"
             onClick={onClose}
             disabled={isDeleting}
-            className="rounded-md border border-[#D1D5DB] px-4 py-2 text-sm font-semibold text-[#374151] hover:bg-[#F9FAFB] disabled:cursor-not-allowed disabled:opacity-60"
+            className="project-secondary-button min-w-20"
           >
             {cancelLabel}
           </button>
@@ -43,12 +48,12 @@ export function DeleteConfirmModal({
             type="button"
             onClick={onConfirm}
             disabled={isDeleting}
-            className="rounded-md bg-[#DC2626] px-4 py-2 text-sm font-semibold text-white hover:bg-[#B91C1C] disabled:cursor-not-allowed disabled:opacity-60"
+            className="project-danger-button min-w-20 bg-[#b42318] text-white hover:bg-[#8f1f16]"
           >
             {isDeleting ? '삭제 중...' : confirmLabel}
           </button>
         </div>
       </div>
-    </Modal>
+    </ActionModal>
   )
 }

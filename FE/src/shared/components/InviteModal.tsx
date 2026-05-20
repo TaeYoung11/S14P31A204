@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { X, CheckCircle2, Loader2 } from 'lucide-react'
+import { X, CheckCircle2, Loader2, Share2 } from 'lucide-react'
 import { useUserSearch, useSendInvite, useRemoveProjectMember } from '@/features/project/hooks/useInvitation'
 import type { SendInviteRequest, UserSearchResult } from '@/features/project/services/invitation.service'
 import { projectService } from '@/features/project/services/project.service'
+import ActionModal, { ActionModalNotice } from './ActionModal'
 
 interface InviteModalProps {
   isOpen: boolean
@@ -203,27 +204,17 @@ export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" onClick={handleClose} />
-      <div className="relative w-[500px] overflow-hidden rounded-[24px] border border-white/80 bg-white shadow-[0_24px_80px_rgba(15,23,42,0.22)] animate-in fade-in zoom-in-95 duration-200">
-        {/* 헤더 */}
-        <div className="border-b border-[#eef2f7] bg-white px-6 pb-5 pt-6">
-          <div className="flex items-center justify-between mb-1">
-            <h2 className="text-xl font-black text-[#111827]">공유 초대</h2>
-            <button onClick={handleClose} className="project-icon-button h-9 w-9">
-              <X size={24} />
-            </button>
-          </div>
-          <p className="text-xs font-semibold text-[#8E95A3]">
-            {projectIds.length > 1
-              ? `${projectIds.length}개 프로젝트에 초대합니다.`
-              : '새로운 고객을 프로젝트에 추가합니다.'}
-          </p>
-        </div>
-
-        {/* 본문 */}
-        <div className="p-6">
-          <div className="mb-6 relative">
+    <>
+      <ActionModal
+        isOpen={isOpen}
+        onClose={handleClose}
+        group="productive"
+        title="공유 초대"
+        icon={<Share2 className="h-5 w-5" />}
+        maxWidth="max-w-[480px]"
+      >
+        <div>
+          <div className="mb-4 relative">
             <input
               type="text"
               placeholder="이메일 주소를 입력하세요"
@@ -282,10 +273,23 @@ export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
             </div>
           )}
 
-          <div className="flex flex-col gap-2 min-h-[160px]">
-            <span className="text-[11px] font-black text-[#ADB5BD] uppercase tracking-widest mb-1">
-              {searchKeyword.trim() ? `검색 결과 (${searchResults.length})` : '이메일로 초대할 사람을 검색하세요'}
-            </span>
+          <div className="flex min-h-[72px] max-h-[280px] flex-col gap-2 overflow-y-auto pr-1">
+            <div className="mb-1 flex items-center justify-between gap-3">
+              <span className="text-[11px] font-black uppercase tracking-widest text-[#ADB5BD]">
+                {searchKeyword.trim() ? `검색 결과 (${searchResults.length})` : '초대 대상'}
+              </span>
+              {projectIds.length > 1 && (
+                <span className="shrink-0 rounded-full border border-[#e5e7eb] bg-[#f8fafc] px-2.5 py-1 text-[11px] font-bold text-[#64748b]">
+                  {projectIds.length}개 프로젝트
+                </span>
+              )}
+            </div>
+
+            {!searchKeyword.trim() && selectedUsers.length === 0 && alreadyInvitedUsers.length === 0 && (
+              <div className="flex min-h-12 items-center rounded-2xl border border-dashed border-[#dbe3ef] bg-[#fbfdff] px-4 text-xs font-semibold text-[#9CA3AF]">
+                이메일 검색 후 초대할 사용자를 선택하세요.
+              </div>
+            )}
 
             {searchKeyword.trim() && searchResults.length === 0 && !isSearching && (
               <div className="flex-1 flex items-center justify-center text-[#ADB5BD] py-8">
@@ -335,39 +339,45 @@ export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
           {errorMessage && (
             <p className="mt-3 text-xs text-[#dc2626] font-medium">{errorMessage}</p>
           )}
-        </div>
 
-        {/* 하단 */}
-        <div className="flex items-center justify-between bg-[#F8F9FD] px-6 py-5">
-          <p className="text-[12px] text-[#ADB5BD]">
-            {selectedUsers.length > 0 ? `${selectedUsers.length}명 선택됨` : 'CUSTOMER로 초대됩니다.'}
-          </p>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleClose}
-              className="project-secondary-button border-transparent bg-transparent shadow-none hover:bg-white"
-            >
-              취소
-            </button>
-            <button
-              onClick={handleSubmit}
-              disabled={selectedUsers.length === 0 || projectIds.length === 0 || submitStatus === 'loading' || submitStatus === 'success'}
-              className="project-primary-button px-8"
-            >
-              {submitStatus === 'loading' && <Loader2 size={14} className="animate-spin" />}
-              {submitStatus === 'success' ? '초대 완료!' : '초대 발송'}
-            </button>
+          <div className="mt-5 flex items-center justify-between rounded-2xl bg-[#F8F9FD] px-3.5 py-3.5">
+            <p className="text-[12px] font-semibold text-[#9CA3AF]">
+              {selectedUsers.length > 0 ? `${selectedUsers.length}명 선택됨` : 'CUSTOMER로 초대됩니다.'}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleClose}
+                className="project-secondary-button border-transparent bg-transparent shadow-none hover:bg-white"
+              >
+                취소
+              </button>
+              <button
+                onClick={handleSubmit}
+                disabled={selectedUsers.length === 0 || projectIds.length === 0 || submitStatus === 'loading' || submitStatus === 'success'}
+                className="project-primary-button px-8"
+              >
+                {submitStatus === 'loading' && <Loader2 size={14} className="animate-spin" />}
+                {submitStatus === 'success' ? '초대 완료!' : '초대 발송'}
+              </button>
+            </div>
           </div>
         </div>
-      </div>
+      </ActionModal>
 
       {pendingDeleteUser && (
-        <div className="absolute inset-0 z-[110] flex items-center justify-center bg-black/45">
-          <div className="w-[360px] rounded-2xl border border-[#e5e7eb] bg-white p-6 shadow-[0_20px_60px_rgba(0,0,0,0.25)]">
-            <p className="text-[15px] font-bold text-[#1C1C1E]">
-              '{pendingDeleteUser.name}' 님을 초대 목록에서 제거할까요?
-            </p>
-            <div className="mt-5 flex justify-end gap-2">
+        <ActionModal
+          isOpen
+          onClose={() => setPendingDeleteUser(null)}
+          group="destructive"
+          title="초대 목록 제거"
+          maxWidth="max-w-[360px]"
+        >
+          <div className="space-y-5">
+            <ActionModalNotice
+              group="destructive"
+              title={`'${pendingDeleteUser.name}' 님을 초대 목록에서 제거할까요?`}
+            />
+            <div className="flex justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setPendingDeleteUser(null)}
@@ -384,8 +394,8 @@ export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
               </button>
             </div>
           </div>
-        </div>
+        </ActionModal>
       )}
-    </div>
+    </>
   )
 }

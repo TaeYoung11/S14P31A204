@@ -879,7 +879,7 @@ h6 {
 }
 
 .project-site-title svg {
-  @apply rounded-2xl bg-[#eef2ff] p-2 text-[#4f46e5];
+  @apply rounded-xl border border-[#dbeafe] bg-white p-2 text-[#4f46e5] shadow-sm;
   box-sizing: content-box;
 }
 
