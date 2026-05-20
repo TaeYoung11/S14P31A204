@@ -160,11 +160,13 @@ import {
   IFC_COMPLETED_ACTION_SET,
   WORKSPACE_SYNC_ACTION,
   isBubbleSnapshotPayload,
+  isFloorProjectPayload,
   type BubbleSnapshotPayload,
   type FloorPlanSnapshotPayload,
 } from '../utils/workspaceSyncMessage'
 import { isToolAllowedDuringConverting, isTwoDOrThreeDConverting as isTwoDOrThreeDConvertingByPhase } from '../utils/editorModeLocks'
 import { isExpiredPresignedIfcUrl, normalizeIfcSourceDedupeKey, resolveIfcPresignedUrl } from '../utils/ifcSource'
+import { shouldTrustFloorPlanHistoryForIfcSource } from '../utils/ifcHistoryResolution'
 import {
   buildPinAuthorNameByUserId,
   buildUnreadCommentNotifications,
@@ -230,6 +232,7 @@ const OPENING_NORMALIZE_OPTIONS = {
   minWidthMm: OPENING_MIN_WIDTH_MM,
   maxWidthMm: OPENING_MAX_WIDTH_MM,
 } as const
+
 const IFC_DERIVED_FLOORPLAN_ONLY = true
 const DEFAULT_BUBBLE_DB_SAVE_DEBOUNCE_MS = 1000
 const MIN_BUBBLE_DB_SAVE_DEBOUNCE_MS = 200
@@ -805,11 +808,17 @@ export function useEditorPage() {
     areaM2: null,
   })
   const [isWorkspaceSiteBoundaryHydrated, setIsWorkspaceSiteBoundaryHydrated] = useState(false)
+  type IfcSyncLoadOptions = {
+    forceReload?: boolean
+    skipFloorProjectImport?: boolean
+    skipFragmentsLoad?: boolean
+  }
   const handleIfcSyncMessageRef = useRef<(
     url: string,
     action: string | null,
     assetId?: string | null,
     revisionId?: string | null,
+    options?: IfcSyncLoadOptions,
   ) => Promise<boolean>>(async () => false)
   const workspaceCommandPublisherRef = useRef<ReturnType<typeof useWorkspaceCommandPublisher> | null>(null)
   const mergedFloorOpeningsRef = useRef<FloorOpening[]>([])
@@ -1136,6 +1145,7 @@ export function useEditorPage() {
   const ifcLoadInFlightStorageUrlRef = useRef<string | null>(null)
   const threeDIfcSourceHydrationInFlightRef = useRef<string | null>(null)
   const modeSwitchFloorPlanHydrationInFlightRef = useRef<string | null>(null)
+  const applyRemoteFloorProjectRef = useRef<(project: FloorProject) => void>(() => { })
   const previousEditorModeRef = useRef<EditorMode>(mode)
   /**
    * 프로젝트별 IFC 소스 캐시.
@@ -2479,12 +2489,15 @@ export function useEditorPage() {
           [projectId]: floorPlanSnapshot.revisionId ?? null,
         }))
       }
+      const historyFloorProject = floorPlanSnapshot?.floorProject
+      const hasHistoryFloorProject = isFloorProjectPayload(historyFloorProject)
       if (history.floorPlan?.s3Url) {
         const loaded = await handleIfcSyncMessageRef.current(
           history.floorPlan.s3Url,
           null,
           undefined,
           floorPlanSnapshot?.revisionId ?? undefined,
+          { skipFloorProjectImport: hasHistoryFloorProject },
         )
         if (loaded) {
           setHistoryIfcHydratedProjectIds((prev) =>
@@ -2499,6 +2512,7 @@ export function useEditorPage() {
             null,
             cachedIfcSource.assetId,
             cachedIfcSource.revisionId ?? floorPlanSnapshot?.revisionId ?? undefined,
+            { skipFloorProjectImport: hasHistoryFloorProject },
           )
           if (loaded) {
             setHistoryIfcHydratedProjectIds((prev) =>
@@ -2507,6 +2521,14 @@ export function useEditorPage() {
           }
         }
       }
+      if (hasHistoryFloorProject) {
+        suppressNextAutosaveRef.current = true
+        applyRemoteFloorProjectRef.current(historyFloorProject)
+        clearBootstrapBubbleSelection()
+        clearTwoDStructureSelectionForBootstrap()
+        return
+      }
+
       if (floorPlanSnapshot?.layout) {
         suppressNextAutosaveRef.current = true
         applyFloorPlanLayoutState({
@@ -2905,6 +2927,7 @@ export function useEditorPage() {
       replaceZonesState,
       applyBubbleFloorMetaState,
       applyFloorPlanLayoutState,
+      applyFloorProjectSnapshot: (project) => applyRemoteFloorProjectRef.current(project),
       replaceFloorPlanState,
       floorPlanFallback: floorPlanSnapshotFallback,
       traceBubbleSnapshot,
@@ -2918,7 +2941,8 @@ export function useEditorPage() {
     onRemoteSnapshot: applyRemoteBubbleSnapshot,
     onRemoteFloorPlanSnapshot: applyRemoteFloorPlanSnapshot,
     onPhaseStatusChanged: setWorkspacePhaseStatus,
-    onIfcStorageUrlReceived: (ifcStorageUrl, action, assetId, revisionId) => {
+    onIfcStorageUrlReceived: (ifcStorageUrl, action, assetId, revisionId, floorPlanSnapshot) => {
+      const hasAuthoritativeFloorProject = isFloorProjectPayload(floorPlanSnapshot?.floorProject)
       if (
         pendingOpenThreeDOnGenerateCompleteRef.current &&
         action === WORKSPACE_SYNC_ACTION.floorPlanGenerateCompleted &&
@@ -2955,7 +2979,9 @@ export function useEditorPage() {
         setMode('3d')
         return
       }
-      handleIfcSyncMessageRef.current(ifcStorageUrl, action, assetId, revisionId)
+      handleIfcSyncMessageRef.current(ifcStorageUrl, action, assetId, revisionId, {
+        skipFloorProjectImport: hasAuthoritativeFloorProject,
+      })
     },
     onBubbleHistoryCursorChanged: handleBubbleHistoryCursorChanged,
     onFloorPlanHistoryCursorChanged: handleFloorPlanHistoryCursorChanged,
@@ -6318,6 +6344,23 @@ export function useEditorPage() {
     onApplyProject: applyFloorProject,
   })
 
+  useLayoutEffect(() => {
+    applyRemoteFloorProjectRef.current = (project) => {
+      suppressNextAutosaveRef.current = true
+      pendingWorkspaceSnapshotCommitRef.current = false
+      pendingServerPublishRef.current = null
+      awaitingServerSyncRef.current = null
+      hasUserEditedRef.current = false
+      applyFloorProject(project)
+      suppressNextAutosaveRef.current = true
+      pendingWorkspaceSnapshotCommitRef.current = false
+      pendingServerPublishRef.current = null
+      awaitingServerSyncRef.current = null
+      hasUserEditedRef.current = false
+      setSaveStatus('synced')
+    }
+  }, [applyFloorProject])
+
   const {
     ifcLoadState,
     ifcLoadError,
@@ -6334,6 +6377,7 @@ export function useEditorPage() {
     action: string | null,
     assetId?: string | null,
     revisionId?: string | null,
+    options?: IfcSyncLoadOptions,
   ): Promise<boolean> => {
     if (!projectId) return false
     // assetId가 있으면 이를 dedup 키로 사용 (presigned URL은 매번 달라질 수 있어 불안정)
@@ -6383,10 +6427,10 @@ export function useEditorPage() {
       : ''
     if (!dedupeKey) return false
 
-    if (ifcLoadInFlightStorageUrlRef.current === dedupeKey) {
+    if (!options?.forceReload && ifcLoadInFlightStorageUrlRef.current === dedupeKey) {
       return true
     }
-    if (lastLoadedIfcStorageUrlRef.current === dedupeKey) {
+    if (!options?.forceReload && lastLoadedIfcStorageUrlRef.current === dedupeKey) {
       return true
     }
 
@@ -6430,7 +6474,7 @@ export function useEditorPage() {
       let resolvedAssetId = assetId ?? null
       let resolvedRevisionId = revisionId ?? null
       const shouldSkipFloorProjectImport =
-        action === WORKSPACE_SYNC_ACTION.floorPlanUpdated ||
+        options?.skipFloorProjectImport === true ||
         action === WORKSPACE_SYNC_ACTION.floorPlanUndo ||
         action === WORKSPACE_SYNC_ACTION.floorPlanRedo
       const shouldUseEventIfcStorageUrl =
@@ -6485,6 +6529,7 @@ export function useEditorPage() {
         await loadIfcFromStorageUrl(resolvedUrl, {
           webIfcWasmPath: '/',
           skipFloorProjectImport: shouldSkipFloorProjectImport,
+          skipFragmentsLoad: options?.skipFragmentsLoad === true,
         })
       } catch (loadError: unknown) {
         const message = loadError instanceof Error ? loadError.message : ''
@@ -6510,6 +6555,7 @@ export function useEditorPage() {
         await loadIfcFromStorageUrl(resolvedUrl, {
           webIfcWasmPath: '/',
           skipFloorProjectImport: shouldSkipFloorProjectImport,
+          skipFragmentsLoad: options?.skipFragmentsLoad === true,
         })
       }
       writeCachedIfcSource(projectId, {
@@ -6582,8 +6628,9 @@ export function useEditorPage() {
       action: string | null,
       assetId?: string | null,
       revisionId?: string | null,
+      options?: IfcSyncLoadOptions,
     ) => {
-      return handleOutputIfcStorageUrl(url, action, assetId, revisionId)
+      return handleOutputIfcStorageUrl(url, action, assetId, revisionId, options)
     }
   }, [handleOutputIfcStorageUrl])
 
@@ -6624,17 +6671,32 @@ export function useEditorPage() {
       const floorPlanRevision = floorPlanSnapshot?.revisionId?.trim() || null
       const sourceRevision = source?.currentRevision?.trim() || null
       const currentRevision = currentIfcRevisionId?.trim() || null
-      const resolvedRevision = floorPlanRevision ?? sourceRevision ?? null
+      const sourceIfcUrl = source?.currentIfcUrl?.trim() || null
+      const shouldTrustFloorPlanHistory = shouldTrustFloorPlanHistoryForIfcSource({
+        historyRevision: floorPlanRevision,
+        sourceRevision,
+        hasSourceIfcUrl: sourceIfcUrl !== null,
+      })
+      const resolvedRevision = shouldTrustFloorPlanHistory
+        ? floorPlanRevision ?? sourceRevision ?? null
+        : sourceRevision
       const historyBaseIndex =
         typeof floorPlanHistory?.baseIndex === 'number' ? floorPlanHistory.baseIndex : null
       const shouldAcceptHistoryCursor =
-        historyBaseIndex === null ||
-        historyBaseIndex >= floorPlanHistoryBaseIndexRef.current ||
-        (floorPlanRevision !== null && floorPlanRevision !== currentRevision)
+        shouldTrustFloorPlanHistory &&
+        (
+          historyBaseIndex === null ||
+          historyBaseIndex >= floorPlanHistoryBaseIndexRef.current ||
+          (floorPlanRevision !== null && floorPlanRevision !== currentRevision)
+        )
       const floorPlanIfcUrl = floorPlanHistory?.s3Url?.trim() || null
-      const sourceIfcUrl = source?.currentIfcUrl?.trim() || null
       const sourceIfcStorageUrl = source?.currentIfcStorageUrl?.trim() || sourceIfcUrl
-      const resolvedIfcUrl = floorPlanIfcUrl ?? sourceIfcStorageUrl ?? null
+      const resolvedIfcUrl = shouldTrustFloorPlanHistory
+        ? floorPlanIfcUrl ?? sourceIfcStorageUrl ?? null
+        : sourceIfcStorageUrl ?? floorPlanIfcUrl ?? null
+      const historyFloorProject = floorPlanSnapshot?.floorProject
+      const hasHistoryFloorProject =
+        shouldTrustFloorPlanHistory && isFloorProjectPayload(historyFloorProject)
 
       if (floorPlanSnapshot?.layout && shouldAcceptHistoryCursor) {
         suppressNextAutosaveRef.current = true
@@ -6649,6 +6711,15 @@ export function useEditorPage() {
         floorPlanHistoryBaseIndexRef.current = nextBaseIndex
         floorPlanHistoryRedoDepthRef.current = nextRedoDepth
         setFloorPlanHistoryCursor({ baseIndex: nextBaseIndex, redoDepth: nextRedoDepth })
+        pendingWorkspaceSnapshotCommitRef.current = false
+        pendingServerPublishRef.current = null
+        awaitingServerSyncRef.current = null
+        setSaveStatus(resolveSnapshotSyncStatus())
+      }
+
+      if (hasHistoryFloorProject && shouldAcceptHistoryCursor) {
+        suppressNextAutosaveRef.current = true
+        applyRemoteFloorProjectRef.current(historyFloorProject)
         pendingWorkspaceSnapshotCommitRef.current = false
         pendingServerPublishRef.current = null
         awaitingServerSyncRef.current = null
@@ -6679,7 +6750,24 @@ export function useEditorPage() {
         })
       }
 
-      if (mode !== '3d' || !resolvedIfcUrl) return
+      if (!resolvedIfcUrl) return
+      if (mode === '2d') {
+        if (hasHistoryFloorProject) return
+        await handleIfcSyncMessageRef.current(
+          resolvedIfcUrl,
+          WORKSPACE_SYNC_ACTION.floorPlanUpdated,
+          floorPlanIfcUrl ? undefined : source?.currentIfcAssetId,
+          resolvedRevision,
+          {
+            forceReload: true,
+            skipFloorProjectImport: false,
+            skipFragmentsLoad: true,
+          },
+        )
+        return
+      }
+
+      if (mode !== '3d') return
       if (currentIfcUrl && resolvedRevision !== null && resolvedRevision === currentRevision) return
 
       await handleIfcSyncMessageRef.current(
@@ -6727,19 +6815,69 @@ export function useEditorPage() {
 
     const hydrateLatestIfcSource = async (): Promise<{ fetchFailed: boolean }> => {
       let fetchFailed = false
-      const source = await projectService.getIfcSource(projectId).catch((error: unknown) => {
-        fetchFailed = true
-        if (import.meta.env.DEV) {
-          console.warn('[ifc-source][hydrate-failed]', { projectId, mode, error })
-        }
-        return null
-      })
+      const [history, source] = await Promise.all([
+        workspaceSaveService.loadHistorySnapshot(projectId).catch(() => null),
+        projectService.getIfcSource(projectId).catch((error: unknown) => {
+          fetchFailed = true
+          if (import.meta.env.DEV) {
+            console.warn('[ifc-source][hydrate-failed]', { projectId, mode, error })
+          }
+          return null
+        }),
+      ])
       if (cancelled) return { fetchFailed }
+
+      const floorPlanHistory = history?.floorPlan ?? null
+      const floorPlanSnapshot = floorPlanHistory?.snapshot ?? null
+      const historyRevision = floorPlanSnapshot?.revisionId?.trim() || null
+      const historyIfcUrl = floorPlanHistory?.s3Url?.trim() || null
+      const historyFloorProject = floorPlanSnapshot?.floorProject
+      const hasHistoryFloorProject = isFloorProjectPayload(historyFloorProject)
+      const currentRevision = currentIfcRevisionId?.trim() || null
+      const sourceIfcUrl = source?.currentIfcUrl?.trim() || null
+      const sourceRevision = source?.currentRevision?.trim() || null
+      const shouldTrustHistoryIfc = shouldTrustFloorPlanHistoryForIfcSource({
+        historyRevision,
+        sourceRevision,
+        hasSourceIfcUrl: sourceIfcUrl !== null,
+      })
+
+      if (
+        shouldTrustHistoryIfc &&
+        historyIfcUrl &&
+        historyRevision !== null &&
+        historyRevision !== currentRevision
+      ) {
+        const loaded = await handleIfcSyncMessageRef.current(
+          historyIfcUrl,
+          WORKSPACE_SYNC_ACTION.floorPlanUpdated,
+          undefined,
+          historyRevision,
+          { skipFloorProjectImport: hasHistoryFloorProject },
+        )
+        return { fetchFailed: !loaded }
+      }
+
+      if (
+        shouldTrustHistoryIfc &&
+        mode === '3d' &&
+        historyRevision !== null &&
+        historyRevision === currentRevision
+      ) {
+        return { fetchFailed: false }
+      }
+
       if (!source?.currentIfcUrl) {
         if (import.meta.env.DEV && !fetchFailed) {
           console.warn('[ifc-source][hydrate-empty]', { projectId, mode })
         }
         return { fetchFailed }
+      }
+      const shouldApplyLatestIfc =
+        !currentIfcUrl ||
+        (sourceRevision !== null && sourceRevision !== currentRevision)
+      if (!shouldApplyLatestIfc) {
+        return { fetchFailed: false }
       }
       if (import.meta.env.DEV) {
         console.log('[ifc-source][hydrate]', {
@@ -6751,24 +6889,31 @@ export function useEditorPage() {
         })
       }
       if (mode === '3d') {
-        handleIfcSyncMessageRef.current(
+        const loaded = await handleIfcSyncMessageRef.current(
           source.currentIfcStorageUrl ?? source.currentIfcUrl,
           null,
           source.currentIfcAssetId,
           source.currentRevision,
         )
-        return { fetchFailed: false }
+        return { fetchFailed: !loaded }
       }
       // 2D: floor project를 IFC로 덮지 않도록 state만 채운다.
       const resolvedUrl = source.currentIfcUrl
+      const resolvedStorageUrl = source.currentIfcStorageUrl ?? resolvedUrl
       setIfcSourceByProjectId((prev) => ({
         ...prev,
         [projectId]: {
           url: resolvedUrl,
-          storageUrl: source.currentIfcStorageUrl ?? resolvedUrl,
+          storageUrl: resolvedStorageUrl,
           assetId: source.currentIfcAssetId ?? null,
         },
       }))
+      writeCachedIfcSource(projectId, {
+        url: resolvedUrl,
+        storageUrl: resolvedStorageUrl,
+        assetId: source.currentIfcAssetId ?? null,
+        revisionId: source.currentRevision ?? null,
+      })
       if (source.currentRevision !== undefined) {
         setIfcRevisionByProjectId((prev) => ({
           ...prev,

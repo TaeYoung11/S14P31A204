@@ -2,6 +2,7 @@ import { api } from '@/shared/lib/axios'
 import { isAxiosError } from 'axios'
 import type { ApiResponse } from '@/shared/types'
 import type { BubbleData, ConnectionData, IfcElementChange, WorkspaceSnapshot } from '../types'
+import type { FloorProject } from '../types/floorProject.types'
 import type { BubbleSnapshotPayload } from '../utils/workspaceSyncMessage'
 import {
   mapBubbleSnapshotToWorkspacePayload,
@@ -14,6 +15,7 @@ export interface FloorPlanSnapshotPayload {
   connections?: ConnectionData[]
   floorMeta?: BubbleSnapshotPayload['floorMeta']
   revisionId?: string | null
+  floorProject?: FloorProject | null
   layout?: {
     phaseStatus?: WorkspaceSnapshot['phaseStatus']
     floorLayers?: WorkspaceSnapshot['floorLayers']
