@@ -10,7 +10,7 @@ export default function PublicLandingHeader() {
   if (!PUBLIC_LANDING_PATHS.has(pathname)) return null
 
   return (
-    <header className="pointer-events-none fixed inset-x-0 top-0 z-50 flex items-center justify-between px-5 py-4 sm:px-10 sm:py-5">
+    <header className="pointer-events-none absolute inset-x-0 top-0 z-50 flex items-center justify-between px-5 py-4 sm:px-10 sm:py-5">
       <Link
         to="/"
         className="pointer-events-auto inline-flex items-center gap-2.5 no-underline"
