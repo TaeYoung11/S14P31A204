@@ -660,10 +660,29 @@ class AuthoringWorker(BaseWorker):
                 changed |= bool(modify_length(el, dims["length"], scale=1000.0))
             if dims.get("height"):
                 changed |= bool(modify_height(el, dims["height"], scale=1000.0))
+            propagate_roof_appearance = bool(
+                params.get("propagate_roof_appearance")
+            ) and el.is_a("IfcRoof")
             if params.get("material"):
-                changed |= bool(modify_material(model, el, {"name": params["material"]}))
+                changed |= bool(
+                    modify_material(
+                        model,
+                        el,
+                        {"name": params["material"]},
+                        propagate_mapped_sources=propagate_roof_appearance,
+                        propagate_roof_descendants=propagate_roof_appearance,
+                    )
+                )
             if params.get("color"):
-                changed |= bool(modify_color(model, el, str(params["color"])))
+                changed |= bool(
+                    modify_color(
+                        model,
+                        el,
+                        str(params["color"]),
+                        propagate_mapped_sources=propagate_roof_appearance,
+                        propagate_roof_descendants=propagate_roof_appearance,
+                    )
+                )
             face_offset = params.get("face_offset_mm")
             if face_offset is not None:
                 direction = str(selector.get("direction") or "")
