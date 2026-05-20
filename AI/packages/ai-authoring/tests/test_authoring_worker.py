@@ -351,6 +351,31 @@ def test_authoring_worker_limits_roof_appearance_propagation_to_roofs(
     ]
 
 
+def test_authoring_worker_filters_global_ids_by_selector_element_type():
+    model = ifcopenshell.file(schema="IFC4")
+    roof = model.create_entity(
+        "IfcRoof",
+        GlobalId=ifcopenshell.guid.new(),
+        Name="Target Roof",
+    )
+    wall = model.create_entity(
+        "IfcWall",
+        GlobalId=ifcopenshell.guid.new(),
+        Name="Wrong Wall",
+    )
+    worker, _ = _make_worker(b"")
+
+    elements = worker._resolve_selector(
+        model,
+        {
+            "global_ids": [roof.GlobalId, wall.GlobalId],
+            "element_type": "IfcRoof",
+        },
+    )
+
+    assert [element.GlobalId for element in elements] == [roof.GlobalId]
+
+
 def test_authoring_worker_keeps_candidates_when_optional_selector_has_no_ifc_match():
     root_dir = Path(__file__).resolve().parents[3]
     ifc_path = root_dir / "tests" / "sample_batang.ifc"
