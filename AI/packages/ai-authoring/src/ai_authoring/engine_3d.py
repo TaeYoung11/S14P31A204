@@ -2145,6 +2145,49 @@ def rotation_targets(
         return targets
     return targets + decomposed_products(element)
 
+
+def _appearance_targets(
+    element: ifcopenshell.entity_instance,
+    *,
+    include_roof_descendants: bool,
+) -> list[ifcopenshell.entity_instance]:
+    targets = [element]
+    seen = {int(element.id())}
+    if not include_roof_descendants or not element.is_a("IfcRoof"):
+        return targets
+
+    for child in decomposed_products(element):
+        child_id = int(child.id())
+        if child_id in seen:
+            continue
+        if _body_representation_items(child):
+            targets.append(child)
+            seen.add(child_id)
+    return targets
+
+
+def _set_material_on_element(
+    model: ifcopenshell.file,
+    element: ifcopenshell.entity_instance,
+    material: ifcopenshell.entity_instance,
+    material_name: str,
+) -> None:
+    for rel in list(getattr(element, "HasAssociations", [])):
+        if rel.is_a("IfcRelAssociatesMaterial"):
+            remaining = [o for o in rel.RelatedObjects if o != element]
+            if remaining:
+                rel.RelatedObjects = remaining
+            else:
+                model.remove(rel)
+    model.create_entity(
+        "IfcRelAssociatesMaterial",
+        GlobalId=ifcopenshell.guid.new(),
+        RelatingMaterial=material,
+        RelatedObjects=[element],
+    )
+    _set_label_property_value(model, element, "Material", material_name)
+
+
 def modify_material(
     model: ifcopenshell.file,
     element: ifcopenshell.entity_instance,
@@ -2155,22 +2198,13 @@ def modify_material(
 ) -> bool:
     try:
         new_name = _canonical_material_name(str(mat_change.get("name") or "Unknown"))
-        # Snapshot associations before removing relations from the IFC graph.
-        for rel in list(getattr(element, "HasAssociations", [])):
-            if rel.is_a("IfcRelAssociatesMaterial"):
-                remaining = [o for o in rel.RelatedObjects if o != element]
-                if remaining:
-                    rel.RelatedObjects = remaining
-                else:
-                    model.remove(rel)
         new_mat = _find_or_create_material(model, new_name)
-        model.create_entity(
-            "IfcRelAssociatesMaterial",
-            GlobalId=ifcopenshell.guid.new(),
-            RelatingMaterial=new_mat,
-            RelatedObjects=[element],
+        targets = _appearance_targets(
+            element,
+            include_roof_descendants=propagate_roof_descendants,
         )
-        _set_label_property_value(model, element, "Material", new_name)
+        for target in targets:
+            _set_material_on_element(model, target, new_mat, new_name)
         material_color = _material_default_color(new_name)
         if material_color is not None:
             modify_color(
@@ -2195,26 +2229,41 @@ def modify_color(
     propagate_roof_descendants: bool = False,
 ) -> bool:
     try:
-        label_changed = _set_label_property_value(model, element, "Color", color_value)
-        targets = [element]
-        if propagate_roof_descendants and element.is_a("IfcRoof"):
-            targets.extend(
-                child for child in decomposed_products(element) if child.is_a("IfcRoof")
-            )
+        targets = _appearance_targets(
+            element,
+            include_roof_descendants=propagate_roof_descendants,
+        )
+        label_changed = False
+        for target in targets:
+            label_changed |= _set_label_property_value(model, target, "Color", color_value)
+
+        root_items: list[Any] = []
+        seen_root_items: set[int] = set()
+        selected_mapped_item_ids: set[int] = set()
+        for target in targets:
+            for item in _body_representation_items(target):
+                item_id = int(item.id())
+                if item.is_a("IfcMappedItem"):
+                    selected_mapped_item_ids.add(item_id)
+                if item_id in seen_root_items:
+                    continue
+                seen_root_items.add(item_id)
+                root_items.append(item)
 
         items: list[Any] = []
         seen_items: set[int] = set()
-        for target in targets:
-            for item in _body_representation_items(target):
-                for style_item in _styleable_representation_items(
-                    item,
-                    include_mapped_sources=propagate_mapped_sources,
-                ):
-                    item_id = int(style_item.id())
-                    if item_id in seen_items:
-                        continue
-                    seen_items.add(item_id)
-                    items.append(style_item)
+        for item in root_items:
+            for style_item in _styleable_representation_items(
+                model,
+                item,
+                include_mapped_sources=propagate_mapped_sources,
+                selected_mapped_item_ids=selected_mapped_item_ids,
+            ):
+                item_id = int(style_item.id())
+                if item_id in seen_items:
+                    continue
+                seen_items.add(item_id)
+                items.append(style_item)
         if not items:
             return label_changed
         assignment = _create_surface_style_assignment(model, color_value)
@@ -2776,10 +2825,32 @@ def _body_representation_items(element: ifcopenshell.entity_instance) -> list[An
     return items
 
 
+def _mapping_source_is_shared_outside_selection(
+    model: ifcopenshell.file,
+    mapping_source: ifcopenshell.entity_instance | None,
+    selected_mapped_item_ids: set[int],
+) -> bool:
+    if mapping_source is None:
+        return True
+    try:
+        inverses = model.get_inverse(mapping_source)
+    except Exception:
+        return True
+    for inverse in inverses:
+        if (
+            inverse.is_a("IfcMappedItem")
+            and int(inverse.id()) not in selected_mapped_item_ids
+        ):
+            return True
+    return False
+
+
 def _styleable_representation_items(
+    model: ifcopenshell.file,
     item: ifcopenshell.entity_instance,
     *,
     include_mapped_sources: bool,
+    selected_mapped_item_ids: set[int],
     _seen: set[int] | None = None,
 ) -> list[ifcopenshell.entity_instance]:
     seen = _seen if _seen is not None else set()
@@ -2793,12 +2864,20 @@ def _styleable_representation_items(
         return items
 
     mapping_source = getattr(item, "MappingSource", None)
+    if _mapping_source_is_shared_outside_selection(
+        model,
+        mapping_source,
+        selected_mapped_item_ids,
+    ):
+        return items
     mapped_representation = getattr(mapping_source, "MappedRepresentation", None)
     for source_item in getattr(mapped_representation, "Items", []) or []:
         items.extend(
             _styleable_representation_items(
+                model,
                 source_item,
                 include_mapped_sources=include_mapped_sources,
+                selected_mapped_item_ids=selected_mapped_item_ids,
                 _seen=seen,
             )
         )
