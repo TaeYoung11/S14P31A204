@@ -498,19 +498,11 @@ def _build_result_payload(
     pipeline_status = result.get("status", "")
     schema_status = _PIPELINE_TO_SCHEMA_STATUS.get(pipeline_status, "invalid_instruction")
 
+    command_entries: list[tuple[dict[str, Any], list[dict[str, Any]]]] = []
     commands: list[dict[str, Any]] = []
     if schema_status == "ready":
-        raw_commands = result.get("commands")
-        if isinstance(raw_commands, list):
-            commands = [
-                _map_command(raw_cmd)
-                for raw_cmd in raw_commands
-                if isinstance(raw_cmd, dict)
-            ]
-        else:
-            raw_cmd = result.get("command")
-            if raw_cmd:
-                commands = [_map_command(raw_cmd)]
+        command_entries = _command_preview_entries(result)
+        commands = [_map_command(raw_cmd) for raw_cmd, _ in command_entries]
 
     clarification = (
         _map_clarification(result) if schema_status == "clarification_required" else None
@@ -526,10 +518,41 @@ def _build_result_payload(
         "source_scene_type": "SCENE_3D",
         "status": schema_status,
         "commands": commands,
-        "operations": _map_operations(commands),
+        "operations": _map_operations(
+            commands,
+            [matched for _, matched in command_entries],
+        ),
         "clarification": clarification,
         "issues": issues,
     }
+
+
+def _command_preview_entries(
+    result: dict[str, Any],
+) -> list[tuple[dict[str, Any], list[dict[str, Any]]]]:
+    split_results = result.get("split_results")
+    if isinstance(split_results, list) and split_results:
+        entries: list[tuple[dict[str, Any], list[dict[str, Any]]]] = []
+        for preview in split_results:
+            if not isinstance(preview, dict):
+                continue
+            raw_cmd = preview.get("command")
+            if isinstance(raw_cmd, dict):
+                entries.append((raw_cmd, list(preview.get("matched_elements") or [])))
+        return entries
+
+    raw_commands = result.get("commands")
+    if isinstance(raw_commands, list):
+        return [
+            (raw_cmd, [])
+            for raw_cmd in raw_commands
+            if isinstance(raw_cmd, dict)
+        ]
+
+    raw_cmd = result.get("command")
+    if isinstance(raw_cmd, dict):
+        return [(raw_cmd, list(result.get("matched_elements") or []))]
+    return []
 
 
 def _map_command(raw: dict[str, Any]) -> dict[str, Any]:
@@ -566,16 +589,28 @@ def _map_target(raw: dict[str, Any]) -> dict[str, Any]:
     return target
 
 
-def _map_operations(commands: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _map_operations(
+    commands: list[dict[str, Any]],
+    matched_by_command: list[list[dict[str, Any]]] | None = None,
+) -> list[dict[str, Any]]:
     operations: list[dict[str, Any]] = []
     for index, command in enumerate(commands, start=1):
-        mapped = _map_operation(command, index)
+        matched = (
+            matched_by_command[index - 1]
+            if matched_by_command is not None and index - 1 < len(matched_by_command)
+            else []
+        )
+        mapped = _map_operation(command, index, matched)
         if mapped is not None:
             operations.extend(mapped)
     return operations
 
 
-def _map_operation(command: dict[str, Any], index: int) -> list[dict[str, Any]] | None:
+def _map_operation(
+    command: dict[str, Any],
+    index: int,
+    matched_elements: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]] | None:
     cmd_type = command.get("command_type")
     if cmd_type == "CREATE":
         create_info = command.get("create_info")
@@ -590,6 +625,11 @@ def _map_operation(command: dict[str, Any], index: int) -> list[dict[str, Any]] 
         return None
 
     selector = _map_selector(command.get("target") or {})
+    broad_roof_appearance = _is_broad_roof_appearance_command(command)
+    if broad_roof_appearance:
+        matched_ids = _matched_global_ids(matched_elements or [])
+        if matched_ids:
+            selector = {"global_ids": matched_ids, "element_type": "IfcRoof"}
     if not selector:
         return None
 
@@ -612,6 +652,8 @@ def _map_operation(command: dict[str, Any], index: int) -> list[dict[str, Any]] 
 
     operations: list[dict[str, Any]] = []
     update_params = _map_update_parameters(changes)
+    if broad_roof_appearance and update_params:
+        update_params["propagate_roof_appearance"] = True
     if update_params:
         operations.append(
             {
@@ -634,6 +676,33 @@ def _map_operation(command: dict[str, Any], index: int) -> list[dict[str, Any]] 
         )
 
     return operations or None
+
+
+def _is_broad_roof_appearance_command(command: dict[str, Any]) -> bool:
+    if str(command.get("command_type") or "") != "MODIFY":
+        return False
+    target = command.get("target") or {}
+    changes = command.get("changes") or {}
+    if target.get("element_type") != "IfcRoof" or not target.get("select_all"):
+        return False
+    if not (changes.get("color") or changes.get("material")):
+        return False
+    return not any(
+        target.get(field)
+        for field in ("global_id", "name", "storey", "space_name", "direction", "tag")
+    )
+
+
+def _matched_global_ids(matched_elements: list[dict[str, Any]]) -> list[str]:
+    global_ids: list[str] = []
+    seen: set[str] = set()
+    for item in matched_elements:
+        global_id = item.get("global_id")
+        if not isinstance(global_id, str) or not global_id or global_id in seen:
+            continue
+        seen.add(global_id)
+        global_ids.append(global_id)
+    return global_ids
 
 
 def _map_selector(target: dict[str, Any]) -> dict[str, Any]:
