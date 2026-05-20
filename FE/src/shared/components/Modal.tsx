@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 interface ModalProps {
   isOpen: boolean
   onClose: () => void
-  title: string
+  title: React.ReactNode
   children: React.ReactNode
   maxWidth?: string
 }
@@ -28,9 +28,9 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = 'ma
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-base font-semibold text-[#111827]">{title}</h2>
-          <button id="modal-close-btn" className="btn-icon" onClick={onClose} title="닫기">
+        <div className="mb-6 flex items-center justify-between border-b border-[#eef2f7] pb-5">
+          <h2 className="text-xl font-black tracking-tight text-[#111827]">{title}</h2>
+          <button id="modal-close-btn" className="project-icon-button h-10 w-10 rounded-xl" onClick={onClose} title="닫기">
             <X className="w-4 h-4" />
           </button>
         </div>

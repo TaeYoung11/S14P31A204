@@ -10,7 +10,7 @@ type HeaderViewModel = Pick<
   | 'handleOpenNotificationModal'
   | 'currentCollaborationUserType'
   | 'handleManualSave'
-  | 'saveStatus'
+  | 'handleOpenIFCExportModal'
   | 'siteAreaM2'
 >
 
@@ -29,8 +29,7 @@ export function buildEditorHeaderProps(vm: HeaderViewModel): EditorHeaderProps {
     onOpenInvite: vm.handleOpenInviteModal,
     onOpenNotification: vm.handleOpenNotificationModal,
     userType: vm.currentCollaborationUserType,
-    onSave: vm.handleManualSave,
-    saveStatus: vm.saveStatus,
+    onSave: vm.mode === 'view' ? vm.handleOpenIFCExportModal : vm.handleManualSave,
     siteAreaLabel,
   }
 }

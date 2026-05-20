@@ -1,4 +1,4 @@
-import { Search } from 'lucide-react'
+import { MapPinned, Search } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import Modal from '@/shared/components/Modal'
 import Spinner from '@/shared/components/Spinner'
@@ -87,24 +87,28 @@ export default function ProjectSiteModal({
     <Modal
       isOpen={isOpen}
       onClose={handleRequestClose}
-      title="대지 정보 입력"
-      maxWidth="max-w-[1100px]"
+      title={(
+        <span className="project-site-title">
+          <MapPinned className="h-5 w-5" />
+          <span className="min-w-0">
+            <span className="block text-xs font-black text-[#4f46e5]">대지 입력 모달</span>
+            <span className="block truncate text-[26px] font-black tracking-tight text-[#111827]">
+              {projectName ?? '새 프로젝트'}
+            </span>
+          </span>
+        </span>
+      )}
+      maxWidth="max-w-[1040px]"
     >
-      <div className="space-y-5">
-        <div className="rounded-2xl bg-[linear-gradient(135deg,#eef2ff,white_60%)] px-5 py-4">
-          <p className="mt-2 text-lg font-semibold text-[#111827]">
-            {projectName ?? '새 프로젝트'}
-          </p>
-        </div>
-
-        <div className="space-y-5">
-          <div className="flex gap-2">
-            <div className="flex-1 rounded-2xl border border-[#dbe2f0] px-4 py-3 text-sm text-[#475569] bg-[#f8fafc]">
+      <div className="project-site-modal">
+        <div className="space-y-4">
+          <div className="project-site-address-row">
+            <div className="project-site-address-value">
               {selectedAddress || '주소 검색 버튼을 눌러 주소를 선택해주세요.'}
             </div>
             <button
               type="button"
-              className="inline-flex min-w-[112px] items-center justify-center gap-2 rounded-2xl bg-[#111827] px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-[#1f2937] disabled:opacity-70"
+              className="project-primary-button h-12 min-w-[124px] px-5"
               onClick={handleOpenPostcode}
               disabled={isCloseDisabled}
             >
@@ -119,9 +123,9 @@ export default function ProjectSiteModal({
             onComplete={handleAddressSelect}
           />
 
-          <div className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
-            <div className="relative overflow-hidden rounded-3xl border border-[#dbe2f0] bg-[#f8fafc]">
-              <div ref={mapContainerRef} className="h-[320px] w-full bg-[#eef2ff]" />
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.55fr)_minmax(280px,0.85fr)]">
+            <div className="project-site-map-card">
+              <div ref={mapContainerRef} className="h-[340px] w-full bg-[#eef2ff]" />
               {isRegistering && (
                 <div className="absolute inset-0 flex items-center justify-center bg-white/60">
                   <Spinner size="lg" />
@@ -133,7 +137,7 @@ export default function ProjectSiteModal({
           </div>
 
           {siteAreaM2 && siteAreaPyeong && (
-            <div className="flex items-center justify-between rounded-2xl border border-[#dbe2f0] bg-[#f8fafc] px-4 py-3">
+            <div className="flex items-center justify-between rounded-2xl border border-[#dbe2f0] bg-white px-4 py-3 shadow-sm">
               <p className="text-xs font-semibold text-[#374151]">대지 면적</p>
               <p className="text-sm font-bold text-[#111827]">
                 {formatAreaM2(siteAreaM2)} ({formatAreaPyeong(siteAreaM2)})

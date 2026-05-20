@@ -1,6 +1,7 @@
 interface StaticHtmlRouteOptions {
   shouldHideStaticHeader?: boolean
   shouldRewriteLoginButtonScript?: boolean
+  injectedStyle?: string
 }
 
 const STATIC_ROUTE_REPLACEMENTS: Array<[RegExp, string]> = [
@@ -40,11 +41,15 @@ export const buildStaticHtmlSource = (
   {
     shouldHideStaticHeader = true,
     shouldRewriteLoginButtonScript = false,
+    injectedStyle,
   }: StaticHtmlRouteOptions = {},
 ) => {
-  const source = shouldHideStaticHeader
-    ? injectStaticStyle(html, HIDDEN_STATIC_HEADER_STYLE)
-    : html
+  const staticStyles = [
+    shouldHideStaticHeader ? HIDDEN_STATIC_HEADER_STYLE : '',
+    injectedStyle?.trim() ?? '',
+  ].filter(Boolean).join('')
+
+  const source = staticStyles ? injectStaticStyle(html, staticStyles) : html
 
   const routedSource = STATIC_ROUTE_REPLACEMENTS.reduce(
     (currentSource, [pattern, replacement]) => currentSource.replace(pattern, replacement),

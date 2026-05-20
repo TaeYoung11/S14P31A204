@@ -7,7 +7,9 @@ import EditorCanvasContent from './components/EditorCanvasContent'
 import EditorModalLayer from './components/EditorModalLayer'
 import EditorProjectSwitchSidebar from './components/EditorProjectSwitchSidebar'
 import EditorRightPanelSection from './components/EditorRightPanelSection'
+import UnsavedChangesModal from './components/UnsavedChangesModal'
 import { useEditorPageLayout } from './hooks/useEditorPageLayout'
+import { useUnsavedChangesGuard } from './hooks/useUnsavedChangesGuard'
 import { CompassControl } from '@/features/editor/components/canvas/CompassControl'
 import ProjectCommentToast from '@/features/project/components/ProjectCommentToast'
 import {
@@ -31,16 +33,28 @@ export default function EditorPage() {
     shouldLiftRightPanel,
     shouldShowLeftToolbar,
   } = useEditorPageLayout(vm)
+  const unsavedChangesGuard = useUnsavedChangesGuard({
+    hasUnsavedChanges: vm.hasUnsavedDbChanges,
+    saveStatus: vm.saveStatus,
+    onSave: vm.handleManualSave,
+  })
 
   return (
     <div className="relative flex h-screen w-screen flex-col overflow-hidden bg-[radial-gradient(circle_at_12%_10%,#f8f9ff_0%,#edf1fb_36%,#e8edf9_70%,#e6ebf8_100%)] text-[#1D1E20] font-sans">
       <div className="pointer-events-none absolute -left-24 top-16 h-64 w-64 rounded-full bg-[#7B86FF]/12 blur-3xl" />
       <div className="pointer-events-none absolute bottom-[-120px] right-[-80px] h-80 w-80 rounded-full bg-[#5A69DD]/12 blur-3xl" />
       <EditorModalLayer {...modalLayerProps} />
+      <UnsavedChangesModal {...unsavedChangesGuard.unsavedChangesModalProps} />
       <ProjectCommentToast
         toast={vm.projectCommentToast}
         onClose={vm.onCloseProjectCommentToast}
-        onOpenProject={vm.onOpenProjectFromCommentToast}
+        onOpenProject={(targetProjectId, pinId) => {
+          if (targetProjectId === vm.projectId) {
+            vm.onOpenProjectFromCommentToast(targetProjectId, pinId)
+            return
+          }
+          unsavedChangesGuard.requestNavigation(() => vm.onOpenProjectFromCommentToast(targetProjectId, pinId))
+        }}
       />
 
       <EditorProjectSwitchSidebar
@@ -49,7 +63,9 @@ export default function EditorPage() {
         search={projectSwitcher.search}
         isLoading={projectSwitcher.isLoading}
         onSearchChange={projectSwitcher.setSearch}
-        onProjectSelect={projectSwitcher.selectProject}
+        onProjectSelect={(project) => {
+          unsavedChangesGuard.requestNavigation(() => projectSwitcher.selectProject(project))
+        }}
         onClose={projectSwitcher.close}
       />
 
@@ -66,6 +82,8 @@ export default function EditorPage() {
           onRedo={vm.handleRedo}
           canUndo={vm.canUndo}
           canRedo={vm.canRedo}
+          saveStatus={vm.saveStatus}
+          hasUnsavedDbChanges={vm.hasUnsavedDbChanges}
         />
 
         <div className={`flex min-w-0 flex-1 overflow-hidden ${vm.mode === 'view' ? '' : 'gap-2 px-5 pb-5 pt-3'}`}>

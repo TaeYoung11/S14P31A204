@@ -104,13 +104,13 @@ export function ExportSelectionModal({ isOpen, onClose, onStartExport }: ExportS
           <div className="flex items-center justify-end gap-6">
             <button
               onClick={onClose}
-              className="text-[15px] font-black text-[#8E95A3] hover:text-[#1C1C1E] transition-colors"
+              className="project-ghost-button"
             >
               취소
             </button>
             <button
               onClick={() => onStartExport(selectedType)}
-              className="px-10 py-4 bg-[#3B45B3] text-white text-[16px] font-black rounded-2xl shadow-xl shadow-[#3B45B3]/30 hover:bg-[#2D3691] hover:-translate-y-0.5 transition-all active:translate-y-0"
+              className="project-primary-button px-10 py-4 text-[16px]"
             >
               내보내기 시작
             </button>
