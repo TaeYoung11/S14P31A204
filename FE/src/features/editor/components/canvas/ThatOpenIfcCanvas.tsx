@@ -2209,18 +2209,14 @@ export default function ThatOpenIfcCanvas({
     }
     const requiredLocalIds = moveScopeLocalIds
     if (!containsAllIds(editability.editableLocalIds, requiredLocalIds)) {
-      ifcMoveLifecycleRef.current = nextIfcMoveLifecycleState(ifcMoveLifecycleRef.current, {
-        type: 'commit_failure',
-        targetKey,
-        message: 'Partial editable coverage detected',
-      })
-      logIfcMove('commit_failure_partial_coverage', {
+      const editableLocalIdSet = new Set(editability.editableLocalIds)
+      const missingEditableLocalIds = requiredLocalIds.filter((localId) => !editableLocalIdSet.has(localId))
+      logIfcMove('commit_partial_coverage_continue_with_editable_subset', {
         targetKey,
         requiredLocalIds,
         editableLocalIds: editability.editableLocalIds,
+        missingEditableLocalIds,
       })
-      ifcMoveLifecycleRef.current = nextIfcMoveLifecycleState(ifcMoveLifecycleRef.current, { type: 'cleanup_done' })
-      return
     }
     const editableModelId = editability.modelId
     const editableElements = editability.editableElements
@@ -2593,6 +2589,10 @@ export default function ThatOpenIfcCanvas({
     const commitHideLocalIds = Array.from(new Set<number>([
       ...editability.editableLocalIds,
       ...moveScopeLocalIds,
+      ...proxyLocalIds,
+      ...itemMappedLocalIds,
+      target.hitLocalId,
+      target.localId,
     ].filter(Number.isFinite)))
     ;(target.object as IfcEditableObject3D).userData.ifcEditTarget = {
       ...(target.object as IfcEditableObject3D).userData.ifcEditTarget!,
@@ -5704,8 +5704,15 @@ export default function ThatOpenIfcCanvas({
                 editableLocalIds: editability.editableLocalIds,
               })
               nextTarget.modelId = editability.modelId
+              const selectionVisibilityLocalIds = Array.from(new Set<number>([
+                ...editability.editableLocalIds,
+                ...moveScopeLocalIds,
+                ...proxyLocalIds,
+                resolvedIfcPick.localId,
+                selectedLocalId,
+              ].filter(Number.isFinite)))
               const existingMovedProxyRecord = activeScene
-                ? findMovedIfcProxyRecord(activeScene, editability.modelId, editability.editableLocalIds)
+                ? findMovedIfcProxyRecord(activeScene, editability.modelId, selectionVisibilityLocalIds)
                 : null
               logIfcMove('pick_ifc_atomic_swap_start', {
                 pickSequence,
@@ -5832,7 +5839,7 @@ export default function ThatOpenIfcCanvas({
                 transformControls,
                 ifcEditGroup,
                 editability.modelId,
-                editability.editableLocalIds,
+                selectionVisibilityLocalIds,
                 resolvedIfcPick.localId,
                 Number.isFinite(resolvedIfcPick.itemId) ? resolvedIfcPick.itemId : undefined,
                 selectedElement,
@@ -5894,8 +5901,8 @@ export default function ThatOpenIfcCanvas({
               editableObject.visible = true
               await applyIfcSelectionVisibility(sceneRef.current as ThatOpenSceneState, {
                 modelId: editability.modelId,
-                localIds: editability.editableLocalIds.length > 0
-                  ? editability.editableLocalIds
+                localIds: selectionVisibilityLocalIds.length > 0
+                  ? selectionVisibilityLocalIds
                   : [resolvedIfcPick.localId].filter(Number.isFinite),
                 proxyObject: editableObject,
                 mode: 'proxy',
@@ -5914,7 +5921,7 @@ export default function ThatOpenIfcCanvas({
               }
               await consumePendingIfcSelectionRestore(
                 editability.modelId,
-                editability.editableLocalIds,
+                selectionVisibilityLocalIds,
                 'selection_switch_atomic_restore_pick_new_proxy',
                 { skipCoreUpdate: true },
               )
@@ -6905,11 +6912,16 @@ export default function ThatOpenIfcCanvas({
           localId: selectedLocalId,
           expressId: selectedExpressId,
         })
-        registerCanonicalIds(selectedExpressId, proxyLocalIds)
-        const editability = await resolveEditableIfcTargets(sceneState, sceneState.modelId, proxyLocalIds)
+        const requestedProxyLocalIds = Array.from(new Set<number>([
+          ...proxyLocalIds,
+          requestedIfcElementLocalId,
+          selectedLocalId,
+        ].filter(Number.isFinite)))
+        registerCanonicalIds(selectedExpressId, requestedProxyLocalIds)
+        const editability = await resolveEditableIfcTargets(sceneState, sceneState.modelId, requestedProxyLocalIds)
         if (!editability || !editability.modelId || editability.editableLocalIds.length === 0) {
-          const fallbackLocalIds = proxyLocalIds.length > 0
-            ? proxyLocalIds
+          const fallbackLocalIds = requestedProxyLocalIds.length > 0
+            ? requestedProxyLocalIds
             : [requestedIfcElementLocalId].filter(Number.isFinite)
           const fallbackObject = await attachIfcTransformProxy(
             sceneState.three,
@@ -6979,7 +6991,17 @@ export default function ThatOpenIfcCanvas({
           onThreeDCoordinatesChangeRef.current?.(toDisplayCoordinates(sceneState.camera.position))
           return
         }
-        const existingMovedProxyRecord = findMovedIfcProxyRecord(sceneState, editability.modelId, editability.editableLocalIds)
+        const requestedVisibilityLocalIds = Array.from(new Set<number>([
+          ...editability.editableLocalIds,
+          ...requestedProxyLocalIds,
+          requestedIfcElementLocalId,
+          selectedLocalId,
+        ].filter(Number.isFinite)))
+        const existingMovedProxyRecord = findMovedIfcProxyRecord(
+          sceneState,
+          editability.modelId,
+          requestedVisibilityLocalIds,
+        )
         const editableObject = existingMovedProxyRecord?.object ?? await attachIfcTransformProxy(
           sceneState.three,
           sceneState.fragments,
@@ -6987,7 +7009,7 @@ export default function ThatOpenIfcCanvas({
           sceneState.transformControls,
           sceneState.ifcEditGroup,
           editability.modelId,
-          editability.editableLocalIds,
+          requestedVisibilityLocalIds,
           requestedIfcElementLocalId,
           undefined,
           selectedElement,
@@ -7013,8 +7035,8 @@ export default function ThatOpenIfcCanvas({
           editableObject.visible = true
           await applyIfcSelectionVisibility(sceneState, {
             modelId: editability.modelId,
-            localIds: editability.editableLocalIds.length > 0
-              ? editability.editableLocalIds
+            localIds: requestedVisibilityLocalIds.length > 0
+              ? requestedVisibilityLocalIds
               : [requestedIfcElementLocalId].filter(Number.isFinite),
             proxyObject: editableObject,
             mode: 'proxy',

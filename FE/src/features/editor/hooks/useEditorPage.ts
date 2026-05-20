@@ -22,6 +22,7 @@ import type {
   IfcElementInfo,
   Point2D,
   SaveStatus,
+  SceneUpdateEvent,
   WorkspaceSnapshot,
   ZoneData,
 } from '../types'
@@ -180,6 +181,7 @@ import {
   findRegistryElement,
   resolveRegistryElementSelectionTarget,
 } from '../utils/editorElementRegistry'
+import { createSceneUpdateEventBus } from '../utils/sceneUpdateEventBus'
 import { resolveWorkspaceSiteAreaM2 } from '../utils/numberUtils'
 import { extractOuterRingFromCoordinates } from '@/features/project/utils/sitePolygon'
 import { getRuntimeEnvString } from '@/shared/lib/runtimeEnv'
@@ -839,6 +841,14 @@ export function useEditorPage() {
   }, [])
   const [libraryElements, setLibraryElements] = useState<ThreeDLibraryPreset[]>([])
   const [hiddenElementIds, setHiddenElementIds] = useState<string[]>([])
+  // 현재 표시 중인 IFC 층 expressId (null = 전체 표시)
+  const [activeIfcStoreyExpressId, setActiveIfcStoreyExpressId] = useState<number | null>(null)
+  // 겹쳐보기로 함께 표시할 IFC 층 expressId 목록
+  const [overlayIfcStoreyExpressIds, setOverlayIfcStoreyExpressIds] = useState<number[]>([])
+  const sceneUpdateEventBus = useMemo(() => createSceneUpdateEventBus(), [])
+  const publishSceneUpdateEvent = useCallback((event: SceneUpdateEvent) => {
+    sceneUpdateEventBus.publish(event)
+  }, [sceneUpdateEventBus])
   const [isGridVisible, setIsGridVisible] = useState(false)
   const [userViewRotationRadians, setUserViewRotationRadians] = useState(0)
   /** 연결 도구에서 첫 번째로 선택된 버블 id */
@@ -1077,6 +1087,10 @@ export function useEditorPage() {
     setIfcElementChangesById(Object.fromEntries(
       (layout.ifcElementChanges ?? []).map((change) => [change.expressId, change]),
     ))
+    setActiveIfcStoreyExpressId(layout.activeIfcStoreyExpressId ?? null)
+    setOverlayIfcStoreyExpressIds((layout.overlayIfcStoreyExpressIds ?? []).filter(Number.isFinite))
+    setOverlayLayerIds(layout.overlayFloorLayerIds ?? [])
+    setHiddenElementIds(layout.hiddenElementIds ?? [])
     if (layout.phaseStatus) setWorkspacePhaseStatus(layout.phaseStatus)
   }, [])
 
@@ -1536,6 +1550,10 @@ export function useEditorPage() {
     hiddenAutoOpeningIds,
     isProjectStructurePreferred,
     ifcElementChanges,
+    activeIfcStoreyExpressId,
+    overlayIfcStoreyExpressIds,
+    overlayFloorLayerIds: overlayLayerIds,
+    hiddenElementIds,
   }), [
     workspacePhaseStatus,
     bubbles,
@@ -1553,6 +1571,10 @@ export function useEditorPage() {
     hiddenAutoOpeningIds,
     isProjectStructurePreferred,
     ifcElementChanges,
+    activeIfcStoreyExpressId,
+    overlayIfcStoreyExpressIds,
+    overlayLayerIds,
+    hiddenElementIds,
   ])
 
   const latestDraftSnapshotRef = useRef(draftSnapshot)
@@ -1744,6 +1766,10 @@ export function useEditorPage() {
         hiddenAutoOpeningIds: [],
         isProjectStructurePreferred: false,
         ifcElementChanges: [],
+        activeIfcStoreyExpressId: null,
+        overlayIfcStoreyExpressIds: [],
+        overlayFloorLayerIds: [],
+        hiddenElementIds: [],
       }
     }
 
@@ -2365,6 +2391,10 @@ export function useEditorPage() {
         hiddenAutoOpeningIds: [],
         isProjectStructurePreferred: false,
         ifcElementChanges: [],
+        activeIfcStoreyExpressId: null,
+        overlayIfcStoreyExpressIds: [],
+        overlayFloorLayerIds: [],
+        hiddenElementIds: [],
       }
       : draftSnapshot
     const publishSnapshot = mapSnapshotForPersistenceRef.current(publishSourceSnapshot)
@@ -3143,6 +3173,10 @@ export function useEditorPage() {
         hiddenAutoOpeningIds: [],
         isProjectStructurePreferred: false,
         ifcElementChanges: [],
+        activeIfcStoreyExpressId: null,
+        overlayIfcStoreyExpressIds: [],
+        overlayFloorLayerIds: [],
+        hiddenElementIds: [],
       }
       const persistedSnapshot = mapSnapshotForPersistenceRef.current(publishSnapshot)
       void workspaceRealtimeService.publishSnapshot({
@@ -3587,10 +3621,6 @@ export function useEditorPage() {
   ])
   // IFC 기반 3D에서 파싱된 건물 층(IfcBuildingStorey) 목록
   const [ifcStoreys, setIfcStoreys] = useState<IfcStoreyInfo[]>([])
-  // 현재 표시 중인 IFC 층 expressId (null = 전체 표시)
-  const [activeIfcStoreyExpressId, setActiveIfcStoreyExpressId] = useState<number | null>(null)
-  // 겹쳐보기로 함께 표시할 IFC 층 expressId 목록
-  const [overlayIfcStoreyExpressIds, setOverlayIfcStoreyExpressIds] = useState<number[]>([])
   const validIfcStoreyIdSet = useMemo(
     () => new Set(ifcStoreys.map((storey) => storey.expressId)),
     [ifcStoreys],
@@ -4243,6 +4273,9 @@ export function useEditorPage() {
    */
   const handleAddLibraryPreset = useCallback((preset: ThreeDLibraryPreset, options?: { closePanel?: boolean }) => {
     const storeyExpressId = activeIfcStoreyExpressId ?? null
+    const floorLayerId = storeyExpressId == null
+      ? (activeFloorLayerId ?? floorLayers[0]?.id ?? null)
+      : null
 
     // IFC 층이 있는데 현재 활성 층이 없으면 추가를 중단하고 설정 방법을 안내한다.
     if (storeyExpressId == null && ifcStoreys.length > 0) {
@@ -4257,20 +4290,62 @@ export function useEditorPage() {
       ...preset,
       id: `${preset.id}-${Date.now()}-${libraryElements.length}`,
       storeyExpressId,
+      floorLayerId,
     }
     workspaceCommandPublisher.createLibraryElement(nextPreset)
     markLocalFloorPlanSnapshotChanged()
+    publishSceneUpdateEvent({
+      type: 'ELEMENT_ADDED',
+      elementId: `library:${nextPreset.id}`,
+      floorId: storeyExpressId != null ? String(storeyExpressId) : floorLayerId,
+      payload: { sourceType: 'LIBRARY' },
+    })
     setLibraryElements((prev) => [
       ...prev,
       nextPreset,
     ])
+    clearSelection()
+    clearConnectionAndTwoDSelection()
+    setSelectedIfcElement({
+      id: nextPreset.id,
+      name: nextPreset.name,
+      ifcClass: 'LibraryElement',
+      category: nextPreset.type,
+      source: 'library',
+      expressId: nextPreset.id,
+      globalId: nextPreset.id,
+      lengthMm: nextPreset.lengthMm,
+      heightMm: nextPreset.heightMm,
+      thicknessMm: nextPreset.thicknessMm,
+      positionX: nextPreset.position?.x,
+      positionY: nextPreset.position?.y,
+      positionZ: nextPreset.position?.z,
+      rotationX: nextPreset.rotation?.x,
+      rotationY: nextPreset.rotation?.y,
+      rotationZ: nextPreset.rotation?.z,
+      color: nextPreset.color,
+      material: nextPreset.material,
+      properties: {
+        LibraryId: nextPreset.id,
+        Type: nextPreset.type,
+        StoreyExpressId: storeyExpressId ?? '',
+        FloorLayerId: floorLayerId ?? '',
+      },
+    })
+    setRequestedLibraryElementId(nextPreset.id)
+    setLibraryElementSelectionRequestToken((prev) => prev + 1)
     if (options?.closePanel !== false) setIsLibraryOpen(false)
   }, [
+    activeFloorLayerId,
     activeIfcStoreyExpressId,
+    clearConnectionAndTwoDSelection,
+    clearSelection,
+    floorLayers,
     ifcStoreys,
     libraryElements.length,
     markLocalFloorPlanSnapshotChanged,
     openNoticeModal,
+    publishSceneUpdateEvent,
     workspaceCommandPublisher,
   ])
 
@@ -4287,6 +4362,7 @@ export function useEditorPage() {
       : {
           ...mergedTarget,
           storeyExpressId: activeIfcStoreyExpressId ?? ifcStoreys[0]?.expressId ?? null,
+          floorLayerId: mergedTarget.floorLayerId ?? activeFloorLayerId ?? floorLayers[0]?.id ?? null,
         }
     workspaceCommandPublisher.updateLibraryElement(target, commandElement)
     markLocalFloorPlanSnapshotChanged()
@@ -4295,14 +4371,29 @@ export function useEditorPage() {
         if (element.id !== id) return element
         const merged = { ...element, ...patch }
         if (Number.isFinite(merged.storeyExpressId)) return merged
-        return { ...merged, storeyExpressId: activeIfcStoreyExpressId ?? ifcStoreys[0]?.expressId ?? null }
+        return {
+          ...merged,
+          storeyExpressId: activeIfcStoreyExpressId ?? ifcStoreys[0]?.expressId ?? null,
+          floorLayerId: merged.floorLayerId ?? activeFloorLayerId ?? floorLayers[0]?.id ?? null,
+        }
       }),
     )
+    publishSceneUpdateEvent({
+      type: 'ELEMENT_UPDATED',
+      elementId: `library:${id}`,
+      floorId: commandElement.storeyExpressId != null
+        ? String(commandElement.storeyExpressId)
+        : commandElement.floorLayerId ?? null,
+      payload: { sourceType: 'LIBRARY' },
+    })
   }, [
+    activeFloorLayerId,
     activeIfcStoreyExpressId,
+    floorLayers,
     ifcStoreys,
     libraryElements,
     markLocalFloorPlanSnapshotChanged,
+    publishSceneUpdateEvent,
     workspaceCommandPublisher,
   ])
 
@@ -4316,8 +4407,14 @@ export function useEditorPage() {
       markLocalFloorPlanSnapshotChanged()
     }
     setLibraryElements((prev) => prev.filter((element) => element.id !== id))
+    setHiddenElementIds((prev) => prev.filter((elementId) => elementId !== `library:${id}`))
     setSelectedIfcElement((prev) => (prev?.source === 'library' ? null : prev))
-  }, [libraryElements, markLocalFloorPlanSnapshotChanged, workspaceCommandPublisher])
+    publishSceneUpdateEvent({
+      type: 'ELEMENT_REMOVED',
+      elementId: `library:${id}`,
+      payload: { sourceType: 'LIBRARY' },
+    })
+  }, [libraryElements, markLocalFloorPlanSnapshotChanged, publishSceneUpdateEvent, workspaceCommandPublisher])
 
   const handleSelectLibraryElementById = useCallback((id: string) => {
     const normalizedId = id.trim()
@@ -4750,6 +4847,7 @@ export function useEditorPage() {
           .map((storey) => storey.expressId)
           .filter((id) => id !== activeId)
       })
+      markLocalFloorPlanSnapshotChanged()
       return
     }
 
@@ -4773,6 +4871,7 @@ export function useEditorPage() {
       }
       return next
     })
+    markLocalFloorPlanSnapshotChanged()
   }, [
     activeFloorLayerId,
     activeIfcStoreyExpressId,
@@ -4780,6 +4879,7 @@ export function useEditorPage() {
     clearSelection,
     floorLayers,
     ifcStoreys,
+    markLocalFloorPlanSnapshotChanged,
     mode,
     setActiveFloorLayerId,
     setOverlayIfcStoreyExpressIds,
@@ -4806,6 +4906,7 @@ export function useEditorPage() {
     setOverlayLayerIds((prev) =>
       prev.includes(layerId) ? prev.filter((id) => id !== layerId) : [...prev, layerId],
     )
+    markLocalFloorPlanSnapshotChanged()
   }
   const handleSelectSingleOverlayLayer = (layerId: string) => {
     const baseLayerId = activeFloorLayerId ?? (mode === '3d' ? floorLayers.find((layer) => layer.id !== layerId)?.id ?? null : null)
@@ -4818,6 +4919,7 @@ export function useEditorPage() {
     }
     setIsLayerOverlayMode(true)
     setOverlayLayerIds((prev) => (prev.length === 1 && prev[0] === layerId ? [] : [layerId]))
+    markLocalFloorPlanSnapshotChanged()
   }
   const handleSetOverlayLayerOpacity = (layerId: string, opacity: number) => {
     const normalized = opacity > 1 ? opacity / 100 : opacity
@@ -4826,6 +4928,7 @@ export function useEditorPage() {
       if (prev[layerId] === next) return prev
       return { ...prev, [layerId]: next }
     })
+    markLocalFloorPlanSnapshotChanged()
   }
   const handleAddFloorLayer = useCallback(() => {
     addFloorLayer()
@@ -4838,10 +4941,21 @@ export function useEditorPage() {
   }, [markLocalFloorPlanSnapshotChanged, renameFloorLayer])
   const handleDeleteFloorLayer = useCallback((layerId: string) => {
     if (floorLayers.length <= 1) return
+    const deletedLayer = floorLayers.find((layer) => layer.id === layerId)
+    const deletedRoomIds = new Set((deletedLayer?.rooms ?? []).flatMap((room) => [room.id, room.bubbleId].filter(Boolean)))
     const deletedWallIds = new Set(floorWalls.filter((wall) => wall.floorLayerId === layerId).map((wall) => wall.id))
+    const deletedOpeningIds = new Set(floorOpenings.filter((opening) => deletedWallIds.has(opening.wallId)).map((opening) => opening.id))
     deleteFloorLayer(layerId)
     setFloorWalls((prev) => prev.filter((wall) => wall.floorLayerId !== layerId))
     setFloorOpenings((prev) => prev.filter((opening) => !deletedWallIds.has(opening.wallId)))
+    setHiddenElementIds((prev) =>
+      prev.filter((elementId) => {
+        if (deletedRoomIds.has(elementId.replace(/^2d:room:/, ''))) return false
+        if (deletedWallIds.has(elementId.replace(/^2d:wall:/, ''))) return false
+        if (deletedOpeningIds.has(elementId.replace(/^2d:opening:/, ''))) return false
+        return true
+      }),
+    )
     setSelectedFloorWallId((prev) => (prev && deletedWallIds.has(prev) ? null : prev))
     setSelectedFloorWallIds((prev) => prev.filter((wallId) => !deletedWallIds.has(wallId)))
     setSelectedFloorOpeningId((prev) => {
@@ -4863,7 +4977,7 @@ export function useEditorPage() {
       return next
     })
     markLocalFloorPlanSnapshotChanged()
-  }, [deleteFloorLayer, floorLayers.length, floorOpenings, floorWalls, markLocalFloorPlanSnapshotChanged])
+  }, [deleteFloorLayer, floorLayers, floorOpenings, floorWalls, markLocalFloorPlanSnapshotChanged])
 
   const handleSelectFloorLayer = useCallback((layerId: string) => {
     if (!floorLayers.some((layer) => layer.id === layerId)) return
@@ -4873,7 +4987,22 @@ export function useEditorPage() {
     clearConnectionAndTwoDSelection()
     setSelectedIfcElement(null)
     setOverlayLayerIds((prev) => nextLayerId ? prev.filter((id) => id !== nextLayerId) : prev)
-  }, [activeFloorLayerId, clearConnectionAndTwoDSelection, clearSelection, floorLayers, mode, setActiveFloorLayerId])
+    publishSceneUpdateEvent({
+      type: 'FLOOR_SELECTED',
+      floorId: nextLayerId,
+      payload: { sourceType: 'FROM_2D' },
+    })
+    markLocalFloorPlanSnapshotChanged()
+  }, [
+    activeFloorLayerId,
+    clearConnectionAndTwoDSelection,
+    clearSelection,
+    floorLayers,
+    markLocalFloorPlanSnapshotChanged,
+    mode,
+    publishSceneUpdateEvent,
+    setActiveFloorLayerId,
+  ])
 
   const {
     handleCreateFloorWall: baseHandleCreateFloorWall,
@@ -5874,10 +6003,24 @@ export function useEditorPage() {
     if (!Number.isFinite(expressId)) return
     if (validIfcStoreyIdSet.size > 0 && !validIfcStoreyIdSet.has(expressId)) return
 
-    setActiveIfcStoreyExpressId((prev) => (prev === expressId ? null : expressId))
+    const nextExpressId = activeIfcStoreyExpressId === expressId ? null : expressId
+    setActiveIfcStoreyExpressId(nextExpressId)
     // 활성 층은 겹쳐보기 목록에서 제외한다.
     setOverlayIfcStoreyExpressIds((prev) => prev.filter((value) => value !== expressId))
-  }, [validIfcStoreyIdSet, setActiveIfcStoreyExpressId, setOverlayIfcStoreyExpressIds])
+    publishSceneUpdateEvent({
+      type: 'FLOOR_SELECTED',
+      floorId: nextExpressId != null ? String(nextExpressId) : null,
+      payload: { sourceType: 'IFC_MOCK' },
+    })
+    markLocalFloorPlanSnapshotChanged()
+  }, [
+    activeIfcStoreyExpressId,
+    markLocalFloorPlanSnapshotChanged,
+    publishSceneUpdateEvent,
+    validIfcStoreyIdSet,
+    setActiveIfcStoreyExpressId,
+    setOverlayIfcStoreyExpressIds,
+  ])
 
   /** FloorViewPanel에서 IFC 층 겹쳐보기 토글 시 호출 (id는 expressId의 문자열 표현) */
   const handleToggleIfcStoreyOverlay = useCallback((id: string) => {
@@ -5888,7 +6031,20 @@ export function useEditorPage() {
     setOverlayIfcStoreyExpressIds((prev) =>
       prev.includes(expressId) ? prev.filter((e) => e !== expressId) : [...prev, expressId],
     )
-  }, [activeIfcStoreyExpressId, validIfcStoreyIdSet, setOverlayIfcStoreyExpressIds])
+    publishSceneUpdateEvent({
+      type: 'FLOOR_VISIBILITY_CHANGED',
+      floorId: String(expressId),
+      payload: { sourceType: 'IFC_MOCK', overlay: !overlayIfcStoreyExpressIds.includes(expressId) },
+    })
+    markLocalFloorPlanSnapshotChanged()
+  }, [
+    activeIfcStoreyExpressId,
+    markLocalFloorPlanSnapshotChanged,
+    overlayIfcStoreyExpressIds,
+    publishSceneUpdateEvent,
+    validIfcStoreyIdSet,
+    setOverlayIfcStoreyExpressIds,
+  ])
 
   const handleRenameIfcStorey = useCallback((id: string, name: string) => {
     const expressId = Number(id)
@@ -5899,7 +6055,8 @@ export function useEditorPage() {
         storey.expressId === expressId ? { ...storey, name: trimmedName } : storey
       )),
     )
-  }, [setIfcStoreys])
+    markLocalFloorPlanSnapshotChanged()
+  }, [markLocalFloorPlanSnapshotChanged, setIfcStoreys])
 
   const handleAutoLayoutBubbles = useCallback(() => {
     if (mode !== 'bubble') return
@@ -5942,7 +6099,7 @@ export function useEditorPage() {
       ifcStoreys,
       floorLayers,
       floorRooms,
-      floorWalls: activeLayerVisibleFloorWalls,
+      floorWalls: mergedFloorWalls,
       floorOpenings: mergedFloorOpenings,
       libraryElements,
       ifcElementChanges,
@@ -5959,13 +6116,13 @@ export function useEditorPage() {
     [
       activeFloorLayerId,
       activeIfcStoreyExpressId,
-      activeLayerVisibleFloorWalls,
       floorLayers,
       floorRooms,
       hiddenElementIds,
       ifcElementChanges,
       ifcStoreys,
       libraryElements,
+      mergedFloorWalls,
       mergedFloorOpenings,
       overlayIfcStoreyExpressIds,
       overlayLayerIds,
@@ -5980,10 +6137,49 @@ export function useEditorPage() {
     () => buildElementHierarchyTree(elementRegistry),
     [elementRegistry],
   )
+  const lastPublishedSelectedElementIdRef = useRef<string | null>(null)
+  useEffect(() => {
+    const selectedElementId = elementRegistry.selectedElementId
+    if (lastPublishedSelectedElementIdRef.current === selectedElementId) return
+    lastPublishedSelectedElementIdRef.current = selectedElementId
+    if (!selectedElementId) return
+    const selectedElement = findRegistryElement(elementRegistry, selectedElementId)
+    publishSceneUpdateEvent({
+      type: 'ELEMENT_SELECTED',
+      elementId: selectedElementId,
+      floorId: selectedElement?.floorId ?? null,
+      source2dId: selectedElement?.source2dId,
+      payload: selectedElement
+        ? { sourceType: selectedElement.sourceType, category: selectedElement.category }
+        : undefined,
+    })
+  }, [elementRegistry, publishSceneUpdateEvent])
 
   const visibleLibraryElements = useMemo(
-    () => libraryElements.filter((element) => !hiddenElementIds.includes(`library:${element.id}`)),
-    [hiddenElementIds, libraryElements],
+    () => {
+      const hiddenSet = new Set(hiddenElementIds)
+      const overlayIfcSet = new Set(overlayIfcStoreyExpressIds)
+      const overlayFloorSet = new Set(overlayLayerIds)
+      return libraryElements.filter((element) => {
+        if (hiddenSet.has(`library:${element.id}`)) return false
+        if (Number.isFinite(element.storeyExpressId)) {
+          const storeyExpressId = Number(element.storeyExpressId)
+          return activeIfcStoreyExpressId == null ||
+            storeyExpressId === activeIfcStoreyExpressId ||
+            overlayIfcSet.has(storeyExpressId)
+        }
+        if (!element.floorLayerId || !activeFloorLayerId) return true
+        return element.floorLayerId === activeFloorLayerId || overlayFloorSet.has(element.floorLayerId)
+      })
+    },
+    [
+      activeFloorLayerId,
+      activeIfcStoreyExpressId,
+      hiddenElementIds,
+      libraryElements,
+      overlayIfcStoreyExpressIds,
+      overlayLayerIds,
+    ],
   )
   const hiddenIfcElementLocalIds = useMemo(
     () => hiddenElementIds
@@ -6000,6 +6196,13 @@ export function useEditorPage() {
   const handleSelectRegistryElement = useCallback((elementId: string) => {
     const element = findRegistryElement(elementRegistry, elementId)
     if (!element) return
+    publishSceneUpdateEvent({
+      type: 'TREE_NODE_SELECTED',
+      elementId,
+      floorId: element.floorId,
+      source2dId: element.source2dId,
+      payload: { sourceType: element.sourceType },
+    })
     const target = resolveRegistryElementSelectionTarget(element)
     if (element.floorId) {
       if (target.kind === 'ifc') {
@@ -6012,22 +6215,27 @@ export function useEditorPage() {
       }
     }
     if (target.kind === 'ifc') {
+      publishSceneUpdateEvent({ type: 'ELEMENT_SELECTED', elementId, floorId: element.floorId })
       handleSelectIfcElementByLocalId(target.localId)
       return
     }
     if (target.kind === 'library') {
+      publishSceneUpdateEvent({ type: 'ELEMENT_SELECTED', elementId, floorId: element.floorId })
       handleSelectLibraryElementById(target.id)
       return
     }
     if (target.kind === 'room') {
+      publishSceneUpdateEvent({ type: 'ELEMENT_SELECTED', elementId, floorId: element.floorId, source2dId: target.id })
       handleBubbleSelect(target.id)
       return
     }
     if (target.kind === 'wall') {
+      publishSceneUpdateEvent({ type: 'ELEMENT_SELECTED', elementId, floorId: element.floorId, source2dId: target.id })
       handleSelectFloorWall(target.id)
       return
     }
     if (target.kind === 'opening') {
+      publishSceneUpdateEvent({ type: 'ELEMENT_SELECTED', elementId, floorId: element.floorId, source2dId: target.id })
       handleSelectFloorOpening(target.id)
     }
   }, [
@@ -6041,6 +6249,7 @@ export function useEditorPage() {
     handleSelectIfcElementByLocalId,
     handleSelectIfcStorey,
     handleSelectLibraryElementById,
+    publishSceneUpdateEvent,
   ])
 
   const handleToggleElementVisibility = useCallback((elementId: string) => {
@@ -6053,7 +6262,19 @@ export function useEditorPage() {
         ? prev.filter((id) => id !== elementId)
         : [...prev, elementId]
     ))
-  }, [elementRegistry.selectedElementId, handleClearCanvasSelection, hiddenElementIds])
+    markLocalFloorPlanSnapshotChanged()
+    publishSceneUpdateEvent({
+      type: 'ELEMENT_UPDATED',
+      elementId,
+      payload: { hidden: willHide },
+    })
+  }, [
+    elementRegistry.selectedElementId,
+    handleClearCanvasSelection,
+    hiddenElementIds,
+    markLocalFloorPlanSnapshotChanged,
+    publishSceneUpdateEvent,
+  ])
 
   return {
     // 모드

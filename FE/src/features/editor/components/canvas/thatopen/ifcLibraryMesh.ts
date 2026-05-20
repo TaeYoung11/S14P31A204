@@ -390,6 +390,7 @@ export const getLibraryElementInfo = (object: LibraryObject3D): IfcElementInfo |
       SourceAssetId: preset.sourceAssetId ?? '-',
       AssetIfcUrl: preset.assetIfcUrl ?? '-',
       StoreyExpressID: preset.storeyExpressId ?? '-',
+      FloorLayerId: preset.floorLayerId ?? '-',
       RoofShape: preset.type === 'roof' ? resolveRoofShape(preset) : '-',
       Length: lengthMm ?? '-',
       Height: heightMm ?? '-',

@@ -53,6 +53,18 @@ const CATEGORY_LABELS: Record<string, string> = {
   Stair: '계단',
   Library: '라이브러리',
   Unassigned: '미배정',
+  roof: '지붕',
+  'exterior-wall': '외벽',
+  'interior-wall': '내벽',
+  window: '창문',
+  'room-door': '방문',
+  'front-door': '현관문',
+  stairs: '계단',
+  terrace: '테라스',
+  column: '기둥',
+  floor: '바닥',
+  ceiling: '천장',
+  furniture: '가구',
 }
 
 const compareByName = <T extends { name?: string; label?: string; floorId?: string | null }>(left: T, right: T) => {
@@ -232,8 +244,14 @@ const createOpeningElement = (opening: FloorOpening, floorId: string | null): El
 const createLibraryElement = (preset: ThreeDLibraryPreset): ElementRegistryItem => ({
   elementId: normalizeLibraryElementId(preset.id),
   sourceType: 'LIBRARY',
-  floorId: Number.isFinite(preset.storeyExpressId) ? String(preset.storeyExpressId) : null,
-  parentId: Number.isFinite(preset.storeyExpressId) ? `floor:${preset.storeyExpressId}` : 'unassigned',
+  floorId: Number.isFinite(preset.storeyExpressId)
+    ? String(preset.storeyExpressId)
+    : preset.floorLayerId ?? null,
+  parentId: Number.isFinite(preset.storeyExpressId)
+    ? `floor:${preset.storeyExpressId}`
+    : preset.floorLayerId
+      ? `floor:${preset.floorLayerId}`
+      : 'unassigned',
   category: preset.type,
   name: preset.name,
   geometryId: preset.sourceAssetId ?? preset.assetIfc ?? preset.id,
@@ -248,6 +266,7 @@ const createLibraryElement = (preset: ThreeDLibraryPreset): ElementRegistryItem 
     ThicknessMm: preset.thicknessMm,
     Material: preset.material,
     StoreyExpressId: preset.storeyExpressId,
+    FloorLayerId: preset.floorLayerId,
   }),
 })
 
@@ -383,13 +402,31 @@ export function buildElementRegistry(input: BuildElementRegistryInput): ElementR
 const getCategoryLabel = (category: string): string =>
   CATEGORY_LABELS[category] ?? CATEGORY_LABELS[category.replace(/^Ifc/i, '')] ?? category
 
-const getElementComputedVisibility = (
+export const getRegistryElementComputedVisibility = (
   element: ElementRegistryItem,
-  visibleFloorIds: Set<string>,
-  hiddenElementIds: Set<string>,
+  visibleFloorIds: Iterable<string>,
+  hiddenElementIds: Iterable<string>,
 ): boolean => {
-  const floorVisible = element.floorId == null || visibleFloorIds.size === 0 || visibleFloorIds.has(element.floorId)
-  return floorVisible && !hiddenElementIds.has(element.elementId)
+  const visibleFloorIdSet = visibleFloorIds instanceof Set ? visibleFloorIds : new Set(visibleFloorIds)
+  const hiddenElementIdSet = hiddenElementIds instanceof Set ? hiddenElementIds : new Set(hiddenElementIds)
+  const floorVisible = element.floorId == null || visibleFloorIdSet.size === 0 || visibleFloorIdSet.has(element.floorId)
+  return floorVisible && !hiddenElementIdSet.has(element.elementId)
+}
+
+export const filterRegistryElementsByFloors = (
+  registry: ElementRegistryState,
+  floorIds: Iterable<string>,
+): ElementRegistryItem[] => {
+  const floorIdSet = floorIds instanceof Set ? floorIds : new Set(floorIds)
+  if (floorIdSet.size === 0) return registry.elements
+  return registry.elements.filter((element) => element.floorId == null || floorIdSet.has(element.floorId))
+}
+
+export const getVisibleRegistryElements = (registry: ElementRegistryState): ElementRegistryItem[] => {
+  const visibleFloorIds = new Set(registry.visibleFloorIds)
+  const hiddenElementIds = new Set(registry.hiddenElementIds)
+  return registry.elements.filter((element) =>
+    getRegistryElementComputedVisibility(element, visibleFloorIds, hiddenElementIds))
 }
 
 export function buildElementHierarchyTree(registry: ElementRegistryState): ElementHierarchyNode[] {
@@ -422,7 +459,7 @@ export function buildElementHierarchyTree(registry: ElementRegistryState): Eleme
         floorId: floor.floorId,
         category,
         sourceType: floor.sourceType,
-        isVisible: elements.some((element) => getElementComputedVisibility(element, visibleFloorIds, hiddenElementIds)),
+        isVisible: elements.some((element) => getRegistryElementComputedVisibility(element, visibleFloorIds, hiddenElementIds)),
         children: elements.map((element) => ({
           id: element.elementId,
           label: element.name,
@@ -432,7 +469,7 @@ export function buildElementHierarchyTree(registry: ElementRegistryState): Eleme
           category: element.category,
           sourceType: element.sourceType,
           isSelected: selectedElementId === element.elementId,
-          isVisible: getElementComputedVisibility(element, visibleFloorIds, hiddenElementIds),
+          isVisible: getRegistryElementComputedVisibility(element, visibleFloorIds, hiddenElementIds),
           isLocked: element.isLocked,
           children: [],
         })),

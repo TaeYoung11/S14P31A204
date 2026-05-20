@@ -119,6 +119,7 @@ const toLibraryElementCommandData = (preset: ThreeDLibraryPreset): Record<string
   assetIfcUrl: preset.assetIfcUrl,
   sourceAssetId: preset.sourceAssetId,
   storeyExpressId: preset.storeyExpressId,
+  floorLayerId: preset.floorLayerId,
   roofShape: preset.roofShape,
   position: preset.position,
   rotation: preset.rotation,

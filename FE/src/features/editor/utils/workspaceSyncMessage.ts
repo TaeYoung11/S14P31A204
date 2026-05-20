@@ -35,6 +35,10 @@ export interface FloorPlanSnapshotPayload extends BubbleSnapshotPayload {
     hiddenAutoOpeningIds?: string[]
     isProjectStructurePreferred?: boolean
     ifcElementChanges?: IfcElementChange[]
+    activeIfcStoreyExpressId?: number | null
+    overlayIfcStoreyExpressIds?: number[]
+    overlayFloorLayerIds?: string[]
+    hiddenElementIds?: string[]
     mode?: 'ifc' | string
     baseIndex?: number
   } | null
