@@ -31,6 +31,12 @@ export default function ProjectDeleteConfirmModal({
   onConfirmNameChange,
 }: ProjectDeleteConfirmModalProps) {
   const isBulkDelete = projects.length > 1
+  const isConfirmDisabled = isDeleting || !isConfirmValid
+
+  const handleConfirm = () => {
+    if (isConfirmDisabled) return
+    onConfirm()
+  }
 
   return (
     <Modal
@@ -98,9 +104,9 @@ export default function ProjectDeleteConfirmModal({
           </button>
           <button
             type="button"
-            className="project-danger-button"
-            onClick={onConfirm}
-            disabled={isDeleting || !isConfirmValid}
+            className="project-danger-button min-w-20 bg-[#b42318] text-white hover:bg-[#8f1f16]"
+            onClick={handleConfirm}
+            disabled={isConfirmDisabled}
           >
             <Trash2 className="h-4 w-4" />
             {isDeleting ? '삭제 중...' : '삭제'}
