@@ -1,4 +1,5 @@
 import type { FloorProject, FloorProjectPoint2D } from '../types/floorProject.types'
+import { parseIfcToFloorProject } from './ifcToFloorProject'
 import { decodeIfcStepString } from './ifcStepString.ts'
 
 interface IfcImportSuccess {
@@ -48,6 +49,7 @@ interface ParseWebIfcInput {
   ifcApi: WebIfcApiForFloorProject
   modelId: number
   sourceName: string
+  ifcText?: string
 }
 
 export interface Aabb3D {
@@ -313,15 +315,17 @@ function toWallFromAabb(aabb: Aabb3D, lengthMultiplier: number) {
 
 const normalizeIfcRoomType = (objectTypeRaw: string | null): string => {
   const value = (objectTypeRaw ?? '').trim().toLowerCase()
-  if (!value) return 'other'
+  if (!value) return '미선택'
   const token = value.replace(/[\s_-]+/g, '')
-  if (token === 'living') return 'living'
-  if (token === 'bedroom') return 'bedroom'
-  if (token === 'kitchen') return 'kitchen'
-  if (token === 'bathroom') return 'bathroom'
-  if (token === 'office') return 'office'
-  if (token === 'corridor') return 'corridor'
-  return 'other'
+  if (token === 'living' || token === 'livingroom' || token === '거실') return '거실'
+  if (token === 'bedroom' || token === 'masterbedroom' || token === '침실') return '침실'
+  if (token === 'room' || token === 'study' || token === 'studyroom' || token === '방') return '방'
+  if (token === 'kitchen' || token === '주방') return '주방'
+  if (token === 'bathroom' || token === 'restroom' || token === 'toilet' || token === 'wc' || token === '화장실') return '화장실'
+  if (token === 'corridor' || token === 'hall' || token === 'hallway' || token === '복도') return '복도'
+  if (token === 'entrance' || token === 'entrancehall' || token === 'entrancestairhall' || token === '현관') return '현관'
+  if (token === 'other' || token === 'notdefined' || token === 'undefined' || token === 'unknown' || token === '미선택') return '미선택'
+  return '미선택'
 }
 
 const getTypeCodeOrNull = (ifcApi: WebIfcApiForFloorProject, typeName: string): number | null => {
@@ -404,6 +408,7 @@ export function parseWebIfcToFloorProject({
   ifcApi,
   modelId,
   sourceName,
+  ifcText,
 }: ParseWebIfcInput): WebIfcToFloorProjectResult {
   const now = new Date().toISOString()
 
@@ -451,6 +456,10 @@ export function parseWebIfcToFloorProject({
   })
   const defaultFloorId = floors[0]?.id ?? 'floor-1'
   const spaceAreaMap = resolveSpaceAreaMap(ifcApi, modelId, (lengthMultiplier * lengthMultiplier) / 1_000_000)
+  const stepProject = ifcText ? parseIfcToFloorProject(ifcText, sourceName) : null
+  const stepRooms = stepProject?.ok && stepProject.project.rooms.length > 0
+    ? stepProject.project.rooms
+    : null
 
   const spaceToFloorId = new Map<number, string>()
   const wallToFloorId = new Map<number, string>()
@@ -483,27 +492,29 @@ export function parseWebIfcToFloorProject({
   }
 
   const spaceLines = getLinesByType(ifcApi, modelId, 'IFCSPACE')
-  const rooms: FloorProject['rooms'] = []
-  for (const { expressId, line } of spaceLines) {
-    const roomId = readString(line.GlobalId) ?? `space-${expressId}`
-    const floorId = spaceToFloorId.get(expressId) ?? defaultFloorId
-    const aabb = buildElementAabb(ifcApi, modelId, expressId)
-    if (!aabb) continue
-    const roughPolygon = toRoomPolygonFromAabb(aabb, lengthMultiplier)
-    const polygon = computeConvexHull2D(roughPolygon)
-    if (polygon.length < 3) continue
-    const areaValues = spaceAreaMap.get(expressId)
-    rooms.push({
-      id: roomId,
-      name: readString(line.Name) ?? roomId,
-      type: normalizeIfcRoomType(readString(line.ObjectType)),
-      floor: floorId,
-      polygon,
-      ...(areaValues?.areaM2 ? { areaM2: areaValues.areaM2 } : {}),
-      ...(areaValues?.grossAreaM2 ? { grossAreaM2: areaValues.grossAreaM2 } : {}),
-      ...(areaValues?.netAreaM2 ? { netAreaM2: areaValues.netAreaM2 } : {}),
-      metadata: areaValues ? { ...areaValues } : null,
-    })
+  const rooms: FloorProject['rooms'] = stepRooms ? [...stepRooms] : []
+  if (!stepRooms) {
+    for (const { expressId, line } of spaceLines) {
+      const roomId = readString(line.GlobalId) ?? `space-${expressId}`
+      const floorId = spaceToFloorId.get(expressId) ?? defaultFloorId
+      const aabb = buildElementAabb(ifcApi, modelId, expressId)
+      if (!aabb) continue
+      const roughPolygon = toRoomPolygonFromAabb(aabb, lengthMultiplier)
+      const polygon = computeConvexHull2D(roughPolygon)
+      if (polygon.length < 3) continue
+      const areaValues = spaceAreaMap.get(expressId)
+      rooms.push({
+        id: roomId,
+        name: readString(line.Name) ?? roomId,
+        type: normalizeIfcRoomType(readString(line.ObjectType)),
+        floor: floorId,
+        polygon,
+        ...(areaValues?.areaM2 ? { areaM2: areaValues.areaM2 } : {}),
+        ...(areaValues?.grossAreaM2 ? { grossAreaM2: areaValues.grossAreaM2 } : {}),
+        ...(areaValues?.netAreaM2 ? { netAreaM2: areaValues.netAreaM2 } : {}),
+        metadata: areaValues ? { ...areaValues } : null,
+      })
+    }
   }
 
   const wallLines = getLinesByType(ifcApi, modelId, 'IFCWALL', true)
@@ -562,13 +573,25 @@ export function parseWebIfcToFloorProject({
     const wall = wallByExpressId.get(wallRef)
     if (!wall) return
 
-    const aabb = buildElementAabb(ifcApi, modelId, entry.expressId)
+    const fillAabb = buildElementAabb(ifcApi, modelId, entry.expressId)
+    const voidAabb = buildElementAabb(ifcApi, modelId, openingRef)
+    const aabb = fillAabb ?? voidAabb
     if (!aabb) return
     const center = {
       x: roundMm(((aabb.minX + aabb.maxX) / 2) * lengthMultiplier),
       y: roundMm(((aabb.minY + aabb.maxY) / 2) * lengthMultiplier),
     }
-    const width = roundMm(Math.max((aabb.maxX - aabb.minX) * lengthMultiplier, (aabb.maxY - aabb.minY) * lengthMultiplier))
+    const aabbWidth = Math.max(
+      fillAabb ? (fillAabb.maxX - fillAabb.minX) * lengthMultiplier : 0,
+      fillAabb ? (fillAabb.maxY - fillAabb.minY) * lengthMultiplier : 0,
+      voidAabb ? (voidAabb.maxX - voidAabb.minX) * lengthMultiplier : 0,
+      voidAabb ? (voidAabb.maxY - voidAabb.minY) * lengthMultiplier : 0,
+    )
+    const overallWidth = readNumber(entry.line.OverallWidth)
+    const width = roundMm(Math.max(
+      aabbWidth,
+      overallWidth !== null ? overallWidth * lengthMultiplier : 0,
+    ))
     const height = roundMm((aabb.maxZ - aabb.minZ) * lengthMultiplier)
 
     openings.push({

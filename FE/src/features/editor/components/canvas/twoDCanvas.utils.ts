@@ -4,7 +4,7 @@ import { hexToRgba } from '../../utils/bubbleCalc'
 import type { AxisAlignedRect } from '../../utils/geometry2d'
 
 const OPENING_MIN_PX = 16
-const OPENING_MAX_PX = 56
+const OPENING_SNAP_MAX_DISTANCE_PX = 18
 const ROOM_ADJACENT_SNAP_DISTANCE = 14
 const ROOM_EDGE_ALIGN_SNAP_DISTANCE = 14
 
@@ -32,7 +32,7 @@ export function wallThicknessMmToPx(thicknessMm: number): number {
 
 /** 개구부 폭(mm)을 화면 표시용 폭(px)로 변환한다. */
 export function openingWidthMmToPx(widthMm: number): number {
-  return Math.min(Math.max(Math.round(widthMm / FLOOR_MM_PER_PX), OPENING_MIN_PX), OPENING_MAX_PX)
+  return Math.max(Math.round(widthMm / FLOOR_MM_PER_PX), OPENING_MIN_PX)
 }
 
 /** 벽 선분의 t(0~1) 위치 좌표를 반환한다. */
@@ -102,6 +102,10 @@ export function getSnappedOpeningWallPosition({
 }: GetSnappedOpeningWallPositionParams): OpeningSnapResult {
   const wallLengthPx = Math.hypot(wall.end.x - wall.start.x, wall.end.y - wall.start.y)
   const wallLengthMm = Math.max(wallLengthPx * FLOOR_MM_PER_PX, 1)
+  const effectiveSnapThreshold = Math.min(
+    snapThreshold,
+    OPENING_SNAP_MAX_DISTANCE_PX / Math.max(wallLengthPx, 1),
+  )
   let value = Math.min(Math.max(rawWallPosition, 0), 1)
   if (isGridSnapEnabled) {
     const ratioStep = Math.min(Math.max(gridSnapStepPx / Math.max(wallLengthPx, 1), 0.005), 0.25)
@@ -141,7 +145,7 @@ export function getSnappedOpeningWallPosition({
   for (const group of candidateGroups) {
     const best = findBestCandidate(group)
     if (!best) continue
-    if (best.diff <= snapThreshold) {
+    if (best.diff <= effectiveSnapThreshold) {
       value = best.candidate
       return { wallPosition: value, guidePosition: best.candidate }
     }

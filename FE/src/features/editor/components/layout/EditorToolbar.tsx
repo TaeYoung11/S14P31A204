@@ -1,5 +1,5 @@
-import { FolderKanban, Redo2, Undo2 } from 'lucide-react'
-import type { EditorMode } from '../../types'
+import { FolderKanban, Loader2, Redo2, Undo2 } from 'lucide-react'
+import type { EditorMode, SaveStatus } from '../../types'
 
 interface EditorToolbarProps {
   mode: EditorMode
@@ -9,14 +9,16 @@ interface EditorToolbarProps {
   onRedo?: () => void
   canUndo?: boolean
   canRedo?: boolean
+  saveStatus?: SaveStatus
+  hasUnsavedDbChanges?: boolean
 }
 
 type ToolbarMode = Exclude<EditorMode, 'view'>
 
 const MODE_LABELS: Record<ToolbarMode, string> = {
-  bubble: 'Bubble',
-  '2d': '2D Plan',
-  '3d': '3D View',
+  bubble: '버블',
+  '2d': '2D',
+  '3d': '3D',
 }
 
 const TOOLBAR_MODES: ToolbarMode[] = ['bubble', '2d', '3d']
@@ -33,10 +35,13 @@ export default function EditorToolbar({
   onRedo,
   canUndo = false,
   canRedo = false,
+  saveStatus = 'idle',
+  hasUnsavedDbChanges = false,
 }: EditorToolbarProps) {
   const isView = mode === 'view'
   const displayProjectName = projectName?.trim() || '프로젝트'
-  const getModeTabClass = (tabMode: ToolbarMode) => `rounded-full px-4 py-1.5 text-[11px] font-bold transition-all ${
+  const shouldShowSyncingSpinner = saveStatus === 'syncing'
+  const getModeTabClass = (tabMode: ToolbarMode) => `min-h-9 min-w-[68px] rounded-full px-5 py-2 text-[13px] font-bold transition-all ${
     mode === tabMode
       ? isView
         ? 'bg-white/20 text-white shadow-sm'
@@ -62,12 +67,28 @@ export default function EditorToolbar({
             <h1 className={`max-w-[280px] truncate text-sm font-bold ${isView ? 'text-white/90' : 'text-[#1C1C1E]'}`}>
               {displayProjectName}
             </h1>
+            {hasUnsavedDbChanges && (
+              <span
+                className={`shrink-0 text-base font-black leading-none ${isView ? 'text-white/80' : 'text-[#A35F00]'}`}
+                title="DB에 저장되지 않은 변경사항이 있습니다"
+                aria-label="DB에 저장되지 않은 변경사항"
+              >
+                *
+              </span>
+            )}
+            {shouldShowSyncingSpinner && (
+              <Loader2
+                size={14}
+                className={`shrink-0 animate-spin ${isView ? 'text-white/80' : 'text-[#3B45B3]'}`}
+                aria-label="저장 중"
+              />
+            )}
           </div>
         </div>
 
         <div className="flex items-center gap-5 justify-self-center">
           {!isView && (
-            <div className="flex items-center gap-1 rounded-full border border-[#E4E8F3] bg-[#EEF1F8] p-1">
+            <div className="flex items-center gap-1.5 rounded-full border border-[#E4E8F3] bg-[#EEF1F8] p-1.5">
               {TOOLBAR_MODES.map((m) => (
                 <button key={m} type="button" onClick={() => onModeChange(m)} className={getModeTabClass(m)}>
                   {MODE_LABELS[m]}

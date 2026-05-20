@@ -1,4 +1,4 @@
-import type { CollaborationUserType, EditorMode, SaveStatus } from '../../types'
+import type { CollaborationUserType, EditorMode } from '../../types'
 import EditorHeaderActions from './header/EditorHeaderActions'
 import EditorHeaderBrandAndMode from './header/EditorHeaderBrandAndMode'
 
@@ -10,7 +10,6 @@ interface EditorHeaderProps {
   mode: EditorMode
   onModeChange: (mode: EditorMode) => void
   onSave?: () => void
-  saveStatus?: SaveStatus
   siteAreaLabel?: string
 }
 
@@ -26,7 +25,6 @@ export default function EditorHeader({
   mode,
   onModeChange,
   onSave,
-  saveStatus = 'idle',
   siteAreaLabel,
 }: EditorHeaderProps) {
   const isViewer = mode === 'view'
@@ -44,13 +42,11 @@ export default function EditorHeader({
         onOpenProjectSwitcher={onOpenProjectSwitcher}
       />
       <EditorHeaderActions
-        mode={mode}
         isViewer={isViewer}
         userType={userType}
         onOpenInvite={onOpenInvite}
         onOpenNotification={onOpenNotification}
         onSave={onSave}
-        saveStatus={saveStatus}
         siteAreaLabel={siteAreaLabel}
       />
     </header>

@@ -346,12 +346,14 @@ export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
             </p>
             <div className="flex items-center gap-2">
               <button
+                type="button"
                 onClick={handleClose}
-                className="project-secondary-button border-transparent bg-transparent shadow-none hover:bg-white"
+                className="project-ghost-button hover:bg-white"
               >
                 취소
               </button>
               <button
+                type="button"
                 onClick={handleSubmit}
                 disabled={selectedUsers.length === 0 || projectIds.length === 0 || submitStatus === 'loading' || submitStatus === 'success'}
                 className="project-primary-button px-8"

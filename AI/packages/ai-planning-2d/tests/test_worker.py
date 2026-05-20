@@ -22,6 +22,7 @@ from ai_domain.worker_messages.event import EventMessage
 from ai_planning_2d.ifc_extractor import UnsupportedIfcLengthUnitError, UnsupportedIfcSchemaError
 from ai_planning_2d.schemas import ClarificationArtifact
 from ai_planning_2d.worker import TwoDLlmWorker, run_two_d_llm_job
+from ai_planning_2d.worker_runtime.worker import _apply_planner_options_to_command
 from ai_planning_2d.worker_app import WORKER_TYPE, build_settings, run_two_d_llm_worker
 
 
@@ -78,6 +79,25 @@ class FakeStorageClient:
 
 def _raise(exc: Exception) -> None:
     raise exc
+
+
+def test_apply_planner_options_to_command_resolves_merge_window_floor_choice() -> None:
+    command = ai_planning_2d.FloorNLPCommand(
+        action="add_room",
+        confidence=0.2,
+        needs_clarification=True,
+        clarification_question="select a floor",
+    )
+
+    updated = _apply_planner_options_to_command(
+        command,
+        {"action": "merge_windows", "target_floor": 1, "target_room_name": "안방"},
+    )
+
+    assert updated.action == "merge_windows"
+    assert updated.target_room_name == "안방"
+    assert updated.target_floor == 1
+    assert updated.needs_clarification is False
 
 
 def _command(
@@ -620,7 +640,7 @@ def test_two_d_llm_worker_reports_unsupported_ifc_length_unit(
     monkeypatch.setattr(
         "ai_planning_2d.worker_runtime.worker.extract_ifc_context",
         lambda _: _raise(
-            UnsupportedIfcLengthUnitError("Unsupported IFC length unit prefix: MILLI")
+            UnsupportedIfcLengthUnitError("Unsupported IFC length unit prefix: KILO")
         ),
     )
 

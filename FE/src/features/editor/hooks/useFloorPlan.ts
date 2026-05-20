@@ -145,7 +145,7 @@ export function useFloorPlan(projectId?: string) {
    * 층 추가
    * 빈 새 층 생성 후 전환
    */
-  const addFloorLayer = useCallback(() => {
+  const addFloorLayer = useCallback((): FloorLayer => {
     const newId = `floor-${Date.now()}`
     const floorNum = layers.length + 1
 
@@ -157,7 +157,8 @@ export function useFloorPlan(projectId?: string) {
     }
     setLayers((prev) => [...prev, newLayer])
     setActiveLayerId(newId)
-  }, [layers])
+    return newLayer
+  }, [layers.length])
 
   /** 층 이름 수정 */
   const renameFloorLayer = useCallback((layerId: string, name: string) => {
@@ -370,6 +371,14 @@ export function useFloorPlan(projectId?: string) {
     })
   }, [])
 
+  const updateFloorLayers = useCallback((updater: (layers: FloorLayer[]) => FloorLayer[]) => {
+    setLayers((currentLayers) => {
+      const nextLayers = updater(currentLayers)
+      if (nextLayers === currentLayers) return currentLayers
+      return normalizeFloorLayerLabels(nextLayers)
+    })
+  }, [])
+
   return {
     isGenerated,
     isGenerating,
@@ -391,5 +400,6 @@ export function useFloorPlan(projectId?: string) {
     removeActiveRooms,
     clearFloorPlan,
     replaceFloorPlanState,
+    updateFloorLayers,
   }
 }

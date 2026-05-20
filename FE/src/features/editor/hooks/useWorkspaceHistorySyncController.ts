@@ -9,6 +9,7 @@ interface AwaitingServerSyncRecordLike {
   historyDomain: 'bubble' | 'floorPlan'
   baseIndex: number
   startedAt: number
+  unsavedDbChangeVersion?: number
 }
 
 interface PendingServerPublishRecordLike {
@@ -37,6 +38,7 @@ interface UseWorkspaceHistorySyncControllerInput {
   loadHistorySnapshot: (projectId: string) => Promise<WorkspaceHistorySnapshotResponse>
   isCursorInvalidCode: (code: string | undefined) => boolean
   isNonRetriableServerErrorCode?: (code: string | undefined) => boolean
+  onHistorySyncSuccess?: (awaitingSync: AwaitingServerSyncRecordLike) => void
   maxHistoryIndex?: number
 }
 
@@ -67,6 +69,7 @@ export function useWorkspaceHistorySyncController({
   loadHistorySnapshot,
   isCursorInvalidCode,
   isNonRetriableServerErrorCode,
+  onHistorySyncSuccess,
   maxHistoryIndex = 9,
 }: UseWorkspaceHistorySyncControllerInput) {
   const refreshHistoryCursorFromServer = useCallback(async (options?: {
@@ -114,6 +117,7 @@ export function useWorkspaceHistorySyncController({
     ) {
       previousSnapshotRef.current = awaitingSync.serializedSnapshot
       pendingServerPublishRef.current = null
+      onHistorySyncSuccess?.(awaitingSync)
       setSaveStatus('synced')
       return
     }
@@ -138,6 +142,7 @@ export function useWorkspaceHistorySyncController({
     setBubbleHistoryCursor,
     setFloorPlanHistoryCursor,
     setSaveStatus,
+    onHistorySyncSuccess,
   ])
 
   const updateBubbleHistoryCursor = useCallback((baseIndex: number, redoDepth: number) => {
@@ -156,6 +161,7 @@ export function useWorkspaceHistorySyncController({
       previousSnapshotRef.current = awaitingSync.serializedSnapshot
       pendingServerPublishRef.current = null
       awaitingServerSyncRef.current = null
+      onHistorySyncSuccess?.(awaitingSync)
       setSaveStatus('synced')
     }
   }, [
@@ -169,6 +175,7 @@ export function useWorkspaceHistorySyncController({
     setBubbleHistoryCursor,
     setSaveStatus,
     workspaceEditTransactionDepthRef,
+    onHistorySyncSuccess,
   ])
 
   const updateFloorPlanHistoryCursor = useCallback((baseIndex: number, redoDepth: number) => {
@@ -181,13 +188,22 @@ export function useWorkspaceHistorySyncController({
 
     if (
       awaitingSync.projectId === projectId &&
-      awaitingSync.historyDomain === 'floorPlan' &&
-      workspaceEditTransactionDepthRef.current === 0 &&
-      !pendingWorkspaceSnapshotCommitRef.current
+      awaitingSync.historyDomain === 'floorPlan'
     ) {
       previousSnapshotRef.current = awaitingSync.serializedSnapshot
       pendingServerPublishRef.current = null
       awaitingServerSyncRef.current = null
+      if (workspaceEditTransactionDepthRef.current > 0) {
+        setSaveStatus('dirty')
+        return
+      }
+      if (pendingWorkspaceSnapshotCommitRef.current) {
+        pendingWorkspaceSnapshotCommitRef.current = false
+        setSaveStatus('dirty')
+        requestRepublishSnapshotCommit()
+        return
+      }
+      onHistorySyncSuccess?.(awaitingSync)
       setSaveStatus('synced')
     }
   }, [
@@ -199,9 +215,11 @@ export function useWorkspaceHistorySyncController({
     pendingWorkspaceSnapshotCommitRef,
     previousSnapshotRef,
     projectId,
+    requestRepublishSnapshotCommit,
     setFloorPlanHistoryCursor,
     setSaveStatus,
     workspaceEditTransactionDepthRef,
+    onHistorySyncSuccess,
   ])
 
   const handleWorkspaceServerError = useCallback((error: { code?: string }) => {
@@ -310,10 +328,12 @@ export function useWorkspaceHistorySyncController({
     if (saveStatus !== 'syncing') return
     const awaitingSync = awaitingServerSyncRef.current
     if (!awaitingSync || awaitingSync.projectId !== projectId) return
+    if (awaitingSync.historyDomain === 'floorPlan') return
 
     const timerId = window.setTimeout(() => {
       const currentAwaitingSync = awaitingServerSyncRef.current
       if (!currentAwaitingSync || currentAwaitingSync.projectId !== projectId) return
+      if (currentAwaitingSync.historyDomain === 'floorPlan') return
       if (Date.now() - currentAwaitingSync.startedAt < 5000) return
       void refreshHistoryCursorFromServer()
     }, 5200)

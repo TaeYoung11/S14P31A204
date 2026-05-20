@@ -277,6 +277,7 @@ class CreateElementHandler:
             )
                 return None
             sill_height_mm = parameters.get("sill_height_mm")
+            window_style = parameters.get("window_style")
             require_template_reuse = bool(parameters.get("require_template_reuse"))
             if element_type == "IfcDoor":
                 creator = (
@@ -302,6 +303,7 @@ class CreateElementHandler:
                 **common,
                 host_wall=host_wall,
                 sill_height_mm=float(sill_height_mm if sill_height_mm is not None else 900.0),
+                window_style=window_style,
             )
         return create_generic_element(model, resolved_storey, element_type, **common)
 

@@ -9,8 +9,8 @@
    ===================== */
 :root {
   /* Background */
-  --color-bg: #ffffff;
-  --color-bg-secondary: #f8f9fa;
+  --color-bg: #f0f2f9;
+  --color-bg-secondary: #f0f2f9;
   --color-bg-tertiary: #f1f3f5;
   --color-surface: #ffffff;
 
@@ -24,9 +24,10 @@
   --color-text-tertiary: #9ca3af;
 
   /* Primary */
-  --color-primary: #2563eb;
-  --color-primary-hover: #1d4ed8;
-  --color-primary-light: #eff6ff;
+  --color-primary: #3b45b3;
+  --color-primary-hover: #2d3691;
+  --color-primary-light: #eef0ff;
+  --color-primary-shadow: rgba(59, 69, 179, 0.2);
 
   /* Semantic */
   --color-success: #16a34a;
@@ -131,8 +132,8 @@ h6 {
    BUTTONS
    ===================== */
 .btn-primary {
-  @apply bg-[#2563eb] text-white px-3.5 py-1.5 rounded-md text-sm font-medium
-         hover:bg-[#1d4ed8] transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  @apply bg-[#3B45B3] text-white px-3.5 py-1.5 rounded-md text-sm font-medium
+         hover:bg-[#2D3691] transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
 }
 
 .btn-secondary {
@@ -156,16 +157,16 @@ h6 {
 .input-base {
   @apply w-full bg-white border border-[#e5e7eb] rounded-md px-3 py-2 text-sm text-[#111827]
          placeholder-[#9ca3af]
-         focus:outline-none focus:border-[#2563eb]
-         focus:ring-2 focus:ring-[#2563eb]/10
+         focus:outline-none focus:border-[#3B45B3]
+         focus:ring-2 focus:ring-[#3B45B3]/10
          transition-colors;
 }
 
 .input-auth {
   @apply w-full bg-white/90 border border-[#dbe3ef] rounded-xl px-3.5 py-2.5
          text-sm text-[#0f172a] placeholder-[#94a3b8]
-         focus:outline-none focus:border-[#2563eb]
-         focus:ring-4 focus:ring-[#2563eb]/10
+         focus:outline-none focus:border-[#3B45B3]
+         focus:ring-4 focus:ring-[#3B45B3]/10
          transition-all duration-200;
   box-shadow: 0 1px 0 rgba(15, 23, 42, 0.03);
 }
@@ -176,8 +177,8 @@ h6 {
 .auth-layout-shell {
   isolation: isolate;
   background:
-    linear-gradient(135deg, rgba(79, 70, 229, 0.10), transparent 36%),
-    linear-gradient(315deg, rgba(124, 58, 237, 0.08), transparent 42%),
+    linear-gradient(135deg, rgba(59, 69, 179, 0.10), transparent 36%),
+    linear-gradient(315deg, rgba(45, 54, 145, 0.08), transparent 42%),
     #f8fafc;
 }
 
@@ -185,7 +186,7 @@ h6 {
   position: relative;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(248, 250, 252, 0.96) 100%),
-    linear-gradient(135deg, rgba(79, 70, 229, 0.08), rgba(124, 58, 237, 0.05) 48%, rgba(236, 72, 153, 0.05));
+    linear-gradient(135deg, rgba(59, 69, 179, 0.08), rgba(45, 54, 145, 0.05) 48%, rgba(14, 165, 233, 0.05));
 }
 
 .auth-form-stage::before {
@@ -231,14 +232,15 @@ h6 {
 }
 
 .auth-heading {
-  @apply mb-1.5 text-[clamp(1.65rem,5vw,2rem)] font-bold leading-tight text-[#0f172a];
+  @apply mb-1.5 font-bold leading-tight text-[#0f172a];
+  font-size: clamp(1.65rem, 5vw, 2rem);
 }
 
 .auth-kicker {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: #4f46e5;
+  color: #3B45B3;
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.14em;
@@ -249,7 +251,7 @@ h6 {
   width: 18px;
   height: 2px;
   border-radius: 999px;
-  background: linear-gradient(90deg, #4f46e5, #7c3aed);
+  background: linear-gradient(90deg, #3B45B3, #2D3691);
 }
 
 .auth-subtext {
@@ -257,8 +259,8 @@ h6 {
 }
 
 .auth-submit {
-  @apply flex w-full items-center justify-center gap-2 rounded-xl bg-[#4f46e5] py-3 font-semibold text-white
-         shadow-[0_16px_34px_rgba(79,70,229,0.26)] transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#4338ca] hover:shadow-[0_18px_40px_rgba(79,70,229,0.34)]
+  @apply flex w-full items-center justify-center gap-2 rounded-xl bg-[#3B45B3] py-3 font-semibold text-white
+         shadow-[0_16px_34px_rgba(59,69,179,0.26)] transition-all duration-200 hover:-translate-y-0.5 hover:bg-[#2D3691] hover:shadow-[0_18px_40px_rgba(59,69,179,0.34)]
          disabled:opacity-50 disabled:cursor-not-allowed;
   position: relative;
   overflow: hidden;
@@ -283,7 +285,7 @@ h6 {
 }
 
 .account-modal-card {
-  @apply rounded-[24px] border border-[#e5e7f6] bg-[linear-gradient(145deg,#ffffff_0%,#f8f6ff_58%,#f0edff_100%)] p-5 shadow-[0_18px_48px_rgba(79,70,229,0.14)];
+  @apply rounded-[24px] border border-[#e5e7f6] bg-[linear-gradient(145deg,#ffffff_0%,#f7f8ff_58%,#eef0ff_100%)] p-5 shadow-[0_18px_48px_rgba(59,69,179,0.14)];
 }
 
 .account-modal-avatar {
@@ -299,7 +301,7 @@ h6 {
 }
 
 .account-role-badge {
-  @apply shrink-0 rounded-full border border-[#c7d2fe] bg-[#eef2ff] px-2.5 py-1 text-[11px] font-black text-[#4f46e5];
+  @apply shrink-0 rounded-full border border-[#C8CDF2] bg-[#EEF0FF] px-2.5 py-1 text-[11px] font-black text-[#3B45B3];
 }
 
 .account-modal-action {
@@ -307,7 +309,7 @@ h6 {
 }
 
 .account-modal-action-neutral {
-  @apply border-[#e6e8f2] text-[#334155] hover:border-[#c7d2fe] hover:bg-[#f8faff] hover:text-[#4f46e5];
+  @apply border-[#e6e8f2] text-[#334155] hover:border-[#C8CDF2] hover:bg-[#F7F8FF] hover:text-[#3B45B3];
 }
 
 .account-modal-action-danger {
@@ -339,7 +341,7 @@ h6 {
 }
 
 .withdraw-modal-input {
-  @apply border-[#dbe3ef] bg-white focus:border-[#4f46e5] focus:ring-[#4f46e5]/10;
+  @apply border-[#dbe3ef] bg-white focus:border-[#3B45B3] focus:ring-[#3B45B3]/10;
 }
 
 .withdraw-modal-actions {
@@ -375,11 +377,11 @@ h6 {
 }
 
 .email-verify-panel {
-  @apply rounded-[20px] border border-[#dbeafe] bg-[linear-gradient(145deg,#ffffff_0%,#f8fbff_58%,#f1f5ff_100%)] p-4 shadow-[0_16px_40px_rgba(79,70,229,0.10)];
+  @apply rounded-[20px] border border-[#DDE2FF] bg-[linear-gradient(145deg,#ffffff_0%,#f8faff_58%,#eef0ff_100%)] p-4 shadow-[0_16px_40px_rgba(59,69,179,0.10)];
 }
 
 .email-verify-icon {
-  @apply flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#eef2ff] text-[#4f46e5] shadow-[0_12px_24px_rgba(79,70,229,0.12)];
+  @apply flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#EEF0FF] text-[#3B45B3] shadow-[0_12px_24px_rgba(59,69,179,0.12)];
 }
 
 .email-verify-title {
@@ -399,7 +401,7 @@ h6 {
 }
 
 .email-verify-input {
-  @apply h-11 rounded-2xl border-[#dbe3ef] bg-[#fbfdff] text-center text-base font-black tracking-[0.22em] text-[#111827] placeholder:text-center placeholder:text-sm placeholder:font-semibold placeholder:tracking-normal focus:border-[#4f46e5] focus:ring-[#4f46e5]/10;
+  @apply h-11 rounded-2xl border-[#dbe3ef] bg-[#fbfdff] text-center text-base font-black tracking-[0.22em] text-[#111827] placeholder:text-center placeholder:text-sm placeholder:font-semibold placeholder:tracking-normal focus:border-[#3B45B3] focus:ring-[#3B45B3]/10;
 }
 
 .email-verify-notice {
@@ -407,7 +409,7 @@ h6 {
 }
 
 .email-verify-notice-active {
-  @apply border-[#dbeafe] bg-[#eff6ff] text-[#1d4ed8];
+  @apply border-[#DDE2FF] bg-[#EEF0FF] text-[#3B45B3];
 }
 
 .email-verify-notice-danger {
@@ -427,16 +429,14 @@ h6 {
 }
 
 .link-auth {
-  @apply font-semibold text-[#4f46e5] transition-colors hover:text-[#4338ca];
+  @apply font-semibold text-[#3B45B3] transition-colors hover:text-[#2D3691];
 }
 
 .auth-form-shell {
   position: relative;
   border: 1px solid rgba(219, 227, 239, 0.82);
   border-radius: 24px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 250, 252, 0.88)),
-    linear-gradient(135deg, rgba(79, 70, 229, 0.12), rgba(124, 58, 237, 0.09) 52%, rgba(236, 72, 153, 0.08));
+  background: rgba(255, 255, 255, 0.96);
   padding: clamp(20px, 4vw, 28px);
   box-shadow: 0 24px 70px rgba(15, 23, 42, 0.13), inset 0 1px 0 rgba(255, 255, 255, 0.72);
   backdrop-filter: blur(18px);
@@ -484,27 +484,6 @@ h6 {
   padding-bottom: 0.72rem;
 }
 
-.auth-form-shell::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  border-radius: inherit;
-  background: linear-gradient(120deg, rgba(255, 255, 255, 0.55), transparent 36%, rgba(124, 58, 237, 0.10));
-}
-
-.auth-form-shell::after {
-  content: '';
-  position: absolute;
-  inset: 1px;
-  pointer-events: none;
-  border-radius: 23px;
-  background:
-    linear-gradient(90deg, transparent, rgba(79, 70, 229, 0.06), transparent),
-    linear-gradient(to bottom, transparent 0 64%, rgba(79, 70, 229, 0.025) 64% 65%, transparent 65%);
-  background-size: 180% 100%, 100% 28px;
-}
-
 .auth-form-shell > * {
   position: relative;
   z-index: 1;
@@ -524,7 +503,7 @@ h6 {
 }
 
 .auth-email-field {
-  @apply relative grid flex-1 grid-cols-[minmax(0,1fr)_auto_minmax(112px,1fr)] items-center rounded-xl border bg-white/90 transition-all duration-200 focus-within:border-[#4f46e5] focus-within:ring-4 focus-within:ring-[#4f46e5]/10;
+  @apply relative grid flex-1 grid-cols-[minmax(0,1fr)_auto_minmax(112px,1fr)] items-center rounded-xl border bg-white/90 transition-all duration-200 focus-within:border-[#3B45B3] focus-within:ring-4 focus-within:ring-[#3B45B3]/10;
   min-width: 0;
 }
 
@@ -579,26 +558,26 @@ h6 {
 }
 
 .auth-checkbox-input:checked + .auth-checkbox-box {
-  border-color: rgba(79, 70, 229, 0.36);
-  background: rgba(79, 70, 229, 0.12);
-  box-shadow: inset 0 1px 2px rgba(79, 70, 229, 0.08), 0 10px 24px rgba(79, 70, 229, 0.14);
+  border-color: rgba(59, 69, 179, 0.36);
+  background: rgba(59, 69, 179, 0.12);
+  box-shadow: inset 0 1px 2px rgba(59, 69, 179, 0.08), 0 10px 24px rgba(59, 69, 179, 0.14);
 }
 
 .auth-checkbox-input:checked + .auth-checkbox-box::after {
-  background: #4f46e5;
+  background: #3B45B3;
   transform: translateX(14px);
 }
 
 .auth-checkbox-input:focus-visible + .auth-checkbox-box {
-  outline: 3px solid rgba(79, 70, 229, 0.18);
+  outline: 3px solid rgba(59, 69, 179, 0.18);
   outline-offset: 2px;
 }
 
 .auth-stage-bg {
   background:
-    linear-gradient(115deg, rgba(79, 70, 229, 0.22), transparent 32%),
-    linear-gradient(245deg, rgba(124, 58, 237, 0.16), transparent 38%),
-    linear-gradient(330deg, rgba(236, 72, 153, 0.10), transparent 36%),
+    linear-gradient(115deg, rgba(59, 69, 179, 0.22), transparent 32%),
+    linear-gradient(245deg, rgba(45, 54, 145, 0.16), transparent 38%),
+    linear-gradient(330deg, rgba(14, 165, 233, 0.10), transparent 36%),
     linear-gradient(to right, rgba(15, 23, 42, 0.04) 1px, transparent 1px),
     linear-gradient(to bottom, rgba(15, 23, 42, 0.04) 1px, transparent 1px);
   background-size: auto, auto, auto, 56px 56px, 56px 56px;
@@ -712,7 +691,7 @@ h6 {
 }
 .badge-success { @apply bg-[#dcfce7] text-[#16a34a]; }
 .badge-danger  { @apply bg-[#fef2f2] text-[#dc2626]; }
-.badge-primary { @apply bg-[#eff6ff] text-[#2563eb]; }
+.badge-primary { @apply bg-[#EEF0FF] text-[#3B45B3]; }
 .badge-neutral { @apply bg-[#f3f4f6] text-[#374151]; }
 
 /* =====================
@@ -724,7 +703,7 @@ h6 {
          transition-colors cursor-pointer;
 }
 .sidebar-icon.active {
-  @apply bg-[#eff6ff] text-[#2563eb];
+  @apply bg-[#EEF0FF] text-[#3B45B3];
 }
 
 /* =====================
@@ -752,10 +731,7 @@ h6 {
    PROJECT SURFACES
    ===================== */
 .project-shell {
-  background:
-    linear-gradient(135deg, rgba(79, 70, 229, 0.075), transparent 32%),
-    linear-gradient(315deg, rgba(14, 165, 233, 0.055), transparent 42%),
-    #f8fafc;
+  background: var(--color-bg);
 }
 
 .project-page-band {
@@ -801,14 +777,20 @@ h6 {
 }
 
 .project-primary-button {
-  @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#4f46e5] px-4 text-sm font-bold text-white
-         shadow-[0_10px_22px_rgba(79,70,229,0.18)] transition-colors hover:bg-[#4338ca]
+  @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#3B45B3] px-4 text-sm font-bold text-white
+         shadow-[0_10px_22px_rgba(59,69,179,0.18)] transition-colors hover:bg-[#2D3691]
          disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0;
 }
 
 .project-secondary-button {
   @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-[#e5e7eb] bg-white px-4 text-sm font-bold text-[#334155]
          transition-colors hover:border-[#c7d2fe] hover:bg-[#f8faff] hover:text-[#4f46e5]
+         disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0;
+}
+
+.project-ghost-button {
+  @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-transparent bg-transparent px-4 text-sm font-bold text-[#334155]
+         transition-colors hover:bg-[#f8faff] hover:text-[#4f46e5]
          disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0;
 }
 

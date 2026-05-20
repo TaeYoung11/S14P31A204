@@ -119,6 +119,8 @@ def _build_operations(
         )
     if command.action == "create_door":
         return _build_create_door_operations(command=command, command_batch=command_batch)
+    if command.action == "merge_windows":
+        return _build_merge_windows_operations(command_batch=command_batch)
     if command.action == "delete_wall_void":
         return _build_delete_wall_void_operations(command_batch=command_batch)
 
@@ -188,6 +190,74 @@ def _build_delete_wall_void_operations(
                 "validated_fixture": "House_KR",
             },
         )
+    ]
+
+
+def _build_merge_windows_operations(
+    *,
+    command_batch: CommandBatch,
+) -> list[EngineOperationInlineRef]:
+    delete_ids = [
+        command.target_id
+        for command in command_batch.commands
+        if command.action.value == "delete_window" and command.target_id is not None
+    ]
+    create_command = next(
+        (
+            command
+            for command in command_batch.commands
+            if command.action.value == "create_window"
+        ),
+        None,
+    )
+    if not delete_ids:
+        raise ValueError("merge_windows shared request requires windows to delete")
+    if create_command is None:
+        raise ValueError("merge_windows shared request requires a create_window command")
+
+    payload = create_command.params
+    metadata = payload.get("metadata", {})
+    geometry = payload.get("geometry", {})
+    properties = payload.get("properties", {})
+    dimensions = geometry.get("dimensions", {})
+    location = geometry.get("location", [0.0, 0.0, 0.0])
+    storey_id = metadata.get("storey_id")
+    host_wall_id = metadata.get("host_wall_id")
+    if storey_id is None:
+        raise ValueError("merge_windows shared request requires storey_id")
+    if host_wall_id is None:
+        raise ValueError("merge_windows shared request requires host_wall_id")
+
+    return [
+        EngineOperationInlineRef(
+            id="op-delete-merge-source-windows",
+            type="delete_elements",
+            selector={"global_ids": delete_ids},
+            parameters={"cascade": True},
+        ),
+        EngineOperationInlineRef(
+            id="op-create-picture-window",
+            type="create_element",
+            selector=None,
+            parameters={
+                "element_type": "IfcWindow",
+                "storey_id": storey_id,
+                "host_wall_global_id": host_wall_id,
+                "require_template_reuse": False,
+                "start_mm": {
+                    "x": float(location[0]),
+                    "y": float(location[1]),
+                    "z": float(location[2]) if len(location) > 2 else 0.0,
+                },
+                "dimensions_mm": {
+                    "length": dimensions.get("length", 1200),
+                    "width": dimensions.get("width", 200),
+                    "height": dimensions.get("height", 1200),
+                },
+                "sill_height_mm": properties.get("sill_height", 900),
+                "window_style": properties.get("window_style"),
+            },
+        ),
     ]
 
 def _build_add_room_operations(

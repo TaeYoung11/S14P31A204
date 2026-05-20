@@ -45,6 +45,7 @@ export interface ThreeDLibraryPreset {
   lengthMm?: number
   heightMm?: number
   thicknessMm?: number
+  floorLayerId?: string | null
   storeyExpressId?: number | null
   position?: { x: number; y: number; z: number }
   rotation?: { x: number; y: number; z: number }

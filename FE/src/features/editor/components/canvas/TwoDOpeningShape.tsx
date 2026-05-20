@@ -6,6 +6,7 @@ interface TwoDOpeningShapeProps {
   openingWidthPx: number
   wallStrokePx: number
   isSelectedOpening: boolean
+  isOutsideSiteOpening: boolean
 }
 
 /**
@@ -17,7 +18,14 @@ export function TwoDOpeningShape({
   openingWidthPx,
   wallStrokePx,
   isSelectedOpening,
+  isOutsideSiteOpening,
 }: TwoDOpeningShapeProps) {
+  const openingStrokeColor = isOutsideSiteOpening
+    ? '#DC2626'
+    : isSelectedOpening
+      ? '#2563EB'
+      : '#2F343B'
+
   if (opening.type === 'window') {
     return (
       <>
@@ -29,13 +37,13 @@ export function TwoDOpeningShape({
         />
         <Line
           points={[-openingWidthPx / 2, -3, openingWidthPx / 2, -3]}
-          stroke={isSelectedOpening ? '#2563EB' : '#2F343B'}
+          stroke={openingStrokeColor}
           strokeWidth={1.4}
           lineCap="square"
         />
         <Line
           points={[-openingWidthPx / 2, 3, openingWidthPx / 2, 3]}
-          stroke={isSelectedOpening ? '#2563EB' : '#2F343B'}
+          stroke={openingStrokeColor}
           strokeWidth={1.4}
           lineCap="square"
         />
@@ -46,8 +54,6 @@ export function TwoDOpeningShape({
   const doorHingeSide = opening.doorHingeSide ?? 'left'
   const doorSwingDirection = opening.doorSwingDirection ?? 'inward'
   const hingeX = doorHingeSide === 'left' ? -openingWidthPx / 2 : openingWidthPx / 2
-  const doorLeafEndX = doorHingeSide === 'left' ? openingWidthPx / 2 : -openingWidthPx / 2
-  const doorLeafEndY = doorSwingDirection === 'outward' ? -openingWidthPx : openingWidthPx
   const arcRotation = doorHingeSide === 'left'
     ? (doorSwingDirection === 'outward' ? -90 : 0)
     : (doorSwingDirection === 'outward' ? 180 : 90)
@@ -60,21 +66,16 @@ export function TwoDOpeningShape({
         strokeWidth={Math.max(wallStrokePx + 1, 5)}
         lineCap="square"
       />
-      <Circle x={hingeX} y={0} radius={2} fill={isSelectedOpening ? '#2563EB' : '#2F343B'} />
+      <Circle x={hingeX} y={0} radius={2} fill={openingStrokeColor} />
       {doorSwingDirection === 'sliding' ? (
         <Line
           points={[-openingWidthPx / 2, -6, openingWidthPx / 2, -6]}
-          stroke={isSelectedOpening ? '#2563EB' : '#2F343B'}
+          stroke={openingStrokeColor}
           strokeWidth={1.5}
           dash={[8, 4]}
         />
       ) : (
         <>
-          <Line
-            points={[hingeX, 0, doorLeafEndX, doorLeafEndY]}
-            stroke={isSelectedOpening ? '#2563EB' : '#2F343B'}
-            strokeWidth={1.4}
-          />
           <Arc
             x={hingeX}
             y={0}
@@ -82,8 +83,8 @@ export function TwoDOpeningShape({
             outerRadius={openingWidthPx}
             angle={90}
             rotation={arcRotation}
-            stroke={isSelectedOpening ? '#2563EB' : '#2F343B'}
-            strokeWidth={isSelectedOpening ? 1.8 : 1.2}
+            stroke={openingStrokeColor}
+            strokeWidth={isOutsideSiteOpening || isSelectedOpening ? 1.8 : 1.2}
           />
         </>
       )}

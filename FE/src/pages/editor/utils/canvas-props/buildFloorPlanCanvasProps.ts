@@ -12,6 +12,7 @@ const FLOOR_PLAN_CANVAS_KEYS = [
   'isFloorPlanGenerating',
   'handleGenerateFloorPlan',
   'canGenerateFloorPlanFromBubble',
+  'isIfcSourceHydrationPending',
   'handleBubbleSelect',
   'handleSelectIfcElement',
   'handleDeleteIfcElement',
@@ -29,6 +30,7 @@ const FLOOR_PLAN_CANVAS_KEYS = [
   'localFloorData',
   'activeIfcStoreyExpressId',
   'overlayIfcStoreyExpressIds',
+  'hiddenIfcElementLocalIds',
   'requestedIfcElementLocalId',
   'ifcElementSelectionRequestToken',
   'requestedLibraryElementId',
@@ -51,6 +53,7 @@ export function buildFloorPlanCanvasProps(
   | 'isFloorPlanGenerating'
   | 'handleGenerateFloorPlan'
   | 'canGenerateFloorPlanFromBubble'
+  | 'isIfcSourceHydrationPending'
   | 'handleBubbleSelect'
   | 'handleSelectIfcElement'
   | 'handleDeleteIfcElement'
@@ -68,6 +71,7 @@ export function buildFloorPlanCanvasProps(
   | 'localFloorData'
   | 'activeIfcStoreyExpressId'
   | 'overlayIfcStoreyExpressIds'
+  | 'hiddenIfcElementLocalIds'
   | 'requestedIfcElementLocalId'
   | 'ifcElementSelectionRequestToken'
   | 'requestedLibraryElementId'

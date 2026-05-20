@@ -120,6 +120,28 @@ const buildPlacementMatrix = (
   return result
 }
 
+const buildAxisPlacementMatrix2D = (
+  placement: StepEntity | undefined,
+  entities: Map<number, StepEntity>,
+): Affine2D => {
+  if (!placement || (placement.type !== 'IFCAXIS2PLACEMENT2D' && placement.type !== 'IFCAXIS2PLACEMENT3D')) {
+    return IDENTITY_2D
+  }
+
+  const locationRef = parseStepRef(placement.args[0] ?? '$')
+  const directionRef = parseStepRef(placement.args[placement.type === 'IFCAXIS2PLACEMENT2D' ? 1 : 2] ?? '$')
+  const location = extractCartesianPoint2D(entities.get(locationRef ?? -1))
+  const dir = extractDirection2D(entities.get(directionRef ?? -1))
+  return {
+    a: dir.x,
+    b: -dir.y,
+    c: dir.y,
+    d: dir.x,
+    tx: location.x,
+    ty: location.y,
+  }
+}
+
 const extractProfilePoints = (
   profileRef: number | null,
   entities: Map<number, StepEntity>,
@@ -214,15 +236,17 @@ const extractSpacePolygon = (
 
 const normalizeIfcRoomType = (objectTypeRaw: string | null): string => {
   const value = (objectTypeRaw ?? '').trim().toLowerCase()
-  if (!value) return 'other'
+  if (!value) return '미선택'
   const token = value.replace(/[\s_-]+/g, '')
-  if (token === 'living') return 'living'
-  if (token === 'bedroom') return 'bedroom'
-  if (token === 'kitchen') return 'kitchen'
-  if (token === 'bathroom') return 'bathroom'
-  if (token === 'office') return 'office'
-  if (token === 'corridor') return 'corridor'
-  return 'other'
+  if (token === 'living' || token === 'livingroom' || token === '거실') return '거실'
+  if (token === 'bedroom' || token === 'masterbedroom' || token === '침실') return '침실'
+  if (token === 'room' || token === 'study' || token === 'studyroom' || token === '방') return '방'
+  if (token === 'kitchen' || token === '주방') return '주방'
+  if (token === 'bathroom' || token === 'restroom' || token === 'toilet' || token === 'wc' || token === '화장실') return '화장실'
+  if (token === 'corridor' || token === 'hall' || token === 'hallway' || token === '복도') return '복도'
+  if (token === 'entrance' || token === 'entrancehall' || token === 'entrancestairhall' || token === '현관') return '현관'
+  if (token === 'other' || token === 'notdefined' || token === 'undefined' || token === 'unknown' || token === '미선택') return '미선택'
+  return '미선택'
 }
 
 const resolveSpaceStoreyMap = (entities: Map<number, StepEntity>): Map<number, number> => {
@@ -448,6 +472,9 @@ const extractWallGeometry = (
       if (item.type !== 'IFCEXTRUDEDAREASOLID') continue
       const profileRef = parseStepRef(item.args[0] ?? '$')
       const profile = entities.get(profileRef ?? -1)
+      const solidPlacementRef = parseStepRef(item.args[1] ?? '$')
+      const solidMatrix = buildAxisPlacementMatrix2D(entities.get(solidPlacementRef ?? -1), entities)
+      const itemMatrix = multiplyAffine(matrix, solidMatrix)
       const nextHeight = parseStepNumber(item.args[3] ?? '')
       if (nextHeight !== null) height = nextHeight
 
@@ -456,8 +483,10 @@ const extractWallGeometry = (
         const nextThickness = parseStepNumber(profile.args[4] ?? '')
         if (nextThickness !== null) thickness = nextThickness
         if (length === null) continue
-        bodyStart = applyAffine(matrix, { x: -length / 2, y: 0 })
-        bodyEnd = applyAffine(matrix, { x: length / 2, y: 0 })
+        const profilePlacementRef = parseStepRef(profile.args[2] ?? '$')
+        const profileMatrix = buildAxisPlacementMatrix2D(entities.get(profilePlacementRef ?? -1), entities)
+        bodyStart = applyAffine(itemMatrix, applyAffine(profileMatrix, { x: -length / 2, y: 0 }))
+        bodyEnd = applyAffine(itemMatrix, applyAffine(profileMatrix, { x: length / 2, y: 0 }))
         continue
       }
 
@@ -480,8 +509,8 @@ const extractWallGeometry = (
         if (length <= 0) continue
         const centerY = (minY + maxY) / 2
         if (!Number.isFinite(centerY)) continue
-        bodyStart = applyAffine(matrix, { x: minX, y: centerY })
-        bodyEnd = applyAffine(matrix, { x: maxX, y: centerY })
+        bodyStart = applyAffine(itemMatrix, { x: minX, y: centerY })
+        bodyEnd = applyAffine(itemMatrix, { x: maxX, y: centerY })
       }
     }
   }

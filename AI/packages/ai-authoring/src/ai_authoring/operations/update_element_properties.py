@@ -108,9 +108,24 @@ class UpdateElementPropertiesHandler:
                 )
             if properties.get("name") is not None:
                 product.Name = str(properties["name"])
+            propagate_roof_appearance = bool(
+                parameters.get("propagate_roof_appearance")
+            ) and product.is_a("IfcRoof")
             if parameters.get("material") is not None:
-                modify_material(model, product, {"name": str(parameters["material"])})
+                modify_material(
+                    model,
+                    product,
+                    {"name": str(parameters["material"])},
+                    propagate_mapped_sources=propagate_roof_appearance,
+                    propagate_roof_descendants=propagate_roof_appearance,
+                )
             if parameters.get("color") is not None:
-                modify_color(model, product, str(parameters["color"]))
+                modify_color(
+                    model,
+                    product,
+                    str(parameters["color"]),
+                    propagate_mapped_sources=propagate_roof_appearance,
+                    propagate_roof_descendants=propagate_roof_appearance,
+                )
             updated_ids.append(product.GlobalId)
         return updated_ids
