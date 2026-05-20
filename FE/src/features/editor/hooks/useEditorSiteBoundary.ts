@@ -33,6 +33,8 @@ interface StableSiteAnchor {
 
 const siteAnchorCacheByProjectId = new Map<string, StableSiteAnchor>()
 const MAX_SITE_ANCHOR_CACHE_ENTRIES = 100
+const fallbackSitePointsCacheByKey = new Map<string, number[]>()
+let anonymousSiteAnchorCache: StableSiteAnchor | null = null
 
 function hasUsableSiteBoundary(points: number[]): boolean {
   if (points.length < 6) return false
@@ -161,7 +163,7 @@ export function useEditorSiteBoundary({
   }, [viewportFrame.centerX, viewportFrame.centerY])
 
   // 파생 상태: 대지 외곽선 포인트 (캔버스 중앙 정렬)
-  const sitePoints = useMemo(() => {
+  const baseSitePoints = useMemo(() => {
     const targetWidth = Math.max(viewportFrame.width - EDITOR_SITE_FIT_PADDING_PX * 2, 1)
     const targetHeight = Math.max(viewportFrame.height - EDITOR_SITE_FIT_PADDING_PX * 2, 1)
     const cachedCanvasPoints = cachedSiteRing
@@ -187,17 +189,45 @@ export function useEditorSiteBoundary({
       padding: EDITOR_SITE_FIT_PADDING_PX,
       fitRatio: 1,
     })
-    const fittedInViewport = translateFlatPoints(fitted, viewportFrame.insets.left, viewportFrame.insets.top)
-    return ensureSiteContainsBubbles(
-      fittedInViewport,
+    return translateFlatPoints(fitted, viewportFrame.insets.left, viewportFrame.insets.top)
+  }, [
+    cachedSiteRing,
+    recenterToViewport,
+    siteBoundaryHydrated,
+    stageHeight,
+    stageWidth,
+    viewportFrame.height,
+    viewportFrame.insets.left,
+    viewportFrame.insets.top,
+    viewportFrame.width,
+  ])
+
+  // Keep the fallback site fixed after its initial bubble-aware fit.
+  const sitePoints = useMemo(() => {
+    if (cachedSiteRing || !siteBoundaryHydrated || baseSitePoints.length === 0) {
+      return baseSitePoints
+    }
+    if (bubbles.length === 0) {
+      return baseSitePoints
+    }
+
+    const cacheKey = `${projectId ?? 'anonymous'}:${stageWidth}:${stageHeight}:${viewportFrame.width}:${viewportFrame.height}:${viewportFrame.insets.left}:${viewportFrame.insets.top}`
+    const cached = fallbackSitePointsCacheByKey.get(cacheKey)
+    if (cached) return cached
+
+    const initialPoints = ensureSiteContainsBubbles(
+      baseSitePoints,
       bubbles,
       SITE_CONTAIN_BUBBLE_PADDING_PX,
       SITE_CONTAIN_MAX_SCALE,
     )
+    fallbackSitePointsCacheByKey.set(cacheKey, initialPoints)
+    return initialPoints
   }, [
+    baseSitePoints,
     bubbles,
     cachedSiteRing,
-    recenterToViewport,
+    projectId,
     siteBoundaryHydrated,
     stageHeight,
     stageWidth,
@@ -237,9 +267,22 @@ export function useEditorSiteBoundary({
     const hasContent = bubbles.length > 0 || floorRooms.length > 0
     const viewportAnchor = { x: viewportFrame.centerX, y: viewportFrame.centerY }
     if (!projectId) {
+      const cachedAnchor = anonymousSiteAnchorCache
+      if (cachedAnchor) {
+        if (!hasContent) {
+          return {
+            anchor: viewportAnchor,
+            shouldPersist: false,
+          }
+        }
+        return {
+          anchor: { x: cachedAnchor.x, y: cachedAnchor.y },
+          shouldPersist: false,
+        }
+      }
       return {
         anchor: hasContent ? contentCenter : viewportAnchor,
-        shouldPersist: false,
+        shouldPersist: hasContent,
       }
     }
 
@@ -265,7 +308,15 @@ export function useEditorSiteBoundary({
   }, [bubbles.length, contentCenter, floorRooms.length, projectId, viewportFrame.centerX, viewportFrame.centerY])
 
   useEffect(() => {
-    if (!projectId) return
+    if (!projectId) {
+      if (!siteAnchorResolution.shouldPersist) return
+      anonymousSiteAnchorCache = {
+        projectId: 'anonymous',
+        x: siteAnchorResolution.anchor.x,
+        y: siteAnchorResolution.anchor.y,
+      }
+      return
+    }
     if (!siteAnchorResolution.shouldPersist) return
     setCachedSiteAnchor(projectId, siteAnchorResolution.anchor)
   }, [projectId, siteAnchorResolution])

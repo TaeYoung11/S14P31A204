@@ -119,7 +119,14 @@ export default function ThreeDCanvasScene({
   isEditingLocked,
   onPreviewCapture,
 }: ThreeDCanvasSceneProps) {
-  const useLocalFloorPlan = shouldRenderLocalFloorPlan(rawIfcUrl, localFloorData) && Boolean(localFloorData)
+  const hasAuthoritativeFloorLayers =
+    floorLayers.some((layer) => layer.rooms.length > 0) &&
+    Boolean(localFloorData)
+  const useLocalFloorPlan = shouldRenderLocalFloorPlan(
+    rawIfcUrl,
+    localFloorData,
+    hasAuthoritativeFloorLayers,
+  )
 
   const transformMode = resolveTransformMode(selectedTool)
 

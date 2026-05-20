@@ -100,6 +100,10 @@ interface UseEditorStructureEditHandlersParams {
   updateFloorWallFromEditable: (wallId: string, updater: (wall: FloorWall) => FloorWall) => void
   promoteCurrentAutoFloorOpenings: () => void
   normalizeOpeningByCurrentWall: (opening: FloorOpening) => FloorOpening
+  getLatestFloorContext?: () => {
+    floorLayers: FloorLayer[]
+    activeFloorLayerId: string | null
+  }
   onFloorPlanChanged: () => void
 }
 
@@ -136,6 +140,7 @@ export function useEditorStructureEditHandlers({
   updateFloorWallFromEditable,
   promoteCurrentAutoFloorOpenings,
   normalizeOpeningByCurrentWall,
+  getLatestFloorContext,
   onFloorPlanChanged,
 }: UseEditorStructureEditHandlersParams) {
 const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
@@ -178,6 +183,16 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
     [floorLayers, activeFloorLayerId],
   )
 
+  const resolveLatestActiveLayer = useCallback(() => {
+    const latest = getLatestFloorContext?.()
+    const latestLayers = latest?.floorLayers ?? floorLayers
+    const latestActiveLayerId = latest?.activeFloorLayerId ?? activeFloorLayerId
+    const latestActiveLayer = latestActiveLayerId
+      ? latestLayers.find((layer) => layer.id === latestActiveLayerId) ?? null
+      : null
+    return { latestLayers, latestActiveLayerId, latestActiveLayer }
+  }, [activeFloorLayerId, floorLayers, getLatestFloorContext])
+
   const getReferenceStorey = useCallback((): FloorWallCreateStorey => {
     const referenceWall = [...floorWalls, ...visibleAutoFloorWalls]
       .find((wall) => wall.storeyGlobalId || wall.storeyName)
@@ -219,10 +234,15 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
       FLOOR_WALL_HEIGHT_MIN_MM,
       FLOOR_WALL_HEIGHT_MAX_MM,
     )
-    const createStorey = resolveFloorWallCreateStorey(activeLayerStorey, getReferenceStorey())
+    const { latestActiveLayerId, latestActiveLayer } = resolveLatestActiveLayer()
+    const latestLayerStorey: FloorWallCreateStorey = {
+      storeyGlobalId: latestActiveLayer?.storeyGlobalId,
+      storeyName: latestActiveLayer?.storeyName ?? latestActiveLayer?.name,
+    }
+    const createStorey = resolveFloorWallCreateStorey(latestLayerStorey, resolveFloorWallCreateStorey(activeLayerStorey, getReferenceStorey()))
     const newWall: FloorWall = {
       id: createFloorWallId(),
-      floorLayerId: activeFloorLayerId ?? undefined,
+      floorLayerId: latestActiveLayerId ?? activeFloorLayerId ?? undefined,
       type: nextType,
       storeyGlobalId: createStorey.storeyGlobalId,
       storeyName: createStorey.storeyName,
@@ -254,6 +274,7 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
     activeLayerStorey,
     estimateMmPoint,
     getReferenceStorey,
+    resolveLatestActiveLayer,
     workspaceCommandPublisher,
     setFloorWalls,
     setWallCreatePreset,
@@ -373,7 +394,7 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
           outsideSegments.forEach((segment) => {
             manualResidualWalls.push({
               id: createFloorWallId(),
-              floorLayerId: candidate.floorLayerId ?? targetAutoWall.floorLayerId ?? activeFloorLayerId ?? undefined,
+              floorLayerId: candidate.floorLayerId ?? targetAutoWall.floorLayerId ?? resolveLatestActiveLayer().latestActiveLayerId ?? activeFloorLayerId ?? undefined,
               start: segment.start,
               end: segment.end,
               type: candidate.type,
@@ -432,6 +453,7 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
     isAutoDerivedWallId,
     autoFloorWalls,
     activeFloorLayerId,
+    resolveLatestActiveLayer,
     setHiddenAutoWallIds,
     setHiddenAutoOpeningIds,
     setFloorOpenings,
@@ -454,10 +476,12 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
     promoteCurrentAutoFloorOpenings()
     const clamped = Math.min(Math.max(wallPosition, 0), 1)
     const preset = FLOOR_OPENING_PRESETS[type]
+    const { latestActiveLayerId } = resolveLatestActiveLayer()
     const rawOpening: FloorOpening = {
       id: preferredId ?? createFloorOpeningId(),
       type,
       wallId,
+      floorLayerId: latestActiveLayerId ?? activeFloorLayerId ?? undefined,
       wallPosition: clamped,
       widthMm: preset.widthMm,
       heightMm: preset.heightMm,
@@ -483,6 +507,7 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
     const openingWithIfcTarget = hostWall
       ? {
         ...rawOpening,
+        floorLayerId: hostWall.floorLayerId ?? rawOpening.floorLayerId,
         hostWallGlobalId: hostWall.globalId ?? hostWall.id,
         storeyGlobalId: hostWall.storeyGlobalId,
         storeyName: hostWall.storeyName,
@@ -517,6 +542,8 @@ const getEditableWallById = useCallback((wallId: string): FloorWall | null => {
     estimateMmPoint,
     normalizeOpeningByCurrentWall,
     mergedFloorOpenings,
+    activeFloorLayerId,
+    resolveLatestActiveLayer,
     setFloorOpenings,
     workspaceCommandPublisher,
     setHiddenAutoOpeningIds,

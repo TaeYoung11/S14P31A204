@@ -1,11 +1,8 @@
-import { lazy, useCallback, useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 import type { EditorCanvasRenderProps } from '../../types/editorCanvasContentProps'
 import { saveProjectWorkspaceThumbnail } from '@/features/project/services/projectWorkspaceThumbnail.service'
 import { resolveVisibleCommentPinsInTwoD } from '../../utils/twoDVisibleCommentPins'
-
-const TwoDCanvas = lazy(() =>
-  import('@/features/editor/components/canvas/TwoDCanvas').then((module) => ({ default: module.TwoDCanvas })),
-)
+import { TwoDCanvas } from '@/features/editor/components/canvas/TwoDCanvas'
 
 interface TwoDModeCanvasProps {
   editorProps: EditorCanvasRenderProps

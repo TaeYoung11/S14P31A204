@@ -5,6 +5,7 @@ import { mapFloorProjectToLayers } from '../utils/floorProjectMapper'
 import { translateFloorRoom } from '../utils/floorRoomTransform'
 import { normalizeIfcDisplayText } from '../utils/ifcStepString'
 import { upsertFloorRoomByBubbleId } from '../utils/editorPageHelpers'
+import { resolveBubbleFloorFromUnknown } from '../utils/bubbleSnapshotSyncUtils'
 import type { FloorProject } from '../types/floorProject.types'
 
 const normalizeFloorLayerLabels = (layers: FloorLayer[]): FloorLayer[] =>
@@ -27,6 +28,32 @@ const getFloorLayerDefaults = (floorNumber: number): Pick<FloorLayer, 'storeyNam
   elevationMm: (floorNumber - 1) * DEFAULT_FLOOR_CEILING_HEIGHT_MM,
   ceilingHeightMm: DEFAULT_FLOOR_CEILING_HEIGHT_MM,
 })
+
+export const buildBubbleFloorLayers = (
+  bubbles: BubbleData[],
+  rooms: FloorRoom[],
+): FloorLayer[] => {
+  const floorByBubbleId = new Map(
+    bubbles.map((bubble) => [bubble.id, resolveBubbleFloorFromUnknown(bubble as BubbleData & Record<string, unknown>)] as const),
+  )
+  const grouped = new Map<number, FloorRoom[]>()
+
+  rooms.forEach((room) => {
+    const floorNumber = floorByBubbleId.get(room.bubbleId) ?? 1
+    const list = grouped.get(floorNumber)
+    if (list) list.push(room)
+    else grouped.set(floorNumber, [room])
+  })
+
+  return Array.from(grouped.entries())
+    .sort(([left], [right]) => left - right)
+    .map(([floorNumber, floorRooms]) => ({
+      id: `floor-${floorNumber}`,
+      name: `${floorNumber}F`,
+      ...getFloorLayerDefaults(floorNumber),
+      rooms: floorRooms,
+    }))
+}
 
 const readActiveFloorLayerIdFromStorage = (projectId: string | undefined): string | null => {
   if (typeof window === 'undefined') return null
@@ -75,7 +102,7 @@ export function useFloorPlan(projectId?: string) {
    * - 기존 레이어가 없으면 `floor-1`을 생성한다.
    * - `floor-1`이 이미 있으면 해당 레이어 rooms를 교체한다.
    * - `floor-1`이 없으면 레이어 목록 맨 앞에 `floor-1`을 추가한다.
-   * - 버블 기반 레이아웃은 1층을 기준으로 갱신하므로 활성층도 `floor-1`로 맞춘다.
+   * - 기존 단일층 경로는 1층을 기준으로 갱신하므로 활성층도 `floor-1`로 맞춘다.
    */
   const upsertPrimaryLayer = useCallback((rooms: FloorRoom[]) => {
     const firstLayer: FloorLayer = { id: 'floor-1', name: '1F', ...getFloorLayerDefaults(1), rooms }
@@ -94,9 +121,43 @@ export function useFloorPlan(projectId?: string) {
     setActiveLayerId('floor-1')
   }, [])
 
+  const replaceLayersFromBubbles = useCallback((bubbles: BubbleData[], rooms: FloorRoom[]) => {
+    const nextLayers = buildBubbleFloorLayers(bubbles, rooms)
+    if (nextLayers.length === 0) {
+      upsertPrimaryLayer(rooms)
+      return
+    }
+
+    setLayers((prev) => {
+      const nextLayerIds = new Set(nextLayers.map((layer) => layer.id))
+      const nextById = new Map(nextLayers.map((layer) => [layer.id, layer] as const))
+      const retainedEmptyLayers = prev.filter((layer) => !nextLayerIds.has(layer.id) && layer.rooms.length === 0)
+      const mergedLayers = [
+        ...nextLayers.map((layer) => {
+          const previous = prev.find((item) => item.id === layer.id)
+          return previous
+            ? {
+                ...previous,
+                ...getFloorLayerDefaults(Number(layer.id.replace(/^floor-/, '')) || 1),
+                name: previous.name || layer.name,
+                storeyName: previous.storeyName || layer.storeyName,
+                rooms: layer.rooms,
+              }
+            : layer
+        }),
+        ...retainedEmptyLayers.filter((layer) => !nextById.has(layer.id)),
+      ]
+      return normalizeFloorLayerLabels(mergedLayers)
+    })
+    setActiveLayerId((current) => {
+      if (current && nextLayers.some((layer) => layer.id === current)) return current
+      return nextLayers[0]?.id ?? 'floor-1'
+    })
+  }, [upsertPrimaryLayer])
+
   /**
    * 버블 다이어그램 → 2D 평면도 변환 (로딩 애니메이션 포함)
-   * 버튼 클릭 시 호출. 1.8초 로딩 후 레이아웃 결과를 1층으로 저장
+   * 버튼 클릭 시 호출. 1.8초 로딩 후 레이아웃 결과를 버블 층별 레이어로 저장
    */
   const generateFloorPlan = useCallback(
     (
@@ -113,13 +174,13 @@ export function useFloorPlan(projectId?: string) {
       if (timerRef.current !== null) clearTimeout(timerRef.current)
       timerRef.current = setTimeout(() => {
         const rooms = generateFloorPlanLayout(bubbles, connections, canvasWidth, canvasHeight)
-        upsertPrimaryLayer(rooms)
+        replaceLayersFromBubbles(bubbles, rooms)
         setIsGenerated(true)
         setIsGenerating(false)
         setLayoutSource('bubble')
       }, 1800)
     },
-    [upsertPrimaryLayer],
+    [replaceLayersFromBubbles],
   )
 
   /**
@@ -136,9 +197,9 @@ export function useFloorPlan(projectId?: string) {
       if (layoutSource !== 'bubble') return
       if (bubbles.length === 0 || canvasWidth === 0) return
       const rooms = generateFloorPlanLayout(bubbles, connections, canvasWidth, canvasHeight)
-      upsertPrimaryLayer(rooms)
+      replaceLayersFromBubbles(bubbles, rooms)
     },
-    [layoutSource, upsertPrimaryLayer],
+    [layoutSource, replaceLayersFromBubbles],
   )
 
   /**
@@ -249,12 +310,12 @@ export function useFloorPlan(projectId?: string) {
     ) => {
       if (bubbles.length === 0 || canvasWidth === 0) return
       const rooms = generateFloorPlanLayout(bubbles, connections, canvasWidth, canvasHeight)
-      upsertPrimaryLayer(rooms)
+      replaceLayersFromBubbles(bubbles, rooms)
       setIsGenerated(true)
       setIsGenerating(false)
       setLayoutSource('bubble')
     },
-    [upsertPrimaryLayer],
+    [replaceLayersFromBubbles],
   )
 
   /**

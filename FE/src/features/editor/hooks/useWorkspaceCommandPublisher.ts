@@ -269,6 +269,7 @@ export function useWorkspaceCommandPublisher({
     if (!startMm || !endMm) return
 
     pendingCommandRef.current = createEntityCommand('wall', wall.id, compactRecord({
+      floorLayerId: wall.floorLayerId,
       storeyGlobalId: wall.storeyGlobalId,
       storeyName: wall.storeyName,
       startMm,
@@ -299,6 +300,7 @@ export function useWorkspaceCommandPublisher({
     if (!globalId) {
       if (issuedLocalCreateIdsRef.current.has(wallId)) return
       const createPatch = compactRecord({
+        floorLayerId: typeof patch.floorLayerId === 'string' ? patch.floorLayerId : undefined,
         storeyGlobalId,
         storeyName,
         startMm,
@@ -311,6 +313,7 @@ export function useWorkspaceCommandPublisher({
       if (Object.keys(createPatch).length > 0 && updatePendingCreate(wallId, createPatch)) return
       if (!startMm || !endMm) return
       pendingCommandRef.current = createEntityCommand('wall', wallId, compactRecord({
+        floorLayerId: typeof patch.floorLayerId === 'string' ? patch.floorLayerId : undefined,
         storeyGlobalId,
         storeyName,
         startMm,
@@ -377,6 +380,7 @@ export function useWorkspaceCommandPublisher({
     const hostWallGlobalId = toIfcGlobalId(rawHostWallId)
 
     pendingCommandRef.current = createEntityCommand(openingEntity(opening.type), opening.id, compactRecord({
+      floorLayerId: opening.floorLayerId,
       storeyGlobalId: opening.storeyGlobalId,
       storeyName: opening.storeyName,
       hostWallGlobalId,
@@ -442,6 +446,7 @@ export function useWorkspaceCommandPublisher({
   }, [cancelPendingCreate])
 
   const createRoom = useCallback((room: FloorRoom, options?: {
+    floorLayerId?: string
     storeyGlobalId?: string
     storeyName?: string
   }) => {
@@ -449,6 +454,7 @@ export function useWorkspaceCommandPublisher({
 
     pendingCommandRef.current = createEntityCommand('room', room.id, compactRecord({
       ifcClass: 'IfcSpace',
+      floorLayerId: options?.floorLayerId,
       storeyGlobalId: options?.storeyGlobalId,
       storeyName: options?.storeyName,
       widthMm: getFiniteNumber(room.widthMm),

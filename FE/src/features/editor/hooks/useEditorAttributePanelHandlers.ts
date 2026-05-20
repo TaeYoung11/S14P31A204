@@ -16,6 +16,7 @@ interface UseEditorAttributePanelHandlersParams {
   floorRooms: FloorRoom[]
   setIsFloorPlanEditedIn2D: (value: boolean) => void
   markLocalBubbleSnapshotChanged: () => void
+  markLocalFloorPlanSnapshotChanged: () => void
   handleLabelChange: (id: string, label: string) => void
   handleTypeChange: (id: string, type: string) => void
   handleMaterialChange: (id: string, material: string) => void
@@ -46,6 +47,7 @@ export function useEditorAttributePanelHandlers({
   floorRooms,
   setIsFloorPlanEditedIn2D,
   markLocalBubbleSnapshotChanged,
+  markLocalFloorPlanSnapshotChanged,
   handleLabelChange,
   handleTypeChange,
   handleMaterialChange,
@@ -79,8 +81,10 @@ export function useEditorAttributePanelHandlers({
       markLocalBubbleSnapshotChanged()
       handleLabelChange(id, label)
     }
+    setIsFloorPlanEditedIn2D(true)
+    markLocalFloorPlanSnapshotChanged()
     updateActiveRoom(id, (room) => ({ ...room, label }))
-  }, [mode, isTwoDEditingLocked, canSyncBubbleStateFrom2D, markLocalBubbleSnapshotChanged, handleLabelChange, updateActiveRoom])
+  }, [mode, isTwoDEditingLocked, canSyncBubbleStateFrom2D, markLocalBubbleSnapshotChanged, handleLabelChange, setIsFloorPlanEditedIn2D, markLocalFloorPlanSnapshotChanged, updateActiveRoom])
 
   const handleTypeChangeForPanel = useCallback((id: string, type: string) => {
     if (mode === '2d' && isTwoDEditingLocked) return
@@ -93,14 +97,22 @@ export function useEditorAttributePanelHandlers({
       markLocalBubbleSnapshotChanged()
       handleTypeChange(id, type)
     }
+    setIsFloorPlanEditedIn2D(true)
+    markLocalFloorPlanSnapshotChanged()
     updateActiveRoom(id, (room) => ({ ...room, type }))
-  }, [mode, isTwoDEditingLocked, canSyncBubbleStateFrom2D, markLocalBubbleSnapshotChanged, handleTypeChange, updateActiveRoom])
+  }, [mode, isTwoDEditingLocked, canSyncBubbleStateFrom2D, markLocalBubbleSnapshotChanged, handleTypeChange, setIsFloorPlanEditedIn2D, markLocalFloorPlanSnapshotChanged, updateActiveRoom])
 
   const handleMaterialChangeForPanel = useCallback((id: string, material: string) => {
-    if (mode === '2d') return
+    if (mode === '2d') {
+      if (isTwoDEditingLocked) return
+      setIsFloorPlanEditedIn2D(true)
+      markLocalFloorPlanSnapshotChanged()
+      updateActiveRoom(id, (room) => ({ ...room, material }))
+      return
+    }
     markLocalBubbleSnapshotChanged()
     handleMaterialChange(id, material)
-  }, [mode, markLocalBubbleSnapshotChanged, handleMaterialChange])
+  }, [mode, isTwoDEditingLocked, setIsFloorPlanEditedIn2D, markLocalFloorPlanSnapshotChanged, updateActiveRoom, markLocalBubbleSnapshotChanged, handleMaterialChange])
 
   const applyRoomDimensionIn2D = useCallback((bubbleId: string, axis: 'width' | 'height', nextMm: number) => {
     if (mode !== '2d') return
@@ -169,6 +181,7 @@ export function useEditorAttributePanelHandlers({
       else handleHeightChange(bubbleId, nextHeightMm)
     }
 
+    markLocalFloorPlanSnapshotChanged()
     const nextRooms = floorRooms.map((item) => (item.bubbleId === bubbleId ? toResizedRoom(item) : item))
     updateActiveRoom(bubbleId, toResizedRoom)
     syncPerimeterManualWallsForRoomResize(bubbleId, prevRect, nextRect)
@@ -184,6 +197,7 @@ export function useEditorAttributePanelHandlers({
     markLocalBubbleSnapshotChanged,
     handleWidthChange,
     handleHeightChange,
+    markLocalFloorPlanSnapshotChanged,
     updateActiveRoom,
     syncPerimeterManualWallsForRoomResize,
     syncFloorDerivedStateFromRooms,
@@ -222,16 +236,29 @@ export function useEditorAttributePanelHandlers({
   )
 
   const handleRatioChangeForPanel = useCallback((id: string, ratio: number) => {
-    if (mode === '2d') return
+    if (mode === '2d') {
+      if (isTwoDEditingLocked) return
+      if (!Number.isFinite(ratio) || ratio < 0) return
+      setIsFloorPlanEditedIn2D(true)
+      markLocalFloorPlanSnapshotChanged()
+      updateActiveRoom(id, (room) => ({ ...room, area: ratio }))
+      return
+    }
     markLocalBubbleSnapshotChanged()
     handleRatioChange(id, ratio)
-  }, [mode, markLocalBubbleSnapshotChanged, handleRatioChange])
+  }, [mode, isTwoDEditingLocked, setIsFloorPlanEditedIn2D, markLocalFloorPlanSnapshotChanged, updateActiveRoom, markLocalBubbleSnapshotChanged, handleRatioChange])
 
   const handleColorChangeForPanel = useCallback((id: string, color: string) => {
-    if (mode === '2d') return
+    if (mode === '2d') {
+      if (isTwoDEditingLocked) return
+      setIsFloorPlanEditedIn2D(true)
+      markLocalFloorPlanSnapshotChanged()
+      updateActiveRoom(id, (room) => ({ ...room, color }))
+      return
+    }
     markLocalBubbleSnapshotChanged()
     handleColorChange(id, color)
-  }, [mode, markLocalBubbleSnapshotChanged, handleColorChange])
+  }, [mode, isTwoDEditingLocked, setIsFloorPlanEditedIn2D, markLocalFloorPlanSnapshotChanged, updateActiveRoom, markLocalBubbleSnapshotChanged, handleColorChange])
 
   return {
     handleLabelChangeForPanel,

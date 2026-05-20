@@ -128,6 +128,7 @@ import {
   normalizeBubbleFloor,
   readNonZeroIntegerFromUnknown,
 } from '../utils/bubbleFloorUtils'
+import { buildFloorPlanBubbleProjection } from '../utils/floorPlanBubbleProjection'
 import {
   buildFloorRemapMapForRename,
   computeBubbleStateAfterFloorDelete,
@@ -802,6 +803,7 @@ export function useEditorPage() {
     layers: floorLayers,
     activeLayerId: activeFloorLayerId,
     activeRooms: floorRooms,
+    generateFloorPlan,
     refreshFloorPlan,
     addFloorLayer: baseAddFloorLayer,
     renameFloorLayer: baseRenameFloorLayer,
@@ -845,11 +847,13 @@ export function useEditorPage() {
   const floorRoomSyncStateRef = useRef<{
     floorLayers: FloorLayer[]
     floorWalls: FloorWall[]
-  }>({ floorLayers, floorWalls })
+    floorOpenings: FloorOpening[]
+    activeFloorLayerId: string | null
+  }>({ floorLayers, floorWalls, floorOpenings, activeFloorLayerId })
 
   useLayoutEffect(() => {
-    floorRoomSyncStateRef.current = { floorLayers, floorWalls }
-  }, [floorLayers, floorWalls])
+    floorRoomSyncStateRef.current = { floorLayers, floorWalls, floorOpenings, activeFloorLayerId }
+  }, [activeFloorLayerId, floorLayers, floorOpenings, floorWalls])
 
   /**
    * 2D 구조물(벽/개구부) 선택 상태만 초기화한다.
@@ -903,6 +907,8 @@ export function useEditorPage() {
   // 버블이 모두 삭제되면 2D/3D 레이어도 함께 초기화
   useEffect(() => {
     if (bubbles.length > 0) return
+    if (workspacePhaseStatus !== 'BUBBLE_DRAFT') return
+    if (floorPlanLayoutSource !== null) return
     if (!isFloorPlanGenerated && !isFloorPlanGenerating) return
     clearFloorPlan()
     const timer = window.setTimeout(() => {
@@ -915,16 +921,26 @@ export function useEditorPage() {
   }, [
     bubbles.length,
     clearFloorPlan,
+    floorPlanLayoutSource,
     isFloorPlanGenerated,
     isFloorPlanGenerating,
     resetFloorPlanStructureState,
+    workspacePhaseStatus,
   ])
 
   // Delete/Backspace 키로 선택된 버블 또는 연결선 삭제 (input 포커스 중엔 무시)
   const handleDeleteSelected = useCallback(() => {
     if (useAuthStore.getState().user?.user_type !== 'DESIGNER') return
     if (isTwoDOrThreeDConverting) return
-    if (mode === 'bubble' && isBubbleEditLocked) return
+    if (
+      mode === 'bubble' &&
+      (
+        isBubbleEditLocked ||
+        workspacePhaseStatus !== 'BUBBLE_DRAFT' ||
+        isFloorPlanGenerated ||
+        floorPlanLayoutSource !== null
+      )
+    ) return
     if (mode === '3d') {
       if (!selectedIfcElement) return
       // 키보드 Delete와 동일한 3D 캔버스 삭제 루틴을 트리거한다.
@@ -1033,6 +1049,9 @@ export function useEditorPage() {
     canSyncBubbleStateFrom2D,
     mode,
     isBubbleEditLocked,
+    workspacePhaseStatus,
+    isFloorPlanGenerated,
+    floorPlanLayoutSource,
     isTwoDOrThreeDConverting,
     selectedIfcElement,
     selectedFloorOpeningId,
@@ -1158,6 +1177,8 @@ export function useEditorPage() {
   const localBubbleChangeFlushRafRef = useRef<number | null>(null)
   const pendingLocalBubbleChangeTaskRef = useRef<(() => void) | null>(null)
   const floorPlanGenerateForbiddenRef = useRef(false)
+  const floorPlanBubbleProjectionSignatureRef = useRef<string | null>(null)
+  const explicitBubbleConnectionsBeforeFloorPlanRef = useRef<ConnectionData[]>([])
   const pendingOpenThreeDOnGenerateCompleteRef = useRef(false)
   const lastLoadedIfcStorageUrlRef = useRef<string | null>(null)
   const ifcLoadInFlightStorageUrlRef = useRef<string | null>(null)
@@ -1391,6 +1412,54 @@ export function useEditorPage() {
     applyIfcStoreyNameOverridesToLoadedStoreysRef.current(nextIfcStoreyNameOverrides)
     if (layout.phaseStatus) setWorkspacePhaseStatus(layout.phaseStatus)
   }, [])
+
+  useLayoutEffect(() => {
+    if (workspacePhaseStatus !== 'BUBBLE_DRAFT') return
+    if (isFloorPlanGenerated || floorPlanLayoutSource !== null) return
+    explicitBubbleConnectionsBeforeFloorPlanRef.current = connections
+  }, [connections, floorPlanLayoutSource, isFloorPlanGenerated, workspacePhaseStatus])
+
+  useLayoutEffect(() => {
+    const hasGeneratedFloorPlanSource = isFloorPlanGenerated || floorPlanLayoutSource !== null
+    if (!hasGeneratedFloorPlanSource) {
+      floorPlanBubbleProjectionSignatureRef.current = null
+      return
+    }
+    if (floorLayers.length === 0) return
+
+    const projection = buildFloorPlanBubbleProjection({
+      floorLayers,
+      previousBubbles: bubbles,
+      previousConnections: connections.length > 0
+        ? connections
+        : explicitBubbleConnectionsBeforeFloorPlanRef.current,
+      previousZones: zones,
+    })
+    const signature = JSON.stringify({
+      bubbles: projection.bubbles,
+      connections: projection.connections,
+      zones: projection.zones,
+      floorMeta: projection.floorMeta,
+    })
+    if (floorPlanBubbleProjectionSignatureRef.current === signature) return
+
+    floorPlanBubbleProjectionSignatureRef.current = signature
+    replaceBubbles(projection.bubbles)
+    replaceConnections(projection.connections)
+    replaceZonesState(projection.zones)
+    applyBubbleFloorMetaState(projection.floorMeta, projection.availableFloors)
+  }, [
+    applyBubbleFloorMetaState,
+    bubbles,
+    connections,
+    floorLayers,
+    floorPlanLayoutSource,
+    isFloorPlanGenerated,
+    replaceBubbles,
+    replaceConnections,
+    replaceZonesState,
+    zones,
+  ])
 
   const authUser = useAuthStore((state) => state.user)
   const currentProject = useProjectStore((state) => state.currentProject)
@@ -1635,7 +1704,12 @@ export function useEditorPage() {
 
   const phaseStatus = workspacePhaseStatus
   const isEditorReadOnly = isReadOnlyUser
-  const canEditBubble = !isEditorReadOnly && mode === 'bubble' && phaseStatus === 'BUBBLE_DRAFT' && !isBubbleEditLocked
+  const canEditBubble = !isEditorReadOnly
+    && mode === 'bubble'
+    && phaseStatus === 'BUBBLE_DRAFT'
+    && !isFloorPlanGenerated
+    && floorPlanLayoutSource === null
+    && !isBubbleEditLocked
   const canEditIfc = !isEditorReadOnly && phaseStatus === 'IFC_EDIT'
   const canEditFloorPlan =
     !isEditorReadOnly &&
@@ -1747,7 +1821,18 @@ export function useEditorPage() {
   /** 자동 생성된 2D 방 경계선을 벽 데이터로 파생 (속성 편집 승격용) */
   // 자동 벽 파생은 단일 유틸 구현을 사용해 2D 캔버스와 동일 규칙을 유지한다.
   // floorRooms가 바뀔 때만 재계산해 매 렌더마다 새 참조가 생기는 것을 방지한다.
-  const autoFloorWalls = useMemo(() => deriveAutoWallsFromRooms(floorRooms), [floorRooms])
+  const autoFloorWalls = useMemo(
+    () =>
+      floorLayers.flatMap((layer) =>
+        deriveAutoWallsFromRooms(layer.rooms).map((wall) => ({
+          ...wall,
+          floorLayerId: layer.id,
+          storeyGlobalId: layer.storeyGlobalId,
+          storeyName: layer.storeyName ?? layer.name,
+        })),
+      ),
+    [floorLayers],
+  )
   const shouldUseAutoWalls = !isProjectStructurePreferred || floorWalls.length === 0
   const autoFloorWallsForMerge = useMemo(
     () => (shouldUseAutoWalls ? autoFloorWalls : []),
@@ -1822,9 +1907,30 @@ export function useEditorPage() {
     floorOpenings.forEach((opening) => merged.set(opening.id, opening))
     return Array.from(merged.values())
   }, [autoFloorOpenings, floorOpenings])
+  const floorOpeningsWithFloorLayer = useMemo(() => {
+    const wallById = new Map(mergedFloorWalls.map((wall) => [wall.id, wall] as const))
+    return mergedFloorOpenings.map((opening) => {
+      const wall = wallById.get(opening.wallId)
+      const floorLayerId = opening.floorLayerId ?? wall?.floorLayerId
+      if (
+        opening.floorLayerId === floorLayerId &&
+        opening.storeyGlobalId === (opening.storeyGlobalId ?? wall?.storeyGlobalId) &&
+        opening.storeyName === (opening.storeyName ?? wall?.storeyName)
+      ) {
+        return opening
+      }
+      return {
+        ...opening,
+        floorLayerId,
+        hostWallGlobalId: opening.hostWallGlobalId ?? wall?.globalId ?? wall?.id,
+        storeyGlobalId: opening.storeyGlobalId ?? wall?.storeyGlobalId,
+        storeyName: opening.storeyName ?? wall?.storeyName,
+      }
+    })
+  }, [mergedFloorOpenings, mergedFloorWalls])
   useEffect(() => {
-    mergedFloorOpeningsRef.current = mergedFloorOpenings
-  }, [mergedFloorOpenings])
+    mergedFloorOpeningsRef.current = floorOpeningsWithFloorLayer
+  }, [floorOpeningsWithFloorLayer])
 
   const ifcElementChanges = useMemo(
     () => Object.values(ifcElementChangesById),
@@ -1842,8 +1948,8 @@ export function useEditorPage() {
     activeFloorLayerId,
     isFloorPlanGenerated,
     floorPlanLayoutSource,
-    floorWalls,
-    floorOpenings,
+    floorWalls: mergedFloorWalls,
+    floorOpenings: floorOpeningsWithFloorLayer,
     hiddenAutoWallIds,
     hiddenAutoOpeningIds,
     isProjectStructurePreferred,
@@ -1864,8 +1970,8 @@ export function useEditorPage() {
     activeFloorLayerId,
     isFloorPlanGenerated,
     floorPlanLayoutSource,
-    floorWalls,
-    floorOpenings,
+    mergedFloorWalls,
+    floorOpeningsWithFloorLayer,
     hiddenAutoWallIds,
     hiddenAutoOpeningIds,
     isProjectStructurePreferred,
@@ -2266,6 +2372,19 @@ export function useEditorPage() {
       })
 
       if (selectedRecoverySnapshot && selectedRecoverySummary) {
+        const canApplyBubbleFallbackForPhase =
+          !dbPhaseStatus ||
+          dbPhaseStatus === 'BUBBLE_DRAFT' ||
+          dbPhaseStatus === 'CONVERTING'
+        if (!canApplyBubbleFallbackForPhase) {
+          logBubbleDebug('bootstrap:db-fallback:skip-bubble-apply-after-floor-plan', {
+            projectId,
+            phaseStatus: dbPhaseStatus,
+            source: selectedRecoverySource,
+            summary: selectedRecoverySummary,
+          })
+          return { applied: false, summary: selectedRecoverySummary, snapshot: selectedRecoverySnapshot }
+        }
         const canApplyOverHistory = historySummaryForRecovery
           ? isSnapshotPreferredForRecovery(selectedRecoverySummary, historySummaryForRecovery)
           : true
@@ -2392,12 +2511,23 @@ export function useEditorPage() {
       const floorPlanSnapshot: SavedFloorPlanSnapshotPayload | null | undefined = floorPlanSnapshotRaw
       const floorPlanBubbleSnapshot = isBubbleSnapshotPayload(floorPlanSnapshotRaw) ? floorPlanSnapshotRaw : null
       const nextPhaseStatus = floorPlanSnapshot?.layout?.phaseStatus ?? history.phaseStatus ?? 'BUBBLE_DRAFT'
+      const hasAuthoritativeFloorPlanSnapshot =
+        Boolean(floorPlanSnapshot?.layout) ||
+        isFloorProjectPayload(floorPlanSnapshot?.floorProject) ||
+        Boolean(history.floorPlan?.s3Url)
       setWorkspacePhaseStatus(nextPhaseStatus)
 
       const resolvedHistoryBubbleSnapshot = hasBubbleSnapshot
         ? bubbleSnapshot
         : floorPlanBubbleSnapshot
-      if (isBubbleSnapshotPayload(resolvedHistoryBubbleSnapshot)) {
+      if (hasAuthoritativeFloorPlanSnapshot && floorPlanBubbleSnapshot?.zones) {
+        replaceZonesStateForBootstrap(floorPlanBubbleSnapshot.zones)
+      }
+      if (
+        isBubbleSnapshotPayload(resolvedHistoryBubbleSnapshot) &&
+        !hasAuthoritativeFloorPlanSnapshot &&
+        nextPhaseStatus !== 'IFC_EDIT'
+      ) {
         const historyZones = resolvedHistoryBubbleSnapshot.zones
         const dbZones = dbBaselineSnapshot?.zones
         const shouldFallbackZonesFromDb =
@@ -2691,7 +2821,11 @@ export function useEditorPage() {
     if (!projectId || autosaveReadyProjectId !== projectId) return
     if (draftLoadingProjectIdRef.current === projectId) return
 
-    const shouldPublishBubbleDraft = mode === 'bubble' && workspacePhaseStatus === 'BUBBLE_DRAFT'
+    const shouldPublishBubbleDraft =
+      mode === 'bubble' &&
+      workspacePhaseStatus === 'BUBBLE_DRAFT' &&
+      !isFloorPlanGenerated &&
+      floorPlanLayoutSource === null
     const publishSourceSnapshot: WorkspaceSnapshot = shouldPublishBubbleDraft
       ? {
         ...draftSnapshot,
@@ -2771,9 +2905,18 @@ export function useEditorPage() {
       return
     }
 
-    const workspaceCommand = historyDomain === 'floorPlan'
+    let workspaceCommand = historyDomain === 'floorPlan'
       ? workspaceCommandPublisher.consumePendingCommand()
       : null
+
+    if (historyDomain === 'floorPlan' && !workspaceCommand) {
+      workspaceCommandPublisher.markSnapshotOnlyChange('floor-plan-snapshot', 'floor-plan-snapshot', {
+        floorLayerCount: publishSnapshot.floorLayers.length,
+        floorWallCount: publishSnapshot.floorWalls.length,
+        floorOpeningCount: publishSnapshot.floorOpenings.length,
+      })
+      workspaceCommand = workspaceCommandPublisher.consumePendingCommand()
+    }
 
     if (historyDomain === 'floorPlan' && !workspaceCommand) {
       pendingServerPublishRef.current = null
@@ -2853,6 +2996,8 @@ export function useEditorPage() {
     clearServerPublishRetry,
     currentIfcRevisionId,
     draftSnapshot,
+    floorPlanLayoutSource,
+    isFloorPlanGenerated,
     mode,
     projectId,
     resolveServerHistoryDomain,
@@ -3286,6 +3431,29 @@ export function useEditorPage() {
     setSaveStatus('dirty')
   }, [markUnsavedDbChanges, mode, projectId])
 
+  useEffect(() => {
+    if (workspacePhaseStatus !== 'BUBBLE_DRAFT') return
+    if (!isFloorPlanGenerated && floorPlanLayoutSource === null) return
+    if (floorLayers.length === 0) return
+
+    const transitionTimer = window.setTimeout(() => {
+      cancelScheduledBubbleSnapshotSave()
+      clearBubbleSnapshotDirty()
+      setWorkspacePhaseStatus('IFC_EDIT')
+      markLocalFloorPlanSnapshotChanged()
+    }, 0)
+
+    return () => window.clearTimeout(transitionTimer)
+  }, [
+    cancelScheduledBubbleSnapshotSave,
+    clearBubbleSnapshotDirty,
+    floorLayers.length,
+    floorPlanLayoutSource,
+    isFloorPlanGenerated,
+    markLocalFloorPlanSnapshotChanged,
+    workspacePhaseStatus,
+  ])
+
   const beginWorkspaceSnapshotTransaction = useCallback(() => {
     hasUserEditedRef.current = true
     markUnsavedDbChanges()
@@ -3334,7 +3502,12 @@ export function useEditorPage() {
     hasUserEditedRef.current = true
     flushPendingLocalBubbleChange()
     flushOpenWorkspaceSnapshotTransaction()
-    if (workspacePhaseStatus === 'BUBBLE_DRAFT') {
+    const shouldSaveBubbleDraft =
+      workspacePhaseStatus === 'BUBBLE_DRAFT' &&
+      !isFloorPlanGenerated &&
+      floorPlanLayoutSource === null
+
+    if (shouldSaveBubbleDraft) {
       markBubbleSnapshotDirty()
       const manualDbSaveStartVersion = unsavedDbChangeVersionRef.current
       manualBubbleDbSaveStartVersionRef.current = manualDbSaveStartVersion
@@ -3356,6 +3529,8 @@ export function useEditorPage() {
     markBubbleSnapshotDirty,
     clearUnsavedDbChangesIfUnchanged,
     saveFloorPlanSnapshotToDb,
+    floorPlanLayoutSource,
+    isFloorPlanGenerated,
     workspacePhaseStatus,
   ])
 
@@ -3537,19 +3712,32 @@ export function useEditorPage() {
     }
   }, [])
 
+  const enrichOpeningWithWallFloor = useCallback((opening: FloorOpening): FloorOpening => {
+    const wall = mergedFloorWalls.find((item) => item.id === opening.wallId)
+    const floorLayerId = opening.floorLayerId ?? wall?.floorLayerId ?? floorRoomSyncStateRef.current.activeFloorLayerId ?? activeFloorLayerId ?? undefined
+    return {
+      ...opening,
+      floorLayerId,
+      hostWallGlobalId: opening.hostWallGlobalId ?? wall?.globalId ?? wall?.id,
+      storeyGlobalId: opening.storeyGlobalId ?? wall?.storeyGlobalId,
+      storeyName: opening.storeyName ?? wall?.storeyName,
+    }
+  }, [activeFloorLayerId, mergedFloorWalls])
+
   const updateFloorWallFromEditable = useCallback((
     wallId: string,
     updater: (wall: FloorWall) => FloorWall,
     options: { floorLayerId?: string | null } = {},
   ) => {
-    const targetFloorLayerId = options.floorLayerId?.trim() || null
+    const latestActiveFloorLayerId = floorRoomSyncStateRef.current.activeFloorLayerId ?? activeFloorLayerId
+    const targetFloorLayerId = options.floorLayerId?.trim() || latestActiveFloorLayerId || null
     setFloorWalls((prev) => {
       const ensured = prev.some((wall) => wall.id === wallId)
         ? prev
         : (() => {
           const autoWall = visibleAutoFloorWalls.find((wall) => wall.id === wallId)
           return autoWall
-            ? [...prev, { ...autoWall, floorLayerId: autoWall.floorLayerId ?? targetFloorLayerId ?? activeFloorLayerId ?? undefined }]
+            ? [...prev, { ...autoWall, floorLayerId: autoWall.floorLayerId ?? targetFloorLayerId ?? undefined }]
             : prev
         })()
       return ensured.map((wall) => {
@@ -3563,11 +3751,12 @@ export function useEditorPage() {
   }, [activeFloorLayerId, visibleAutoFloorWalls])
 
   const ensureFloorWallInManual = useCallback((wallId: string) => {
+    const latestActiveFloorLayerId = floorRoomSyncStateRef.current.activeFloorLayerId ?? activeFloorLayerId
     setFloorWalls((prev) => {
       if (prev.some((wall) => wall.id === wallId)) return prev
       const autoWall = visibleAutoFloorWalls.find((wall) => wall.id === wallId)
       return autoWall
-        ? [...prev, { ...autoWall, floorLayerId: autoWall.floorLayerId ?? activeFloorLayerId ?? undefined }]
+        ? [...prev, { ...autoWall, floorLayerId: autoWall.floorLayerId ?? latestActiveFloorLayerId ?? undefined }]
         : prev
     })
   }, [activeFloorLayerId, visibleAutoFloorWalls])
@@ -3576,9 +3765,9 @@ export function useEditorPage() {
     setFloorOpenings((prev) => {
       if (prev.some((opening) => opening.id === openingId)) return prev
       const autoOpening = autoFloorOpenings.find((opening) => opening.id === openingId)
-      return autoOpening ? [...prev, autoOpening] : prev
+      return autoOpening ? [...prev, enrichOpeningWithWallFloor(autoOpening)] : prev
     })
-  }, [autoFloorOpenings])
+  }, [autoFloorOpenings, enrichOpeningWithWallFloor])
 
   const updateFloorOpeningFromEditable = useCallback((openingId: string, updater: (opening: FloorOpening) => FloorOpening) => {
     setFloorOpenings((prev) => {
@@ -3586,11 +3775,11 @@ export function useEditorPage() {
         ? prev
         : (() => {
           const autoOpening = autoFloorOpenings.find((opening) => opening.id === openingId)
-          return autoOpening ? [...prev, autoOpening] : prev
+          return autoOpening ? [...prev, enrichOpeningWithWallFloor(autoOpening)] : prev
         })()
-      return ensured.map((opening) => (opening.id === openingId ? updater(opening) : opening))
+      return ensured.map((opening) => (opening.id === openingId ? enrichOpeningWithWallFloor(updater(opening)) : opening))
     })
-  }, [autoFloorOpenings])
+  }, [autoFloorOpenings, enrichOpeningWithWallFloor])
 
   /**
    * 현재 자동 파생된 개구부를 수동 편집 상태로 승격한다.
@@ -3601,11 +3790,11 @@ export function useEditorPage() {
       if (autoFloorOpenings.length === 0) return prev
       const merged = new Map(prev.map((opening) => [opening.id, opening] as const))
       autoFloorOpenings.forEach((opening) => {
-        if (!merged.has(opening.id)) merged.set(opening.id, opening)
+        if (!merged.has(opening.id)) merged.set(opening.id, enrichOpeningWithWallFloor(opening))
       })
       return Array.from(merged.values())
     })
-  }, [autoFloorOpenings])
+  }, [autoFloorOpenings, enrichOpeningWithWallFloor])
 
   // 버블→2D 전환 직후 자동 문/창문도 즉시 편집 가능한 개구부 목록으로 승격한다.
   useEffect(() => {
@@ -3678,8 +3867,9 @@ export function useEditorPage() {
   }, [mergedFloorWalls])
   const normalizeOpeningByCurrentWall = useCallback((opening: FloorOpening): FloorOpening => {
     const wall = openingTargetWallById.get(opening.wallId)
-    return wall ? normalizeOpeningWithinWall(opening, wall, OPENING_NORMALIZE_OPTIONS) : opening
-  }, [openingTargetWallById])
+    const normalized = wall ? normalizeOpeningWithinWall(opening, wall, OPENING_NORMALIZE_OPTIONS) : opening
+    return enrichOpeningWithWallFloor(normalized)
+  }, [enrichOpeningWithWallFloor, openingTargetWallById])
 
   // 과거 좌표-hash 기반 auto-room wallId를 안정 ID 체계로 마이그레이션한다.
   useEffect(() => {
@@ -3730,6 +3920,8 @@ export function useEditorPage() {
         layerName: layer.name,
         storeyGlobalId: layer.storeyGlobalId,
         storeyName: layer.storeyName,
+        elevationMm: layer.elevationMm,
+        ceilingHeightMm: layer.ceilingHeightMm,
         opacity: overlayOpacityByLayerId[layer.id] ?? 0.35,
         rooms: layer.rooms,
       }))
@@ -3850,7 +4042,7 @@ export function useEditorPage() {
     bubbles,
     floorRooms,
     floorWalls: mergedFloorWalls,
-    floorOpenings: mergedFloorOpenings,
+    floorOpenings: floorOpeningsWithFloorLayer,
     sitePolygonRing: workspaceSiteBoundary.polygonRing,
     siteAreaM2: workspaceSiteBoundary.areaM2,
     sitePolygonQueryEnabled: false,
@@ -3952,9 +4144,11 @@ export function useEditorPage() {
   const [localFloorData, setLocalFloorData] = useState<FloorPlan3DData | null>(null)
   const hiddenElementIdSetForRender = useMemo(() => new Set(hiddenElementIds), [hiddenElementIds])
   const effectiveLocalFloorData = useMemo<FloorPlan3DData | null>(() => {
-    if (currentIfcUrl) return localFloorData
     if (!isFloorPlanGenerated && !localFloorData) return null
     const activeLayer = floorLayers.find((layer) => layer.id === activeFloorLayerId)
+    const fallbackStoryHeightMm = activeLayer?.ceilingHeightMm ?? localFloorData?.storyHeightMm ?? 3000
+    const resolveLayerElevationMm = (layerIndex: number, elevationMm?: number) =>
+      Number.isFinite(elevationMm) ? elevationMm as number : layerIndex * fallbackStoryHeightMm
     const renderRooms = activeFloorLayerId
       ? floorRooms
       : floorLayers.flatMap((layer) => layer.rooms)
@@ -3963,21 +4157,49 @@ export function useEditorPage() {
       !hiddenElementIdSetForRender.has(`2d:room:${room.bubbleId}`)
     ))
     const visibleWalls = activeLayerVisibleFloorWalls.filter((wall) => !hiddenElementIdSetForRender.has(`2d:wall:${wall.id}`))
+    const layersFor3D = (activeLayer ? [activeLayer] : floorLayers).map((layer, index) => {
+      const layerIndex = Math.max(floorLayers.findIndex((item) => item.id === layer.id), index)
+      const layerRoomIdSet = new Set(layer.rooms.flatMap((room) => [room.id, room.bubbleId]))
+      const layerRooms = layer.rooms.filter((room) => (
+        !hiddenElementIdSetForRender.has(`2d:room:${room.id}`) &&
+        !hiddenElementIdSetForRender.has(`2d:room:${room.bubbleId}`)
+      ))
+      const layerWalls = mergedFloorWalls.filter((wall) => {
+        if (hiddenElementIdSetForRender.has(`2d:wall:${wall.id}`)) return false
+        if (wall.floorLayerId) return wall.floorLayerId === layer.id
+        return layerRoomIdSet.size > 0 && layer.id === (activeLayer?.id ?? floorLayers[0]?.id)
+      })
+      return {
+        layerId: layer.id,
+        layerName: layer.name,
+        elevationMm: resolveLayerElevationMm(layerIndex, layer.elevationMm),
+        ceilingHeightMm: layer.ceilingHeightMm ?? fallbackStoryHeightMm,
+        rooms: layerRooms,
+        walls: layerWalls,
+      }
+    })
     return {
       rooms: visibleRooms,
       walls: visibleWalls,
-      storyHeightMm: activeLayer?.ceilingHeightMm ?? localFloorData?.storyHeightMm ?? 3000,
+      storyHeightMm: fallbackStoryHeightMm,
       activeFloorLayerId,
+      activeFloorElevationMm: activeLayer
+        ? resolveLayerElevationMm(floorLayers.findIndex((layer) => layer.id === activeLayer.id), activeLayer.elevationMm)
+        : 0,
+      displayBaseElevationMm: activeLayer
+        ? resolveLayerElevationMm(floorLayers.findIndex((layer) => layer.id === activeLayer.id), activeLayer.elevationMm)
+        : 0,
+      layers: layersFor3D,
     }
   }, [
     activeFloorLayerId,
     activeLayerVisibleFloorWalls,
-    currentIfcUrl,
     floorLayers,
     floorRooms,
     hiddenElementIdSetForRender,
     isFloorPlanGenerated,
     localFloorData,
+    mergedFloorWalls,
   ])
   // IFC 기반 3D에서 파싱된 건물 층(IfcBuildingStorey) 목록
   const [ifcStoreys, setIfcStoreys] = useState<IfcStoreyInfo[]>([])
@@ -4149,14 +4371,18 @@ export function useEditorPage() {
   const handleConfirmAddSpaceInTwoD = () => {
     if (!canEditFloorPlan) return
     setIsFloorPlanEditedIn2D(true)
-    markLocalBubbleSnapshotChanged()
     markLocalFloorPlanSnapshotChanged()
 
-    const activeLayer = activeFloorLayerId
-      ? floorLayers.find((layer) => layer.id === activeFloorLayerId) ?? null
+    const {
+      floorLayers: latestFloorLayers,
+      activeFloorLayerId: latestActiveFloorLayerId,
+    } = floorRoomSyncStateRef.current
+    const resolvedActiveLayerId = latestActiveFloorLayerId ?? activeFloorLayerId
+    const activeLayer = resolvedActiveLayerId
+      ? latestFloorLayers.find((layer) => layer.id === resolvedActiveLayerId) ?? null
       : null
     const activeLayerIndex = activeLayer
-      ? floorLayers.findIndex((layer) => layer.id === activeLayer.id)
+      ? latestFloorLayers.findIndex((layer) => layer.id === activeLayer.id)
       : -1
     const targetFloor = activeLayer && activeLayerIndex >= 0
       ? resolveBubbleFloorFromLayer(activeLayer, activeLayerIndex)
@@ -4166,16 +4392,18 @@ export function useEditorPage() {
     const createdRoom = toFloorRoomFromBubble(createdBubble, connectedIds)
     const targetLayerId = `floor-${normalizeBubbleFloor(createdBubble.floor)}`
     const matchedLayer = activeLayer
-      ?? floorLayers.find((layer) => layer.id === targetLayerId)
+      ?? latestFloorLayers.find((layer, index) => resolveBubbleFloorFromLayer(layer, index) === normalizeBubbleFloor(createdBubble.floor))
+      ?? latestFloorLayers.find((layer) => layer.id === targetLayerId)
       ?? null
     workspaceCommandPublisher.createRoom(createdRoom, {
+      floorLayerId: matchedLayer?.id,
       storeyGlobalId: matchedLayer?.storeyGlobalId,
       storeyName: matchedLayer?.storeyName ?? matchedLayer?.name,
     })
 
     if (matchedLayer) {
       const nextRooms = upsertFloorRoomByBubbleId(matchedLayer.rooms, createdRoom)
-      const nextLayers = floorLayers.map((layer) => (
+      const nextLayers = latestFloorLayers.map((layer) => (
         layer.id === matchedLayer.id
           ? { ...layer, rooms: nextRooms }
           : layer
@@ -5098,11 +5326,51 @@ export function useEditorPage() {
     updateFloorLayers,
   ])
 
+  const syncFloorRoomFromIfcSpacePatch = useCallback((
+    element: IfcElementInfo,
+    patch: Omit<IfcElementChange, 'expressId' | 'localId' | 'localIds'>,
+  ): boolean => {
+    if (!isIfcSpaceElement(element)) return false
+    const candidateIds = buildIfcElementCandidateIds(element)
+    let didSync = false
+
+    updateFloorLayers((currentLayers) => {
+      let didUpdateLayer = false
+      const nextLayers = currentLayers.map((layer) => {
+        let didUpdateRoom = false
+        const nextRooms = layer.rooms.map((room) => {
+          if (!hasCandidateId(candidateIds, resolveFloorRoomGlobalId(room), room.globalId, room.id, room.bubbleId)) {
+            return room
+          }
+
+          let nextRoom = room
+          if (typeof patch.color === 'string' && patch.color.trim() && patch.color !== room.color) {
+            nextRoom = { ...nextRoom, color: patch.color }
+          }
+          if (typeof patch.material === 'string' && patch.material.trim() && patch.material !== room.material) {
+            nextRoom = { ...nextRoom, material: patch.material }
+          }
+          if (nextRoom !== room) {
+            didUpdateRoom = true
+            didUpdateLayer = true
+            didSync = true
+          }
+          return nextRoom
+        })
+        return didUpdateRoom ? { ...layer, rooms: nextRooms } : layer
+      })
+      return didUpdateLayer ? nextLayers : currentLayers
+    })
+
+    return didSync
+  }, [updateFloorLayers])
+
   const recordIfcElementChange = useCallback((element: IfcElementInfo | null, patch: Omit<IfcElementChange, 'expressId' | 'localId' | 'localIds'>) => {
     if (!element || element.source !== 'ifc' || typeof element.expressId !== 'number') return
     markLocalFloorPlanSnapshotChanged()
     const expressId = element.expressId
     let resolvedTranslationMm = toFiniteTranslationMm(patch.translationMm)
+    syncFloorRoomFromIfcSpacePatch(element, patch)
     if (shouldPublishIfcElementPatch(element, patch)) {
       const commandPatch: Record<string, unknown> = { ...patch }
       const nextX = typeof patch.positionX === 'number' ? patch.positionX : null
@@ -5194,7 +5462,7 @@ export function useEditorPage() {
         ifcClass: element.ifcClass,
       })
     }
-  }, [markLocalFloorPlanSnapshotChanged, syncFloorRoomFromIfcSpaceTranslation, workspaceCommandPublisher])
+  }, [markLocalFloorPlanSnapshotChanged, syncFloorRoomFromIfcSpacePatch, syncFloorRoomFromIfcSpaceTranslation, workspaceCommandPublisher])
 
   const handleDeleteIfcElement = useCallback((element: IfcElementInfo) => {
     workspaceCommandPublisher.deleteIfcElement(element)
@@ -5343,6 +5611,7 @@ export function useEditorPage() {
   /** 2D 평면도 생성 버튼 핸들러 — 로딩 애니메이션 포함 */
   const handleGenerateFloorPlan = useCallback(async (options: GenerateFloorPlanOptions = {}) => {
     if (!projectId) return
+    let localFloorPlanStarted = false
     if (floorPlanGenerateForbiddenRef.current) {
       setFloorPlanGenerateStatusText('평면도 생성 권한이 없습니다. 프로젝트 소유자 계정으로 시도하세요.')
       return
@@ -5359,7 +5628,7 @@ export function useEditorPage() {
     // 기존 IFC가 이미 존재하는 프로젝트에서 사용자가 실수로 자동 생성을 트리거하면
     // current revision pointer가 새 revision으로 덮여 기존 IFC가 사라진다.
     // 명시적 재생성 UX가 도입되기 전까지는 여기서 차단한다.
-    if (currentIfcUrl || currentIfcRevisionId) {
+    if (currentIfcUrl) {
       setFloorPlanGenerateStatusText('이미 생성된 IFC가 있어 자동 생성을 중단했습니다. 기존 IFC를 3D로 열거나 새 프로젝트에서 시도하세요.')
       return
     }
@@ -5429,6 +5698,12 @@ export function useEditorPage() {
       })
 
       const generationBubbles = mapBubblesForFloorPlanGenerate(mergedGenerationBubbles)
+      generateFloorPlan(generationBubbles, latestSnapshot.connections, stageSize.width, stageSize.height)
+      localFloorPlanStarted = true
+      setIsFloorPlanEditedIn2D(false)
+      setWorkspacePhaseStatus('IFC_EDIT')
+      markLocalFloorPlanSnapshotChanged()
+
       const generationBoundaryInput = mapLayoutBoundaryInputForFloorPlanGenerate(layoutBoundaryInput)
       const layoutImport = buildFloorPlanLayoutImportPayload(
         projectId,
@@ -5448,15 +5723,13 @@ export function useEditorPage() {
       floorPlanGenerateForbiddenRef.current = false
       setLatestFloorPlanJobId(response.jobId)
       setFloorPlanGenerateStatusText('AI가 평면도 생성 중...')
-      setIsFloorPlanEditedIn2D(false)
-      setWorkspacePhaseStatus('CONVERTING')
       pendingOpenThreeDOnGenerateCompleteRef.current = Boolean(options.openThreeDOnComplete)
       startFloorPlanGenerateTimeout()
 
     } catch (error: unknown) {
       pendingOpenThreeDOnGenerateCompleteRef.current = false
       clearFloorPlanGenerateTimeout()
-      setWorkspacePhaseStatus('BUBBLE_DRAFT')
+      setWorkspacePhaseStatus(localFloorPlanStarted ? 'IFC_EDIT' : 'BUBBLE_DRAFT')
       if (error instanceof FloorPlanLayoutValidationError) {
         const firstError = error.errors[0] ?? '입력 형식이 올바르지 않습니다.'
         setFloorPlanGenerateStatusText(`평면도 생성 입력값이 올바르지 않습니다. (${firstError})`)
@@ -5483,19 +5756,22 @@ export function useEditorPage() {
     authUser?.user_type,
     bubbles.length,
     clearFloorPlanGenerateTimeout,
-    currentIfcRevisionId,
     currentIfcUrl,
     currentProjectName,
     floorLayers,
     flushBubbleSnapshotSaveToDb,
+    generateFloorPlan,
     isCurrentProjectOwner,
     isCurrentProjectOwnerKnown,
     layoutBoundaryInput,
+    markLocalFloorPlanSnapshotChanged,
     mapBubblesForFloorPlanGenerate,
     mapLayoutBoundaryInputForFloorPlanGenerate,
     projectId,
     cancelScheduledBubbleSnapshotSave,
     startFloorPlanGenerateTimeout,
+    stageSize.height,
+    stageSize.width,
     workspacePhaseStatus,
   ])
 
@@ -5703,6 +5979,14 @@ export function useEditorPage() {
   const handleAddFloorLayer = useCallback(() => {
     const createdLayer = addFloorLayer()
     if (!createdLayer) return
+    floorRoomSyncStateRef.current = {
+      ...floorRoomSyncStateRef.current,
+      floorLayers: [
+        ...floorRoomSyncStateRef.current.floorLayers.filter((layer) => layer.id !== createdLayer.id),
+        createdLayer,
+      ],
+      activeFloorLayerId: createdLayer.id,
+    }
     syncBubbleFloorForLayer(createdLayer, floorLayers.length)
     workspaceCommandPublisher.createFloorLayer(createdLayer)
     markLocalFloorPlanSnapshotChanged()
@@ -5713,10 +5997,20 @@ export function useEditorPage() {
     const currentLayer = floorLayers.find((layer) => layer.id === layerId)
     if (!currentLayer || currentLayer.name === normalizedName) return
     renameFloorLayer(layerId, normalizedName)
-    workspaceCommandPublisher.markFloorPlanLayoutChanged({
-      action: 'rename_floor_layer',
-      layerId,
+    floorRoomSyncStateRef.current = {
+      ...floorRoomSyncStateRef.current,
+      floorLayers: floorRoomSyncStateRef.current.floorLayers.map((layer) =>
+        layer.id === layerId
+          ? { ...layer, name: normalizedName, storeyName: normalizedName }
+          : layer,
+      ),
+    }
+    workspaceCommandPublisher.updateFloorLayer(layerId, {
       name: normalizedName,
+      storeyName: normalizedName,
+      storeyGlobalId: currentLayer.storeyGlobalId,
+      elevationMm: currentLayer.elevationMm,
+      ceilingHeightMm: currentLayer.ceilingHeightMm,
     })
     markLocalFloorPlanSnapshotChanged()
   }, [floorLayers, markLocalFloorPlanSnapshotChanged, renameFloorLayer, workspaceCommandPublisher])
@@ -5727,8 +6021,18 @@ export function useEditorPage() {
     const deletedRoomIds = new Set((deletedLayer?.rooms ?? []).flatMap((room) => [room.id, room.bubbleId].filter(Boolean)))
     const deletedWallIds = new Set(floorWalls.filter((wall) => wall.floorLayerId === layerId).map((wall) => wall.id))
     const deletedOpeningIds = new Set(floorOpenings.filter((opening) => deletedWallIds.has(opening.wallId)).map((opening) => opening.id))
-    const deletedLayerName = deletedLayer.name ?? null
     deleteFloorLayer(layerId)
+    const nextFloorLayers = floorRoomSyncStateRef.current.floorLayers.filter((layer) => layer.id !== layerId)
+    const nextActiveFloorLayerId = floorRoomSyncStateRef.current.activeFloorLayerId === layerId
+      ? nextFloorLayers[0]?.id ?? null
+      : floorRoomSyncStateRef.current.activeFloorLayerId
+    floorRoomSyncStateRef.current = {
+      ...floorRoomSyncStateRef.current,
+      floorLayers: nextFloorLayers,
+      floorWalls: floorRoomSyncStateRef.current.floorWalls.filter((wall) => wall.floorLayerId !== layerId),
+      floorOpenings: floorRoomSyncStateRef.current.floorOpenings.filter((opening) => !deletedWallIds.has(opening.wallId)),
+      activeFloorLayerId: nextActiveFloorLayerId,
+    }
     setFloorWalls((prev) => prev.filter((wall) => wall.floorLayerId !== layerId))
     setFloorOpenings((prev) => prev.filter((opening) => !deletedWallIds.has(opening.wallId)))
     setHiddenElementIds((prev) =>
@@ -5759,11 +6063,7 @@ export function useEditorPage() {
       delete next[layerId]
       return next
     })
-    workspaceCommandPublisher.markFloorPlanLayoutChanged({
-      action: 'delete_floor_layer',
-      layerId,
-      layerName: deletedLayerName,
-    })
+    workspaceCommandPublisher.deleteFloorLayer(deletedLayer.storeyGlobalId ?? layerId)
     markLocalFloorPlanSnapshotChanged()
   }, [
     deleteFloorLayer,
@@ -5777,6 +6077,10 @@ export function useEditorPage() {
   const handleSelectFloorLayer = useCallback((layerId: string) => {
     if (!floorLayers.some((layer) => layer.id === layerId)) return
     const nextLayerId = mode === '3d' && activeFloorLayerId === layerId ? null : layerId
+    floorRoomSyncStateRef.current = {
+      ...floorRoomSyncStateRef.current,
+      activeFloorLayerId: nextLayerId,
+    }
     setActiveFloorLayerId(nextLayerId)
     clearSelection()
     clearConnectionAndTwoDSelection()
@@ -5846,6 +6150,10 @@ export function useEditorPage() {
     updateFloorWallFromEditable,
     promoteCurrentAutoFloorOpenings,
     normalizeOpeningByCurrentWall,
+    getLatestFloorContext: () => ({
+      floorLayers: floorRoomSyncStateRef.current.floorLayers,
+      activeFloorLayerId: floorRoomSyncStateRef.current.activeFloorLayerId,
+    }),
     onFloorPlanChanged: markLocalFloorPlanSnapshotChanged,
   })
 
@@ -6893,6 +7201,15 @@ export function useEditorPage() {
       }
 
       if (!source?.currentIfcUrl) {
+        setIfcSourceByProjectId((prev) => {
+          if (!(projectId in prev)) return prev
+          const next = { ...prev }
+          delete next[projectId]
+          return next
+        })
+        setIfcRevisionByProjectId((prev) => (
+          prev[projectId] === null ? prev : { ...prev, [projectId]: null }
+        ))
         if (import.meta.env.DEV && !fetchFailed) {
           console.warn('[ifc-source][hydrate-empty]', { projectId, mode })
         }
@@ -6997,7 +7314,7 @@ export function useEditorPage() {
     floorLayers,
     activeFloorLayerId,
     floorWalls: floorWalls.length > 0 ? floorWalls : autoFloorWalls,
-    floorOpenings: mergedFloorOpenings,
+    floorOpenings: floorOpeningsWithFloorLayer,
     onIfcResult: handleLlmIfcResult,
     onToggleAssistantPanel: openAssistantPanel,
   })
@@ -7022,6 +7339,7 @@ export function useEditorPage() {
     floorRooms,
     setIsFloorPlanEditedIn2D,
     markLocalBubbleSnapshotChanged,
+    markLocalFloorPlanSnapshotChanged,
     handleLabelChange,
     handleTypeChange,
     handleMaterialChange,
@@ -7254,7 +7572,7 @@ export function useEditorPage() {
       floorLayers,
       floorRooms: registryFloorRooms,
       floorWalls: mergedFloorWalls,
-      floorOpenings: mergedFloorOpenings,
+      floorOpenings: floorOpeningsWithFloorLayer,
       libraryElements,
       ifcElementChanges,
       selectedIfcElement,
@@ -7271,12 +7589,12 @@ export function useEditorPage() {
       activeFloorLayerId,
       activeIfcStoreyExpressId,
       floorLayers,
+      floorOpeningsWithFloorLayer,
       hiddenElementIds,
       ifcElementChanges,
       ifcStoreys,
       libraryElements,
       mergedFloorWalls,
-      mergedFloorOpenings,
       overlayIfcStoreyExpressIds,
       overlayLayerIds,
       registryFloorRooms,
@@ -7632,7 +7950,7 @@ export function useEditorPage() {
     overlayOpacityByLayerId,
     floorWalls,
     floorWallsForHierarchy: activeLayerVisibleFloorWalls,
-    floorOpenings: mergedFloorOpenings,
+    floorOpenings: floorOpeningsWithFloorLayer,
     selectedFloorWallId,
     selectedFloorWallIds,
     selectedFloorOpeningId,

@@ -1,17 +1,12 @@
-import { lazy, useCallback, useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 import { useFreshIfcUrl } from '@/features/editor/hooks/useFreshIfcUrl'
 import { saveProjectWorkspaceThumbnail } from '@/features/project/services/projectWorkspaceThumbnail.service'
 import { DEFAULT_MOCK_IFC_URL } from '@/features/editor/components/canvas/threeDCanvas.utils'
+import { ThreeDCanvas } from '@/features/editor/components/canvas/ThreeDCanvas'
 import type { EditorCanvasRenderProps } from '../../types/editorCanvasContentProps'
 import type { ThreeDCameraViewPresetCommand, ThreeDCoordinates } from '../canvas-content/buildCanvasSectionProps'
 
 /** ThreeDCanvas는 ThatOpen 기반 Three.js 렌더러를 포함해 무거우므로 lazy 로드한다. */
-const ThreeDCanvas = lazy(() =>
-  import('@/features/editor/components/canvas/ThreeDCanvas').then((module) => ({
-    default: module.ThreeDCanvas,
-  })),
-)
-
 interface ThreeDModeCanvasProps {
   editorProps: EditorCanvasRenderProps
   scale: number
@@ -101,6 +96,7 @@ export default function ThreeDModeCanvas({
     })
     return Object.fromEntries(entries) as Record<number, number>
   }, [editorProps.overlayIfcStoreyExpressIds, editorProps.overlayOpacityByLayerId])
+  const shouldUseSavedFloorLayerFilter = editorProps.floorLayers.length > 0
   const handlePreviewCapture = useCallback((imageUrl: string) => {
     saveProjectWorkspaceThumbnail(editorProps.projectId, '3d', imageUrl)
   }, [editorProps.projectId])
@@ -145,9 +141,9 @@ export default function ThreeDModeCanvas({
       onLibraryElementDelete={editorProps.handleDeleteLibraryElement}
       localFloorData={editorProps.localFloorData}
       onStoreysLoad={editorProps.handleIfcStoreysLoad}
-      activeStoreyExpressId={editorProps.activeIfcStoreyExpressId}
-      overlayIfcStoreyExpressIds={editorProps.overlayIfcStoreyExpressIds}
-      overlayIfcStoreyOpacityByExpressId={overlayIfcStoreyOpacityByExpressId}
+      activeStoreyExpressId={shouldUseSavedFloorLayerFilter ? undefined : editorProps.activeIfcStoreyExpressId}
+      overlayIfcStoreyExpressIds={shouldUseSavedFloorLayerFilter ? undefined : editorProps.overlayIfcStoreyExpressIds}
+      overlayIfcStoreyOpacityByExpressId={shouldUseSavedFloorLayerFilter ? undefined : overlayIfcStoreyOpacityByExpressId}
       hiddenIfcElementLocalIds={editorProps.hiddenIfcElementLocalIds}
       requestedIfcElementLocalId={editorProps.requestedIfcElementLocalId}
       ifcElementSelectionRequestToken={editorProps.ifcElementSelectionRequestToken}

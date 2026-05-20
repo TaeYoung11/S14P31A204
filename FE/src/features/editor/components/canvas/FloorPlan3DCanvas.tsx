@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import * as THREE from 'three'
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js'
 import type { CommentPin3DCreatePosition, FloorCommentPin, IfcElementChange, IfcElementInfo } from '../../types'
 import type { FloorLayerOverlay } from '../../types'
 import { FLOOR_MM_PER_PX } from '../../constants'
@@ -616,11 +619,6 @@ export function FloorPlan3DCanvas({
     let handleWheel: ((event: WheelEvent) => void) | null = null
 
     void (async () => {
-      const [THREE, { OrbitControls }, { TransformControls }] = await Promise.all([
-        import('three'),
-        import('three/examples/jsm/controls/OrbitControls.js'),
-        import('three/examples/jsm/controls/TransformControls.js'),
-      ])
       if (cancelled) return
       threeRef.current = THREE
 

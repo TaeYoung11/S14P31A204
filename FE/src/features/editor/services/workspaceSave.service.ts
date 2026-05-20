@@ -181,7 +181,20 @@ export const workspaceSaveService = {
       throw new Error('Either a valid baseIndex or s3Url is required to save floor-plan snapshot.')
     }
 
-    // 현재 로컬 BE는 s3Url 기반 계약을 사용하므로 legacy를 우선 시도한다.
+    // Prefer baseIndex so the persisted DB snapshot keeps the latest floor-plan layout.
+    if (canTryBaseIndex) {
+      try {
+        return await post({
+          revisionId,
+          baseIndex: input.baseIndex,
+          s3Url: normalizedS3Url ?? undefined,
+        })
+      } catch (error: unknown) {
+        if (!(canTryLegacy && isAxiosError(error) && error.response?.status === 400)) throw error
+      }
+    }
+
+    // Legacy servers only accept s3Url; keep that fallback for compatibility.
     if (canTryLegacy) {
       try {
         return await post({
@@ -200,16 +213,8 @@ export const workspaceSaveService = {
             s3Url: extractedStorageKey,
           })
         }
-        if (!(canTryBaseIndex && isAxiosError(error) && error.response?.status === 400)) throw error
+        throw error
       }
-    }
-
-    // 신 계약(baseIndex) 서버 또는 legacy 400 폴백 경로.
-    if (canTryBaseIndex) {
-      return post({
-        revisionId,
-        baseIndex: input.baseIndex,
-      })
     }
 
     throw new Error('Failed to save floor-plan snapshot with available payloads.')

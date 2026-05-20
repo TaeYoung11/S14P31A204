@@ -322,6 +322,8 @@ export interface FloorLayerOverlay {
   layerName: string
   storeyGlobalId?: string
   storeyName?: string
+  elevationMm?: number
+  ceilingHeightMm?: number
   opacity: number
   rooms: FloorRoom[]
 }
@@ -348,6 +350,7 @@ export interface FloorWall {
 export interface FloorOpening {
   id: string
   globalId?: string
+  floorLayerId?: string
   hostWallGlobalId?: string
   storeyGlobalId?: string
   storeyName?: string

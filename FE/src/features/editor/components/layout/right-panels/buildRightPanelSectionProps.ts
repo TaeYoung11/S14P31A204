@@ -116,7 +116,8 @@ export function buildFloorViewSectionProps(vm: EditorRightPanelsProps): FloorVie
   if (!isFloorWorkspaceMode(vm.mode)) return null
 
   // IFC 층이 파싱된 경우: FloorLayer 형식으로 변환해 FloorViewPanel에 전달한다.
-  const hasIfcStoreys = vm.mode === '3d' && (vm.ifcStoreys?.length ?? 0) > 0
+  const hasSavedFloorLayers = (vm.floorLayers?.length ?? 0) > 0
+  const hasIfcStoreys = vm.mode === '3d' && !hasSavedFloorLayers && (vm.ifcStoreys?.length ?? 0) > 0
   const ifcStoreyLayers: FloorLayer[] | undefined = hasIfcStoreys
     ? vm.ifcStoreys!.map((s) => ({ id: String(s.expressId), name: s.name, rooms: [] }))
     : undefined

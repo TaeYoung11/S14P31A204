@@ -6718,6 +6718,83 @@ export default function ThatOpenIfcCanvas({
   ])
 
   useEffect(() => {
+    if (activeStoreyExpressId !== undefined || overlayIfcStoreyExpressIds !== undefined) return
+    const sceneState = sceneRef.current
+    const presetGroup = presetGroupRef.current
+    if (!sceneState || !presetGroup) return
+
+    const overlayByLayerId = new Map(overlayLayers.map((layer) => [layer.layerId, layer] as const))
+    const setObjectOpacity = (object: LibraryObject3D, opacity: number) => {
+      const clampedOpacity = Math.min(Math.max(opacity, 0), 1)
+      object.traverse((child) => {
+        if (!(child instanceof sceneState.three.Mesh)) return
+        const apply = (entry: unknown) => {
+          if (!entry || typeof entry !== 'object') return
+          const material = entry as {
+            opacity?: number
+            transparent?: boolean
+            depthWrite?: boolean
+            needsUpdate?: boolean
+          }
+          material.opacity = clampedOpacity
+          material.transparent = clampedOpacity < 1
+          material.depthWrite = clampedOpacity >= 1
+          material.needsUpdate = true
+        }
+        const material = (child as { material?: unknown }).material
+        if (Array.isArray(material)) material.forEach(apply)
+        else apply(material)
+      })
+    }
+
+    const selectedLibraryId = selectedTargetRef.current?.source === 'library'
+      ? getLibraryPresetFromObject(selectedTargetRef.current.object as LibraryObject3D)?.id
+      : null
+    let shouldClearSelection = false
+
+    presetGroup.children.forEach((child) => {
+      const libraryObject = child as LibraryObject3D
+      const preset = getLibraryPresetFromObject(libraryObject)
+      if (!preset) {
+        libraryObject.visible = true
+        setObjectOpacity(libraryObject, 1)
+        return
+      }
+      if (isPendingIfcAssetPlaceholder(libraryObject)) {
+        libraryObject.visible = false
+        return
+      }
+      const floorLayerId = preset.floorLayerId ?? null
+      const overlayLayer = floorLayerId ? overlayByLayerId.get(floorLayerId) : undefined
+      const isActive = !activeFloorLayerId || !floorLayerId || floorLayerId === activeFloorLayerId
+      const isOverlay = Boolean(overlayLayer)
+      const isVisible = isActive || isOverlay
+      libraryObject.visible = isVisible
+      setObjectOpacity(libraryObject, isOverlay && !isActive ? overlayLayer?.opacity ?? 0.35 : 1)
+      if (!isVisible && selectedLibraryId && preset.id === selectedLibraryId) {
+        shouldClearSelection = true
+      }
+    })
+
+    if (shouldClearSelection && selectedTargetRef.current?.source === 'library' && !isRuntimeTransformLocked()) {
+      sceneState.transformControls.detach()
+      sceneState.transformControls.visible = false
+      sceneState.transformControls.enabled = false
+      selectedTargetRef.current = null
+      syncTransformSelectionState(null, 'floor_layer_visibility_clear_hidden_library')
+      onIfcElementSelectRef.current?.(null)
+    }
+    sceneState.renderer.render(sceneState.scene, sceneState.camera)
+  }, [
+    activeFloorLayerId,
+    activeStoreyExpressId,
+    isRuntimeTransformLocked,
+    overlayIfcStoreyExpressIds,
+    overlayLayers,
+    syncTransformSelectionState,
+  ])
+
+  useEffect(() => {
     if (!libraryDropRequest) return
     if (libraryDropRequest.token <= handledLibraryDropTokenRef.current) return
     handledLibraryDropTokenRef.current = libraryDropRequest.token

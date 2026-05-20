@@ -356,7 +356,7 @@ export function buildElementRegistry(input: BuildElementRegistryInput): ElementR
     ...createIfcElements(ifcStoreys, deletedIfcLocalIds),
     ...floorRooms.map((room) => createRoomElement(room, roomFloorIdMap.get(room.id) ?? roomFloorIdMap.get(room.bubbleId) ?? input.activeFloorLayerId ?? null)),
     ...floorWalls.map(createWallElement),
-    ...floorOpenings.map((opening) => createOpeningElement(opening, wallFloorIdMap.get(opening.wallId) ?? input.activeFloorLayerId ?? null)),
+    ...floorOpenings.map((opening) => createOpeningElement(opening, opening.floorLayerId ?? wallFloorIdMap.get(opening.wallId) ?? input.activeFloorLayerId ?? null)),
     ...libraryElements.map(createLibraryElement),
   ].sort((left, right) => {
     const sourceSort = SOURCE_PRIORITY[left.sourceType] - SOURCE_PRIORITY[right.sourceType]
@@ -486,6 +486,12 @@ export function buildElementHierarchyTree(registry: ElementRegistryState): Eleme
       isVisible: visibleFloorIds.has(floor.floorId),
       children: categoryNodes,
     }
+  }).sort((left, right) => {
+    if (left.isSelected !== right.isSelected) return left.isSelected ? -1 : 1
+    const leftVisible = visibleFloorIds.has(left.floorId ?? '')
+    const rightVisible = visibleFloorIds.has(right.floorId ?? '')
+    if (leftVisible !== rightVisible) return leftVisible ? -1 : 1
+    return left.label.localeCompare(right.label, 'ko')
   })
 
   return [{

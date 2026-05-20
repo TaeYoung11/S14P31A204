@@ -13,4 +13,5 @@ export const resolveTransformMode = (selectedTool?: string): 'translate' | 'rota
 export const shouldRenderLocalFloorPlan = (
   ifcUrl?: string | null,
   localFloorData?: FloorPlan3DData | null,
-) => !ifcUrl && Boolean(localFloorData)
+  hasAuthoritativeFloorLayers = false,
+) => Boolean(localFloorData) && (!ifcUrl || hasAuthoritativeFloorLayers)
