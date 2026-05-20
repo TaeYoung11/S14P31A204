@@ -35,6 +35,11 @@ interface WorkspaceFloorPlanPayload extends WorkspaceBubblePayload {
     hiddenAutoOpeningIds: WorkspaceSnapshot['hiddenAutoOpeningIds']
     isProjectStructurePreferred: WorkspaceSnapshot['isProjectStructurePreferred']
     ifcElementChanges: WorkspaceSnapshot['ifcElementChanges']
+    activeIfcStoreyExpressId?: WorkspaceSnapshot['activeIfcStoreyExpressId']
+    overlayIfcStoreyExpressIds?: WorkspaceSnapshot['overlayIfcStoreyExpressIds']
+    overlayFloorLayerIds?: WorkspaceSnapshot['overlayFloorLayerIds']
+    hiddenElementIds?: WorkspaceSnapshot['hiddenElementIds']
+    ifcStoreyNameOverrides?: WorkspaceSnapshot['ifcStoreyNameOverrides']
     mode: 'ifc'
     baseIndex: number
   }
@@ -132,6 +137,11 @@ const toTwoDFloorPlanPayload = (
     hiddenAutoOpeningIds: snapshot.hiddenAutoOpeningIds,
     isProjectStructurePreferred: snapshot.isProjectStructurePreferred,
     ifcElementChanges: snapshot.ifcElementChanges,
+    activeIfcStoreyExpressId: snapshot.activeIfcStoreyExpressId ?? null,
+    overlayIfcStoreyExpressIds: snapshot.overlayIfcStoreyExpressIds ?? [],
+    overlayFloorLayerIds: snapshot.overlayFloorLayerIds ?? [],
+    hiddenElementIds: snapshot.hiddenElementIds ?? [],
+    ifcStoreyNameOverrides: snapshot.ifcStoreyNameOverrides ?? {},
     mode: 'ifc',
     baseIndex,
   },

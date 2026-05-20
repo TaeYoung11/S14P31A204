@@ -1,4 +1,4 @@
-import type { FloorRoom, FloorWall } from '../types'
+import type { FloorLayerOverlay, FloorRoom, FloorWall } from '../types'
 
 /** 1mm → Three.js world units (PROJECT_WORLD_UNITS_PER_MM 기준) */
 const MM_TO_WORLD = 0.001
@@ -16,6 +16,7 @@ export interface FloorPlan3DData {
   rooms: FloorRoom[]
   walls: FloorWall[]
   storyHeightMm: number
+  activeFloorLayerId?: string | null
 }
 
 const ROOM_COLOR_PALETTE = [
@@ -35,9 +36,11 @@ const getDefaultRoomColor = (index: number) =>
 export function buildFloorPlan3DGroup(
   THREE: ThreeModule,
   data: FloorPlan3DData,
+  overlayLayers: FloorLayerOverlay[] = [],
 ): import('three').Group {
   const group = new THREE.Group()
   const { rooms, walls, storyHeightMm } = data
+  const activeFloorLayerId = data.activeFloorLayerId ?? null
   const wallHeightWorld = storyHeightMm * MM_TO_WORLD
 
   // ── 방(Room) 박스 ──
@@ -70,6 +73,10 @@ export function buildFloorPlan3DGroup(
       heightMm: storyHeightMm,
       thicknessMm: room.heightMm,
       properties: {
+        RoomId: room.id,
+        BubbleId: room.bubbleId,
+        ...(activeFloorLayerId ? { FloorLayerId: activeFloorLayerId } : {}),
+        ...(room.globalId ? { GlobalId: room.globalId } : {}),
         Category: 'Space',
         Class: 'IfcSpace',
       },
@@ -87,6 +94,51 @@ export function buildFloorPlan3DGroup(
     mesh.add(edges)
 
     group.add(mesh)
+  })
+
+  // ── 오버레이(Room) 박스 ──
+  overlayLayers.forEach((overlayLayer, layerIndex) => {
+    const overlayOpacity = Math.min(Math.max(overlayLayer.opacity, 0.1), 0.95)
+    overlayLayer.rooms.forEach((room, roomIndex) => {
+      const sizeX = room.widthMm * MM_TO_WORLD
+      const sizeY = wallHeightWorld
+      const sizeZ = room.heightMm * MM_TO_WORLD
+      if (sizeX < 0.01 || sizeY < 0.01 || sizeZ < 0.01) return
+
+      const posX = (room.x + room.width / 2) * PX_TO_WORLD
+      const posY = sizeY / 2
+      const posZ = (room.y + room.height / 2) * PX_TO_WORLD
+
+      const geo = new THREE.BoxGeometry(sizeX, sizeY, sizeZ)
+      const color = room.color || getDefaultRoomColor(roomIndex)
+      const mat = new THREE.MeshLambertMaterial({
+        color,
+        transparent: true,
+        opacity: overlayOpacity,
+        depthWrite: false,
+      })
+      const mesh = new THREE.Mesh(geo, mat)
+      mesh.position.set(posX, posY + 0.002 + layerIndex * 0.0005, posZ)
+      mesh.userData.floorPlanElement = {
+        id: `overlay:${overlayLayer.layerId}:${room.id}`,
+        name: `${overlayLayer.layerName || 'Overlay'} · ${room.label || 'Room'}`,
+        ifcClass: 'IfcSpace',
+        category: 'OverlaySpace',
+        lengthMm: room.widthMm,
+        heightMm: storyHeightMm,
+        thicknessMm: room.heightMm,
+        properties: {
+          RoomId: room.id,
+          BubbleId: room.bubbleId,
+          LayerId: overlayLayer.layerId,
+          LayerName: overlayLayer.layerName,
+          ...(room.globalId ? { GlobalId: room.globalId } : {}),
+          Category: 'OverlaySpace',
+          Class: 'IfcSpace',
+        },
+      }
+      group.add(mesh)
+    })
   })
 
   // ── 벽(Wall) 박스 ──
@@ -112,6 +164,7 @@ export function buildFloorPlan3DGroup(
       : wall.type === 'partition'
         ? 'Interior wall'
         : 'Wall'
+    const wallFloorLayerId = wall.floorLayerId ?? activeFloorLayerId ?? null
     mesh.userData.floorPlanElement = {
       id: wall.id,
       name: wallCategory,
@@ -124,6 +177,9 @@ export function buildFloorPlan3DGroup(
       endMm: wall.endMm,
       rotationY: -(Math.atan2(dz, dx) * 180) / Math.PI,
       properties: {
+        WallId: wall.id,
+        ...(wallFloorLayerId ? { FloorLayerId: wallFloorLayerId } : {}),
+        ...(wall.globalId ? { GlobalId: wall.globalId } : {}),
         Category: wallCategory,
         Class: wall.type === 'exterior' ? 'IfcWallStandardCase' : 'IfcWall',
         ...(wall.startMm ? { StartMmX: wall.startMm.x, StartMmY: wall.startMm.y } : {}),

@@ -9,7 +9,7 @@
  *  2. 그 외 → ThatOpenIfcCanvas (ifcUrl 없을 시 mock IFC로 폴백)
  */
 import { useCallback, useRef, useState } from 'react'
-import type { CommentPin3DCreatePosition, FloorCommentPin, FloorLayerOverlay, FloorRoom, IfcElementChange, IfcElementInfo } from '../../types'
+import type { CommentPin3DCreatePosition, FloorCommentPin, FloorLayer, FloorLayerOverlay, FloorRoom, IfcElementChange, IfcElementInfo } from '../../types'
 import type { IfcStoreyInfo } from './thatopen/ifcPropertyParser'
 import { useCtrlWheelZoom } from '../../hooks/useCtrlWheelZoom'
 import ThreeDCanvasCollaborationOverlay from './ThreeDCanvasCollaborationOverlay'
@@ -42,10 +42,13 @@ interface ThreeDCanvasProps {
   onToggleLibrary?: () => void
   isGridVisible?: boolean
   rooms?: FloorRoom[]
+  floorLayers?: FloorLayer[]
+  activeFloorLayerId?: string | null
   overlayLayers?: FloorLayerOverlay[]
   /** 현재 줌 스케일 (1.0 = 100%) */
   scale?: number
   selectedId?: string | null
+  preferredSelectedElementId?: string | null
   onSelect?: (id: string | null) => void
   /** 현재 선택 도구 (selection / hand / rotate / scale) */
   selectedTool?: string
@@ -76,6 +79,7 @@ interface ThreeDCanvasProps {
   overlayIfcStoreyExpressIds?: number[]
   /** IFC 겹쳐보기 층별 투명도 (0.1~1) */
   overlayIfcStoreyOpacityByExpressId?: Record<number, number>
+  hiddenIfcElementLocalIds?: number[]
   /** 계층구조에서 선택 요청한 IFC 요소 localId */
   requestedIfcElementLocalId?: number | null
   /** 계층구조 IFC 요소 선택 요청 토큰 */
@@ -134,6 +138,9 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
         ifcUrl={effectiveIfcUrl}
         rawIfcUrl={props.ifcUrl}
         localFloorData={props.localFloorData}
+        floorLayers={props.floorLayers ?? []}
+        activeFloorLayerId={props.activeFloorLayerId ?? null}
+        overlayLayers={props.overlayLayers ?? []}
         libraryElements={props.libraryElements}
         commentPins={props.commentPins ?? []}
         isCollaborationMode={Boolean(props.isCollaborationMode)}
@@ -149,6 +156,7 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
         zoomScale={props.scale ?? 1}
         selectedTool={props.selectedTool}
         selectedIfcElement={props.selectedIfcElement}
+        preferredSelectedElementId={props.preferredSelectedElementId ?? null}
         deleteRequestToken={props.threeDDeleteRequestToken ?? 0}
         onIfcElementSelect={props.onIfcElementSelect}
         onIfcElementDelete={props.onIfcElementDelete}
@@ -161,6 +169,7 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
         activeStoreyExpressId={props.activeStoreyExpressId}
         overlayIfcStoreyExpressIds={props.overlayIfcStoreyExpressIds}
         overlayIfcStoreyOpacityByExpressId={props.overlayIfcStoreyOpacityByExpressId}
+        hiddenIfcElementLocalIds={props.hiddenIfcElementLocalIds}
         requestedIfcElementLocalId={props.requestedIfcElementLocalId}
         ifcElementSelectionRequestToken={props.ifcElementSelectionRequestToken}
         requestedLibraryElementId={props.requestedLibraryElementId}
