@@ -778,6 +778,11 @@
       "allOf": [
         {
           "if": {
+            "properties": {
+              "propagate_roof_appearance": {
+                "const": true
+              }
+            },
             "required": ["propagate_roof_appearance"]
           },
           "then": {
