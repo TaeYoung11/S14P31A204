@@ -788,6 +788,12 @@ h6 {
          disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0;
 }
 
+.project-ghost-button {
+  @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-transparent bg-transparent px-4 text-sm font-bold text-[#334155]
+         transition-colors hover:bg-[#f8faff] hover:text-[#4f46e5]
+         disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0;
+}
+
 .project-danger-button {
   @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-[#fecaca] bg-white px-4 text-sm font-bold text-[#dc2626]
          transition-colors hover:bg-[#fef2f2]

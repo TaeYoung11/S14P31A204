@@ -345,7 +345,7 @@ export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
           <div className="flex items-center gap-3">
             <button
               onClick={handleClose}
-              className="project-secondary-button border-transparent bg-transparent shadow-none hover:bg-white"
+              className="project-ghost-button"
             >
               취소
             </button>
@@ -378,7 +378,7 @@ export function InviteModal({ isOpen, onClose, projectIds }: InviteModalProps) {
               <button
                 type="button"
                 onClick={() => void handleConfirmRemoveAlreadyInvitedUser()}
-                className="project-danger-button bg-[#dc2626] text-white hover:bg-[#b91c1c]"
+                className="project-danger-button"
               >
                 삭제
               </button>

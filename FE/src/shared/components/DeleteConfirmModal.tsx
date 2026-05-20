@@ -35,7 +35,7 @@ export function DeleteConfirmModal({
             type="button"
             onClick={onClose}
             disabled={isDeleting}
-            className="rounded-md border border-[#D1D5DB] px-4 py-2 text-sm font-semibold text-[#374151] hover:bg-[#F9FAFB] disabled:cursor-not-allowed disabled:opacity-60"
+            className="project-secondary-button"
           >
             {cancelLabel}
           </button>
@@ -43,7 +43,7 @@ export function DeleteConfirmModal({
             type="button"
             onClick={onConfirm}
             disabled={isDeleting}
-            className="rounded-md bg-[#DC2626] px-4 py-2 text-sm font-semibold text-white hover:bg-[#B91C1C] disabled:cursor-not-allowed disabled:opacity-60"
+            className="project-danger-button"
           >
             {isDeleting ? '삭제 중...' : confirmLabel}
           </button>

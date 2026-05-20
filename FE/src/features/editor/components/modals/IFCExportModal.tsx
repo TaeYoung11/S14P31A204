@@ -135,7 +135,7 @@ function IFCExportModalContent({
             type="button"
             disabled={!done || isDownloading}
             onClick={handleDownload}
-            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#3B45B3] py-4 text-[14px] font-black text-white shadow-xl shadow-[#3B45B3]/30 transition-all hover:bg-[#2D3691] disabled:cursor-not-allowed disabled:bg-[#C5CAD3] disabled:shadow-none"
+            className="project-primary-button w-full py-4"
           >
             <Download size={16} />
             {isDownloading ? 'Exporting IFC...' : 'Download IFC'}
