@@ -288,6 +288,81 @@ def test_llm_3d_engine_detects_explicit_target_reference():
     )
 
 
+def _roof_color_command(
+    raw_instruction: str,
+    *,
+    storey: str | None = None,
+    direction: str | None = None,
+) -> LLM3DCommand:
+    return LLM3DCommand(
+        command_type=LLM3DCommandType.MODIFY,
+        target=LLM3DTarget(
+            element_type=LLM3DElementType.ROOF,
+            storey=storey,
+            direction=direction,
+            select_all=False,
+        ),
+        changes=LLM3DChanges(color="#3B82F6"),
+        create_info=None,
+        confidence=0.8,
+        raw_instruction=raw_instruction,
+    )
+
+
+def test_repair_broad_roof_color_request_forces_select_all():
+    engine = LLM3DEngine()
+    raw_instruction = "지붕은 파란색으로 바꿔줘"
+
+    repaired = engine._repair_or_replace(
+        raw_instruction,
+        _roof_color_command(raw_instruction),
+    )
+
+    assert repaired.target.element_type == LLM3DElementType.ROOF
+    assert repaired.target.select_all is True
+    assert repaired.target.storey is None
+    assert repaired.target.space_name is None
+    assert repaired.target.direction is None
+    assert repaired.target.global_id is None
+    assert repaired.changes is not None
+    assert repaired.changes.color == "#3B82F6"
+
+
+def test_repair_broad_roof_color_request_clears_hallucinated_selectors():
+    engine = LLM3DEngine()
+    raw_instruction = "지붕은 파란색으로 바꿔줘"
+
+    repaired = engine._repair_or_replace(
+        raw_instruction,
+        _roof_color_command(raw_instruction, storey="RF", direction="North"),
+    )
+
+    assert repaired.target.select_all is True
+    assert repaired.target.storey is None
+    assert repaired.target.direction is None
+
+
+def test_repair_specific_roof_color_requests_do_not_force_select_all():
+    engine = LLM3DEngine()
+    cases = [
+        ("RF 지붕은 파란색으로 바꿔줘", "RF"),
+        ("#4122 지붕을 파란색으로 바꿔줘", None),
+        (
+            "선택한 지붕을 "
+            "파란색으로 바꿔줘",
+            None,
+        ),
+    ]
+
+    for raw_instruction, storey in cases:
+        repaired = engine._repair_or_replace(
+            raw_instruction,
+            _roof_color_command(raw_instruction, storey=storey),
+        )
+
+        assert repaired.target.select_all is False
+
+
 def test_llm_3d_engine_detects_multiple_target_value_pairs():
     request = "\ubcbd\uc740 #FF0000, \ubb38\uc740 #0000FF\ub85c \ubc14\uafd4\uc918"
 
