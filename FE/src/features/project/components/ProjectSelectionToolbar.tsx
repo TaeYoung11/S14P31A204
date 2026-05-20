@@ -1,32 +1,26 @@
 import { Share2, Trash2 } from 'lucide-react'
-import type { Project } from '@/shared/types'
 
 interface ProjectSelectionToolbarProps {
-  visibleProjects: Project[]
-  selectedProjects: Project[]
-  selectedProjectIds: string[]
+  isAllVisibleSelected: boolean
   isDeleting: boolean
+  selectedCount: number
+  onBulkDelete: () => void
+  onBulkShare: () => void
   onSelectAllVisible: () => void
-  onBulkShareOpen: () => void
-  onDeleteOpen: (projects: Project[]) => void
 }
 
 /** 선택 모드에서 전체 선택, 공유, 삭제 일괄 액션을 제공한다. */
 export default function ProjectSelectionToolbar({
-  visibleProjects,
-  selectedProjects,
-  selectedProjectIds,
+  isAllVisibleSelected,
   isDeleting,
+  selectedCount,
+  onBulkDelete,
+  onBulkShare,
   onSelectAllVisible,
-  onBulkShareOpen,
-  onDeleteOpen,
 }: ProjectSelectionToolbarProps) {
-  const isAllVisibleSelected = selectedProjects.length === visibleProjects.length
-  const hasSelectedProject = selectedProjectIds.length > 0
-
   return (
     <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#c7d2fe] bg-[#eef2ff]/80 px-4 py-3 shadow-[0_10px_30px_rgba(79,70,229,0.08)]">
-      <p className="text-sm font-black text-[#312e81]">{selectedProjectIds.length}개 선택됨</p>
+      <p className="text-sm font-black text-[#312e81]">{selectedCount}개 선택됨</p>
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
@@ -40,8 +34,8 @@ export default function ProjectSelectionToolbar({
         <button
           type="button"
           className="project-secondary-button h-12 w-12 px-0"
-          disabled={!hasSelectedProject}
-          onClick={onBulkShareOpen}
+          disabled={selectedCount === 0}
+          onClick={onBulkShare}
           title="선택 프로젝트 공유"
           aria-label="선택 프로젝트 공유"
         >
@@ -50,10 +44,10 @@ export default function ProjectSelectionToolbar({
         <button
           type="button"
           className="project-danger-button h-12 w-12 px-0"
-          disabled={!hasSelectedProject || isDeleting}
-          onClick={() => onDeleteOpen(selectedProjects)}
-          title={selectedProjectIds.length === 1 ? '선택 프로젝트 삭제' : '선택 항목 삭제'}
-          aria-label={selectedProjectIds.length === 1 ? '선택 프로젝트 삭제' : '선택 항목 삭제'}
+          disabled={selectedCount === 0 || isDeleting}
+          onClick={onBulkDelete}
+          title={selectedCount === 1 ? '선택 프로젝트 삭제' : '선택 항목 삭제'}
+          aria-label={selectedCount === 1 ? '선택 프로젝트 삭제' : '선택 항목 삭제'}
         >
           <Trash2 className="h-6 w-6" strokeWidth={2.6} />
         </button>

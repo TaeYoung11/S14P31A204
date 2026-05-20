@@ -79,6 +79,7 @@ export function useFloorProjectImport({ stageSize, onApplyProject }: UseFloorPro
       ifcApi: unknown,
       modelId: number,
       sourceName = 'import.ifc',
+      ifcText?: string,
     ): Promise<boolean> => {
       if (!ensureStageReady()) return false
       if (!isWebIfcApiForFloorProjectImport(ifcApi)) {
@@ -90,6 +91,7 @@ export function useFloorProjectImport({ stageSize, onApplyProject }: UseFloorPro
         ifcApi,
         modelId,
         sourceName,
+        ifcText,
       })
       if (!parsed.ok) {
         setMessage(parsed.message)

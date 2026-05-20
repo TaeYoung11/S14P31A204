@@ -1,5 +1,5 @@
-import type { CommentPin3DCreatePosition, FloorCommentPin, IfcElementChange, IfcElementInfo } from '@/features/editor/types'
-import type { FloorPlan3DData } from '@/features/editor/utils/floorPlanTo3D'
+import type { CommentPin3DCreatePosition, FloorCommentPin, FloorLayer, FloorLayerOverlay, IfcElementChange, IfcElementInfo } from '../../types'
+import type { FloorPlan3DData } from '../../utils/floorPlanTo3D'
 import type { ThreeDLibraryDropRequest, ThreeDLibraryPreset } from './threeDLibrary.types'
 import type { IfcStoreyInfo } from './thatopen/ifcPropertyParser'
 import type { ThreeDCameraViewPresetCommand } from '@/pages/editor/components/canvas-content/buildCanvasSectionProps'
@@ -12,6 +12,9 @@ interface ThreeDCanvasSceneProps {
   ifcUrl?: string | null
   rawIfcUrl?: string | null
   localFloorData?: FloorPlan3DData | null
+  floorLayers: FloorLayer[]
+  activeFloorLayerId: string | null
+  overlayLayers: FloorLayerOverlay[]
   libraryElements: ThreeDLibraryPreset[]
   commentPins: FloorCommentPin[]
   isCollaborationMode: boolean
@@ -27,6 +30,7 @@ interface ThreeDCanvasSceneProps {
   zoomScale: number
   selectedTool?: string
   selectedIfcElement?: IfcElementInfo | null
+  preferredSelectedElementId: string | null
   deleteRequestToken: number
   onIfcElementSelect?: (element: IfcElementInfo | null) => void
   onIfcElementDelete?: (element: IfcElementInfo) => void
@@ -44,6 +48,7 @@ interface ThreeDCanvasSceneProps {
   overlayIfcStoreyExpressIds?: number[]
   /** IFC 겹쳐보기 층별 투명도 (0.1~1) */
   overlayIfcStoreyOpacityByExpressId?: Record<number, number>
+  hiddenIfcElementLocalIds?: number[]
   /** 계층구조에서 선택 요청한 IFC 요소 localId */
   requestedIfcElementLocalId?: number | null
   /** 계층구조 IFC 요소 선택 요청 토큰 */
@@ -70,6 +75,9 @@ export default function ThreeDCanvasScene({
   ifcUrl,
   rawIfcUrl,
   localFloorData,
+  floorLayers,
+  activeFloorLayerId,
+  overlayLayers,
   libraryElements,
   commentPins,
   isCollaborationMode,
@@ -85,6 +93,7 @@ export default function ThreeDCanvasScene({
   zoomScale,
   selectedTool,
   selectedIfcElement,
+  preferredSelectedElementId,
   deleteRequestToken,
   onIfcElementSelect,
   onIfcElementDelete,
@@ -97,6 +106,7 @@ export default function ThreeDCanvasScene({
   activeStoreyExpressId,
   overlayIfcStoreyExpressIds,
   overlayIfcStoreyOpacityByExpressId,
+  hiddenIfcElementLocalIds,
   requestedIfcElementLocalId,
   ifcElementSelectionRequestToken,
   requestedLibraryElementId,
@@ -118,6 +128,7 @@ export default function ThreeDCanvasScene({
     return (
       <FloorPlan3DCanvas
         data={localFloorData}
+        overlayLayers={overlayLayers}
         selectedTool={selectedTool}
         libraryElements={libraryElements}
         commentPins={commentPins}
@@ -129,6 +140,7 @@ export default function ThreeDCanvasScene({
         onPinDelete={onPinDelete}
         deletingPinId={deletingPinId}
         selectedIfcElement={selectedIfcElement}
+        preferredSelectedElementId={preferredSelectedElementId}
         deleteRequestToken={deleteRequestToken}
         isRotationLocked={isRotationLocked}
         onLibraryElementChange={onLibraryElementChange}
@@ -155,6 +167,9 @@ export default function ThreeDCanvasScene({
     <ThatOpenIfcCanvas
       ifcUrl={ifcUrl}
       projectId={projectId}
+      floorLayers={floorLayers}
+      activeFloorLayerId={activeFloorLayerId}
+      overlayLayers={overlayLayers}
       libraryElements={libraryElements}
       commentPins={commentPins}
       isCollaborationMode={isCollaborationMode}
@@ -169,6 +184,7 @@ export default function ThreeDCanvasScene({
       isGridVisible={isGridVisible}
       zoomScale={zoomScale}
       selectedIfcElement={selectedIfcElement}
+      preferredSelectedElementId={preferredSelectedElementId}
       deleteRequestToken={deleteRequestToken}
       onIfcElementSelect={onIfcElementSelect}
       onIfcElementDelete={onIfcElementDelete}
@@ -181,6 +197,7 @@ export default function ThreeDCanvasScene({
       activeStoreyExpressId={activeStoreyExpressId}
       overlayIfcStoreyExpressIds={overlayIfcStoreyExpressIds}
       overlayIfcStoreyOpacityByExpressId={overlayIfcStoreyOpacityByExpressId}
+      hiddenIfcElementLocalIds={hiddenIfcElementLocalIds}
       requestedIfcElementLocalId={requestedIfcElementLocalId}
       ifcElementSelectionRequestToken={ifcElementSelectionRequestToken}
       requestedLibraryElementId={requestedLibraryElementId}

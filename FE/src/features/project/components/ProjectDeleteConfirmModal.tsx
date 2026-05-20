@@ -1,5 +1,5 @@
-import { ShieldAlert, Trash2 } from 'lucide-react'
-import Modal from '@/shared/components/Modal'
+import { ShieldAlert } from 'lucide-react'
+import ActionModal, { ActionModalSummary } from '@/shared/components/ActionModal'
 import type { Project } from '@/shared/types'
 
 interface ProjectDeleteConfirmModalProps {
@@ -37,51 +37,31 @@ export default function ProjectDeleteConfirmModal({
     if (isConfirmDisabled) return
     onConfirm()
   }
+  const primaryProjectName = projects[0]?.name ?? '프로젝트'
+  const targetLabel = isBulkDelete
+    ? `${primaryProjectName} 외 ${projects.length - 1}개 프로젝트`
+    : primaryProjectName
 
   return (
-    <Modal
+    <ActionModal
       isOpen={isOpen}
       onClose={onClose}
-      title={isBulkDelete ? '프로젝트 삭제 확인' : '프로젝트 삭제'}
-      maxWidth="max-w-[440px]"
+      group="destructive"
+      title="프로젝트 삭제"
+      icon={<ShieldAlert className="h-5 w-5" />}
+      maxWidth="max-w-[400px]"
     >
-      <div className="space-y-5">
-        <div className="rounded-2xl border border-[#fecaca] bg-[#fff7f7] px-4 py-4">
-          <div className="flex items-start gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[#fee2e2] text-[#dc2626]">
-              <ShieldAlert className="h-5 w-5" />
-            </span>
-            <div>
-              <p className="text-sm font-black text-[#991b1b]">
-                {isBulkDelete
-                  ? `선택한 ${projects.length}개 프로젝트를 삭제하시겠습니까?`
-                  : '이 프로젝트를 삭제하시겠습니까?'}
-              </p>
-              <p className="mt-1 text-xs leading-5 text-[#b91c1c]/75">삭제 후에는 되돌릴 수 없습니다.</p>
-            </div>
-          </div>
-        </div>
+      <div className="space-y-4">
+        <ActionModalSummary
+          description="삭제 후 복구할 수 없습니다."
+          compact
+        >
+          <p className="truncate text-sm font-black text-[#111827]">{targetLabel}</p>
+        </ActionModalSummary>
 
-        <div className="rounded-2xl border border-[#e5e7eb] bg-[#f8fafc] px-4 py-3">
-          {isBulkDelete ? (
-            <div className="space-y-1.5">
-              {projects.slice(0, 5).map((project) => (
-                <p key={project.id} className="truncate text-sm font-medium text-[#111827]">
-                  {project.name}
-                </p>
-              ))}
-              {projects.length > 5 && (
-                <p className="text-xs text-[#6b7280]">외 {projects.length - 5}개</p>
-              )}
-            </div>
-          ) : (
-            <p className="text-sm font-medium text-[#111827]">{projects[0]?.name}</p>
-          )}
-        </div>
-
-        <div className="space-y-2">
-          <label htmlFor="delete-project-confirm" className="project-label">
-            삭제를 진행하려면 <span className="font-semibold text-[#dc2626]">{confirmText}</span> 를 입력하세요.
+        <div className="space-y-2.5">
+          <label htmlFor="delete-project-confirm" className="mb-0 block text-[13px] font-bold text-[#374151]">
+            <span className="text-[#b42318]">삭제</span> 입력
           </label>
           <input
             id="delete-project-confirm"
@@ -93,10 +73,10 @@ export default function ProjectDeleteConfirmModal({
           />
         </div>
 
-        <div className="flex justify-end gap-2">
+        <div className="flex justify-end gap-2 pt-1">
           <button
             type="button"
-            className="project-secondary-button"
+            className="project-secondary-button min-w-20"
             onClick={onClose}
             disabled={isDeleting}
           >
@@ -108,11 +88,10 @@ export default function ProjectDeleteConfirmModal({
             onClick={handleConfirm}
             disabled={isConfirmDisabled}
           >
-            <Trash2 className="h-4 w-4" />
             {isDeleting ? '삭제 중...' : '삭제'}
           </button>
         </div>
       </div>
-    </Modal>
+    </ActionModal>
   )
 }

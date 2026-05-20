@@ -51,6 +51,7 @@ export default function TwoDModeCanvas({ editorProps, scale, onSelectWallForChat
       isGenerating={editorProps.isFloorPlanGenerating}
       onGenerate={editorProps.handleGenerateFloorPlan}
       canGenerate={editorProps.canGenerateFloorPlanFromBubble}
+      isCheckingIfcSource={editorProps.isIfcSourceHydrationPending}
       isGridVisible={editorProps.isGridVisible}
       selectedId={editorProps.selectedId}
       selectedIds={editorProps.selectedIds}

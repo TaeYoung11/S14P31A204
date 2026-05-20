@@ -41,6 +41,7 @@ from ..schemas import (
     ClarificationAlternative,
     ClarificationArtifact,
     ErrorDetailArtifact,
+    FloorNLPCommand,
     PreviewResultArtifact,
     TwoDCommandArtifact,
     ValidationReportArtifact,
@@ -108,6 +109,7 @@ def run_two_d_llm_job(
                 selected_wall_id=_selected_wall_id_from_planner_options(
                     request.plannerOptions
                 ),
+                planner_options=request.plannerOptions,
             )
         )
     except ClarificationRequiredError as exc:
@@ -199,6 +201,7 @@ class TwoDLlmWorker(BaseWorker):
                         selected_wall_id=_selected_wall_id_from_planner_options(
                             payload.plannerOptions
                         ),
+                        planner_options=payload.plannerOptions,
                         input_path=str(source_path),
                         output_path=str(output_path),
                         project_id=command.projectId,
@@ -348,6 +351,7 @@ def _upload_clarification_artifact(
         ClarificationAlternative(
             alternative_id=str(a.get("alternative_id", "")),
             title=str(a.get("title", "")),
+            prompt=str(a["prompt"]) if a.get("prompt") else None,
             description=str(a.get("description", "")),
             fill=dict(a.get("fill") or {}),
             affected_entities=list(a.get("affected_entities") or []),
@@ -394,6 +398,7 @@ async def _run_pipeline(
     base_revision_id: str | None,
     clarification_request_id: str,
     selected_wall_id: str | None = None,
+    planner_options: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     try:
         ifc_context = extract_ifc_context(input_path)
@@ -429,11 +434,14 @@ async def _run_pipeline(
             code="ENGINE_INIT_FAILED",
             message=f"failed to initialize 2D planning engine: {exc}",
         ) from exc
-    preview = await pipeline.execute_preview(
+    command = await pipeline.engine.parse_command(
         user_instruction,
+        pipeline.ifc_context,
         conversation_history=conversation_history,
         selected_wall_id=selected_wall_id,
     )
+    command = _apply_planner_options_to_command(command, planner_options)
+    preview = await pipeline.execute_command_preview(command)
 
     status = preview.get("status")
     if status in {"needs_clarification", "alternatives"}:
@@ -763,6 +771,43 @@ def _error_result(code: str, message: str, details: Sequence[object]) -> dict[st
         "message": message,
         "details": details,
     }
+
+
+def _apply_planner_options_to_command(
+    command: FloorNLPCommand,
+    planner_options: dict[str, Any] | None,
+) -> FloorNLPCommand:
+    if not isinstance(planner_options, dict):
+        return command
+
+    updates: dict[str, Any] = {}
+    action = planner_options.get("action")
+    if action in {"insert_toilet", "merge_windows"}:
+        updates["action"] = action
+        updates["needs_clarification"] = False
+        updates["clarification_question"] = None
+
+    target_floor = planner_options.get("target_floor")
+    if isinstance(target_floor, int) and not isinstance(target_floor, bool) and target_floor >= 1:
+        updates["target_floor"] = target_floor
+
+    target_room_name = planner_options.get("target_room_name")
+    if isinstance(target_room_name, str) and target_room_name.strip():
+        updates["target_room_name"] = target_room_name.strip()
+
+    if not updates:
+        return command
+
+    payload = command.model_dump()
+    payload.update(updates)
+    try:
+        return FloorNLPCommand.model_validate(payload)
+    except ValidationError:
+        _logger.warning(
+            "invalid_planner_options_ignored",
+            extra={"planner_options": planner_options},
+        )
+        return command
 
 
 def _selected_wall_id_from_planner_options(

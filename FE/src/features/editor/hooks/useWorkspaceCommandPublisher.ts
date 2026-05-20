@@ -131,6 +131,7 @@ const toLibraryElementCommandData = (preset: ThreeDLibraryPreset): Record<string
   assetIfcUrl: preset.assetIfcUrl,
   sourceAssetId: preset.sourceAssetId,
   storeyExpressId: preset.storeyExpressId,
+  floorLayerId: preset.floorLayerId,
   roofShape: preset.roofShape,
   position: preset.position,
   rotation: preset.rotation,
@@ -339,7 +340,7 @@ export function useWorkspaceCommandPublisher({
       return
     }
 
-    if (startMm || endMm) {
+    if (startMm && endMm) {
       pendingCommandRef.current = updateEntityCommand('wall', globalId, compactRecord({
         storeyGlobalId,
         storeyName,
@@ -496,21 +497,6 @@ export function useWorkspaceCommandPublisher({
       patch.rotationAxisAngle ?? patch.rotation_axis_angle,
     )
     const hasCommandRotation = commandRotationAxisAngle !== null || hasNonZeroRotation(commandRotationDegrees)
-    if (import.meta.env.DEV && (commandRotationAxisAngle || Object.keys(commandRotationDegrees).length > 0)) {
-      console.log('[ifc-rotate-save][command-publisher]', {
-        commandId,
-        elementId: element.id,
-        expressId: element.expressId,
-        globalId: element.globalId ?? commandId,
-        patchRotationAxisAngle: patch.rotationAxisAngle ?? patch.rotation_axis_angle ?? null,
-        commandRotationAxisAngle,
-        patchRotationDegrees: patch.rotationDegrees ?? patch.rotation_degrees ?? null,
-        inferredRotationDegrees: rotationDegrees,
-        commandRotationDegrees,
-        hasCommandRotation,
-        commandRotationJson: JSON.stringify(commandRotationDegrees),
-      })
-    }
     if (
       (translationX !== null || translationY !== null || translationZ !== null) &&
       hasNonZeroTranslation(translationX, translationY, translationZ)
@@ -546,12 +532,6 @@ export function useWorkspaceCommandPublisher({
         ifcClass: element.ifcClass,
         ...nextPatch,
       }))
-      if (import.meta.env.DEV && hasCommandRotation) {
-        console.log('[ifc-rotate-save][pending-command]', {
-          command: pendingCommandRef.current,
-          commandJson: JSON.stringify(pendingCommandRef.current),
-        })
-      }
     }
   }, [])
 
@@ -650,13 +630,6 @@ export function useWorkspaceCommandPublisher({
     })
   }, [updateWall])
 
-  const updateWallEndpoint = useCallback((wallId: string, endpoint: 'start' | 'end', point: Point2D, pointMm?: Point2D) => {
-    updateWall(wallId, {
-      [endpoint]: point,
-      [`${endpoint}Mm`]: pointMm,
-    })
-  }, [updateWall])
-
   const updateWallStyle = useCallback((wallId: string, next: {
     wallType?: FloorWall['type']
     thickness?: number
@@ -691,7 +664,6 @@ export function useWorkspaceCommandPublisher({
     deleteOpening,
     createRoom,
     updateWallGeometry,
-    updateWallEndpoint,
     updateWallStyle,
     markFloorPlanLayoutChanged,
     updateIfcElement,
@@ -728,7 +700,6 @@ export function useWorkspaceCommandPublisher({
     updateLibraryElement,
     updateRoom,
     updateWall,
-    updateWallEndpoint,
     updateWallGeometry,
     updateWallStyle,
     markFloorPlanLayoutChanged,

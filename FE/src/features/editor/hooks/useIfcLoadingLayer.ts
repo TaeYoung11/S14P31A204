@@ -45,7 +45,7 @@ declare global {
 
 export interface UseIfcLoadingLayerParams {
   importFloorProjectFromIfc: (ifcText: string, sourceName: string) => Promise<void>
-  importFloorProjectFromWebIfc?: (ifcApi: unknown, modelId: number, sourceName: string) => Promise<boolean>
+  importFloorProjectFromWebIfc?: (ifcApi: unknown, modelId: number, sourceName: string, ifcText?: string) => Promise<boolean>
   loadFragments?: IfcFragmentsLoader
   extractIfcContext?: (ifcApi: WebIfcApiLike, modelId: number, sourceUrl: string) => Promise<Partial<IfcContext> | null> | Partial<IfcContext> | null
 }
@@ -56,6 +56,7 @@ export interface LoadIfcFromStorageUrlOptions {
   sourceName?: string
   webIfcWasmPath?: string
   skipFloorProjectImport?: boolean
+  skipFragmentsLoad?: boolean
 }
 
 const decoder = new TextDecoder('utf-8')
@@ -146,7 +147,7 @@ export function useIfcLoadingLayer({
           modelId = ifcApi.OpenModel(ifcArray)
 
           if (!skipFloorProjectImport && importFloorProjectFromWebIfc) {
-            webIfcParseCompleted = await importFloorProjectFromWebIfc(ifcApi, modelId, sourceName)
+            webIfcParseCompleted = await importFloorProjectFromWebIfc(ifcApi, modelId, sourceName, ifcText)
           }
 
           const extracted = extractIfcContext
@@ -163,10 +164,11 @@ export function useIfcLoadingLayer({
           ifcApi.Dispose?.()
         }
       })()
-      const fragmentsLoader =
-        loadFragments
-        ?? dynamicFragmentsLoaderRef.current
-        ?? resolveRuntimeFragmentsLoader()
+      const fragmentsLoader = options?.skipFragmentsLoad === true
+        ? null
+        : loadFragments
+          ?? dynamicFragmentsLoaderRef.current
+          ?? resolveRuntimeFragmentsLoader()
 
       // 2D 업데이트 후 3D 업데이트 순으로 처리한다. (동일 IFC 버퍼 재사용)
       // 2D는 web-ifc 직접 추출을 우선 시도하고, 실패하면 STEP 파서로 폴백한다.

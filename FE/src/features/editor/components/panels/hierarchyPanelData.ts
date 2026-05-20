@@ -82,7 +82,7 @@ const collectIfcItems = (nodes: IfcHierarchyNode[]) => {
 
 const toRoomItems = (floorRooms: FloorRoom[]) =>
   floorRooms.map((room, index) => ({
-    id: room.id || room.bubbleId || `room-${index + 1}`,
+    id: room.bubbleId || room.id || `room-${index + 1}`,
     label: room.label || room.type || `Room ${index + 1}`,
   }))
 

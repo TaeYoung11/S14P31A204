@@ -28,7 +28,7 @@ export function NoticeModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md bg-[#3B45B3] px-4 py-2 text-sm font-semibold text-white hover:bg-[#2F378F]"
+            className="project-primary-button px-5"
           >
             {confirmLabel}
           </button>

@@ -34,6 +34,7 @@ class FloorNLPCommand(BaseModel):
         "add_room",
         "create_wall",
         "create_door",
+        "merge_windows",
         "delete_wall",
         "delete_wall_void",
         "insert_toilet",
@@ -106,6 +107,8 @@ class FloorNLPCommand(BaseModel):
             raise ValueError("create_wall requires target_room_name.")
         if self.action == "create_door" and self.target_wall_id is None:
             raise ValueError("create_door requires target_wall_id.")
+        if self.action == "merge_windows" and self.target_room_name is None:
+            raise ValueError("merge_windows requires target_room_name.")
         if self.action == "delete_wall" and self.target_wall_id is None:
             raise ValueError("delete_wall requires target_wall_id.")
         if self.action == "delete_wall_void" and self.target_element_id is None:

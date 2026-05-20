@@ -10,6 +10,8 @@ import Spinner from '@/shared/components/Spinner'
 
 export default function ProjectsPage() {
   const { sentinelRef, ...page } = useProjectListPage()
+  const isAllVisibleSelected =
+    page.filteredProjects.length > 0 && page.selectedProjects.length === page.filteredProjects.length
 
   return (
     <div className="project-shell min-h-screen">
@@ -44,13 +46,12 @@ export default function ProjectsPage() {
 
         {page.isDesigner && page.isSelectionMode && page.filteredProjects.length > 0 && (
           <ProjectSelectionToolbar
-            visibleProjects={page.filteredProjects}
-            selectedProjects={page.selectedProjects}
-            selectedProjectIds={page.selectedProjectIds}
+            isAllVisibleSelected={isAllVisibleSelected}
             isDeleting={page.deleteProject.isPending}
+            selectedCount={page.selectedProjectIds.length}
+            onBulkDelete={() => page.handleDeleteOpen(page.selectedProjects)}
+            onBulkShare={page.handleBulkShareOpen}
             onSelectAllVisible={page.handleSelectAllVisible}
-            onBulkShareOpen={page.handleBulkShareOpen}
-            onDeleteOpen={page.handleDeleteOpen}
           />
         )}
 

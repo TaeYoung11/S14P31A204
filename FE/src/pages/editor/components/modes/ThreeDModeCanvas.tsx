@@ -1,6 +1,7 @@
-import { lazy, useCallback, useEffect, useMemo } from 'react'
+import { lazy, useCallback, useMemo } from 'react'
 import { useFreshIfcUrl } from '@/features/editor/hooks/useFreshIfcUrl'
 import { saveProjectWorkspaceThumbnail } from '@/features/project/services/projectWorkspaceThumbnail.service'
+import { DEFAULT_MOCK_IFC_URL } from '@/features/editor/components/canvas/threeDCanvas.utils'
 import type { EditorCanvasRenderProps } from '../../types/editorCanvasContentProps'
 import type { ThreeDCameraViewPresetCommand, ThreeDCoordinates } from '../canvas-content/buildCanvasSectionProps'
 
@@ -19,6 +20,16 @@ interface ThreeDModeCanvasProps {
   cameraViewPresetCommand: ThreeDCameraViewPresetCommand
 }
 
+const isLikelyLocalEditorId = (value: string | null | undefined): boolean => {
+  if (!value) return true
+  const normalized = value.trim().toLowerCase()
+  return (
+    normalized.startsWith('opening-') ||
+    normalized.startsWith('wall-') ||
+    normalized.startsWith('auto-')
+  )
+}
+
 /**
  * 3D 모드 캔버스 렌더링 전용 컴포넌트.
  *
@@ -32,22 +43,45 @@ export default function ThreeDModeCanvas({
   onThreeDCoordinatesChange,
   cameraViewPresetCommand,
 }: ThreeDModeCanvasProps) {
+  const selectedOpening = editorProps.selectedFloorOpeningId
+    ? (editorProps.floorOpenings.find((opening) => opening.id === editorProps.selectedFloorOpeningId) ?? null)
+    : null
+  const selectedOpeningWall = selectedOpening
+    ? (editorProps.floorWallsForHierarchy.find((wall) => wall.id === selectedOpening.wallId) ?? null)
+    : null
+  const selectedOpeningPreferredElementId = selectedOpening
+    ? (
+      selectedOpening.globalId ??
+      (!isLikelyLocalEditorId(selectedOpening.hostWallGlobalId) ? selectedOpening.hostWallGlobalId : null) ??
+      (!isLikelyLocalEditorId(selectedOpeningWall?.globalId) ? selectedOpeningWall?.globalId ?? null : null) ??
+      (!isLikelyLocalEditorId(selectedOpening.wallId) ? selectedOpening.wallId : null) ??
+      (!isLikelyLocalEditorId(selectedOpening.id) ? selectedOpening.id : null)
+    )
+    : null
+  const selectedWallPreferredElementId = editorProps.selectedFloorWallId
+    ? (
+      editorProps.floorWallsForHierarchy.find((wall) => wall.id === editorProps.selectedFloorWallId)?.globalId ??
+      editorProps.selectedFloorWallId
+    )
+    : null
+  const shouldUseRoomPreferredElementId =
+    Boolean(editorProps.selectedId) &&
+    !editorProps.selectedFloorOpeningId &&
+    !editorProps.selectedFloorWallId &&
+    !editorProps.selectedIfcElement
+  const preferredSelectedElementId =
+    selectedOpeningPreferredElementId ??
+    selectedWallPreferredElementId ??
+    (shouldUseRoomPreferredElementId ? editorProps.selectedId : null) ??
+    null
+
   // 현재 IFC URL이 직접 fetch 가능하면 그대로 쓰고, 만료되었거나 접근 불가능하면 최신 IFC source로 보강한다.
   // IFC source가 없으면 mock IFC를 fallback으로 사용한다.
   const freshIfcUrl = useFreshIfcUrl(
     editorProps.currentIfcAssetId,
-    editorProps.currentIfcUrl ?? '/mock/sample_final_semantic.ifc',
+    editorProps.currentIfcUrl ?? DEFAULT_MOCK_IFC_URL,
     editorProps.projectId ?? null,
   )
-
-  useEffect(() => {
-    if (!import.meta.env.DEV) return
-    console.log('[3d-ifc-url]', {
-      currentIfcUrl: editorProps.currentIfcUrl,
-      currentIfcAssetId: editorProps.currentIfcAssetId,
-      freshIfcUrl,
-    })
-  }, [editorProps.currentIfcAssetId, editorProps.currentIfcUrl, freshIfcUrl])
 
   const overlayIfcStoreyOpacityByExpressId = useMemo(() => {
     const overlayIds = editorProps.overlayIfcStoreyExpressIds ?? []
@@ -88,8 +122,11 @@ export default function ThreeDModeCanvas({
       onToggleLibrary={() => editorProps.setIsLibraryOpen(!editorProps.isLibraryOpen)}
       isGridVisible={editorProps.isGridVisible}
       rooms={editorProps.floorRooms}
+      floorLayers={editorProps.floorLayers}
+      activeFloorLayerId={editorProps.activeFloorLayerId}
       overlayLayers={editorProps.floorLayerOverlayItems}
       selectedId={editorProps.selectedId}
+      preferredSelectedElementId={preferredSelectedElementId}
       onSelect={(id) => (id ? editorProps.handleBubbleSelect(id) : editorProps.clearSelection())}
       selectedTool={editorProps.selectedTool}
       scale={scale}
@@ -111,6 +148,7 @@ export default function ThreeDModeCanvas({
       activeStoreyExpressId={editorProps.activeIfcStoreyExpressId}
       overlayIfcStoreyExpressIds={editorProps.overlayIfcStoreyExpressIds}
       overlayIfcStoreyOpacityByExpressId={overlayIfcStoreyOpacityByExpressId}
+      hiddenIfcElementLocalIds={editorProps.hiddenIfcElementLocalIds}
       requestedIfcElementLocalId={editorProps.requestedIfcElementLocalId}
       ifcElementSelectionRequestToken={editorProps.ifcElementSelectionRequestToken}
       requestedLibraryElementId={editorProps.requestedLibraryElementId}

@@ -3,6 +3,7 @@ import { CheckCircle2, Download, FileCode2, X } from 'lucide-react'
 import type { IfcElementChange } from '../../types'
 import { applyIfcElementChanges, downloadIfcText } from '../../services/ifcChange.service'
 import { normalizeIfcSourceName, resolveIfcPresignedUrl } from '../../utils/ifcSource'
+import { DEFAULT_MOCK_IFC_URL } from '../canvas/threeDCanvas.utils'
 
 interface IFCExportModalProps {
   isOpen: boolean
@@ -62,7 +63,7 @@ function IFCExportModalContent({
     try {
       const resolvedIfcUrl = sourceIfcUrl
         ? await resolveIfcPresignedUrl(sourceIfcUrl, sourceIfcAssetId ?? undefined)
-        : '/mock/sample_final_semantic.ifc'
+        : DEFAULT_MOCK_IFC_URL
       const response = await fetch(resolvedIfcUrl)
       if (!response.ok) {
         throw new Error(`IFC 다운로드에 실패했습니다. (${response.status})`)
@@ -135,7 +136,7 @@ function IFCExportModalContent({
             type="button"
             disabled={!done || isDownloading}
             onClick={handleDownload}
-            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-[#3B45B3] py-4 text-[14px] font-black text-white shadow-xl shadow-[#3B45B3]/30 transition-all hover:bg-[#2D3691] disabled:cursor-not-allowed disabled:bg-[#C5CAD3] disabled:shadow-none"
+            className="project-primary-button w-full py-4"
           >
             <Download size={16} />
             {isDownloading ? 'Exporting IFC...' : 'Download IFC'}

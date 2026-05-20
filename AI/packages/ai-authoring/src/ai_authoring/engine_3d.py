@@ -2145,30 +2145,75 @@ def rotation_targets(
         return targets
     return targets + decomposed_products(element)
 
+
+def _appearance_targets(
+    element: ifcopenshell.entity_instance,
+    *,
+    include_roof_descendants: bool,
+) -> list[ifcopenshell.entity_instance]:
+    targets = [element]
+    seen = {int(element.id())}
+    if not include_roof_descendants or not element.is_a("IfcRoof"):
+        return targets
+
+    for child in decomposed_products(element):
+        child_id = int(child.id())
+        if child_id in seen:
+            continue
+        if _body_representation_items(child):
+            targets.append(child)
+            seen.add(child_id)
+    return targets
+
+
+def _set_material_on_element(
+    model: ifcopenshell.file,
+    element: ifcopenshell.entity_instance,
+    material: ifcopenshell.entity_instance,
+    material_name: str,
+) -> None:
+    for rel in list(getattr(element, "HasAssociations", [])):
+        if rel.is_a("IfcRelAssociatesMaterial"):
+            remaining = [o for o in rel.RelatedObjects if o != element]
+            if remaining:
+                rel.RelatedObjects = remaining
+            else:
+                model.remove(rel)
+    model.create_entity(
+        "IfcRelAssociatesMaterial",
+        GlobalId=ifcopenshell.guid.new(),
+        RelatingMaterial=material,
+        RelatedObjects=[element],
+    )
+    _set_label_property_value(model, element, "Material", material_name)
+
+
 def modify_material(
-    model: ifcopenshell.file, element: ifcopenshell.entity_instance, mat_change: dict[str, Any]
+    model: ifcopenshell.file,
+    element: ifcopenshell.entity_instance,
+    mat_change: dict[str, Any],
+    *,
+    propagate_mapped_sources: bool = False,
+    propagate_roof_descendants: bool = False,
 ) -> bool:
     try:
         new_name = _canonical_material_name(str(mat_change.get("name") or "Unknown"))
-        # Snapshot associations before removing relations from the IFC graph.
-        for rel in list(getattr(element, "HasAssociations", [])):
-            if rel.is_a("IfcRelAssociatesMaterial"):
-                remaining = [o for o in rel.RelatedObjects if o != element]
-                if remaining:
-                    rel.RelatedObjects = remaining
-                else:
-                    model.remove(rel)
         new_mat = _find_or_create_material(model, new_name)
-        model.create_entity(
-            "IfcRelAssociatesMaterial",
-            GlobalId=ifcopenshell.guid.new(),
-            RelatingMaterial=new_mat,
-            RelatedObjects=[element],
+        targets = _appearance_targets(
+            element,
+            include_roof_descendants=propagate_roof_descendants,
         )
-        _set_label_property_value(model, element, "Material", new_name)
+        for target in targets:
+            _set_material_on_element(model, target, new_mat, new_name)
         material_color = _material_default_color(new_name)
         if material_color is not None:
-            modify_color(model, element, material_color)
+            modify_color(
+                model,
+                element,
+                material_color,
+                propagate_mapped_sources=propagate_mapped_sources,
+                propagate_roof_descendants=propagate_roof_descendants,
+            )
         return True
     except Exception as e:
         logger.error(f"재질 수정 오류: {e}")
@@ -2176,21 +2221,61 @@ def modify_material(
 
 
 def modify_color(
-    model: ifcopenshell.file, element: ifcopenshell.entity_instance, color_value: str
+    model: ifcopenshell.file,
+    element: ifcopenshell.entity_instance,
+    color_value: str,
+    *,
+    propagate_mapped_sources: bool = False,
+    propagate_roof_descendants: bool = False,
 ) -> bool:
     try:
-        label_changed = _set_label_property_value(model, element, "Color", color_value)
-        items = _body_representation_items(element)
+        targets = _appearance_targets(
+            element,
+            include_roof_descendants=propagate_roof_descendants,
+        )
+        label_changed = False
+        for target in targets:
+            label_changed |= _set_label_property_value(model, target, "Color", color_value)
+
+        root_items: list[Any] = []
+        seen_root_items: set[int] = set()
+        selected_mapped_item_ids: set[int] = set()
+        for target in targets:
+            for item in _body_representation_items(target):
+                item_id = int(item.id())
+                if item.is_a("IfcMappedItem"):
+                    selected_mapped_item_ids.add(item_id)
+                if item_id in seen_root_items:
+                    continue
+                seen_root_items.add(item_id)
+                root_items.append(item)
+
+        items: list[Any] = []
+        seen_items: set[int] = set()
+        for item in root_items:
+            for style_item in _styleable_representation_items(
+                model,
+                item,
+                include_mapped_sources=propagate_mapped_sources,
+                selected_mapped_item_ids=selected_mapped_item_ids,
+            ):
+                item_id = int(style_item.id())
+                if item_id in seen_items:
+                    continue
+                seen_items.add(item_id)
+                items.append(style_item)
         if not items:
             return label_changed
         assignment = _create_surface_style_assignment(model, color_value)
+        changed = False
         for item in items:
             styled = _styled_item_for(model, item)
             if styled:
                 styled.Styles = [assignment]
             else:
                 model.create_entity("IfcStyledItem", Item=item, Styles=[assignment])
-        return True
+            changed = True
+        return label_changed or changed
     except Exception as e:
         logger.error(f"색상 수정 오류: {e}")
         return False
@@ -2484,6 +2569,96 @@ def _box_representation(
     return model.create_entity("IfcProductDefinitionShape", Representations=[shape]), solid
 
 
+def _box_solid(
+    model: ifcopenshell.file,
+    length_m: float,
+    width_m: float,
+    height_m: float,
+    loc: tuple[float, float, float] = (0.0, 0.0, 0.0),
+) -> ifcopenshell.entity_instance:
+    profile = model.create_entity(
+        "IfcRectangleProfileDef",
+        ProfileType="AREA",
+        XDim=float(length_m),
+        YDim=float(width_m),
+        Position=model.create_entity(
+            "IfcAxis2Placement2D",
+            Location=model.create_entity(
+                "IfcCartesianPoint",
+                Coordinates=(float(length_m / 2.0), float(width_m / 2.0)),
+            ),
+        ),
+    )
+    return model.create_entity(
+        "IfcExtrudedAreaSolid",
+        SweptArea=profile,
+        Position=_axis_placement_3d(model, location=loc),
+        ExtrudedDirection=model.create_entity("IfcDirection", DirectionRatios=(0.0, 0.0, 1.0)),
+        Depth=float(height_m),
+    )
+
+
+def _style_item(
+    model: ifcopenshell.file,
+    item: ifcopenshell.entity_instance,
+    color_value: str,
+    *,
+    transparency: float | None = None,
+) -> None:
+    model.create_entity(
+        "IfcStyledItem",
+        Item=item,
+        Styles=[_create_surface_style_assignment(model, color_value, transparency=transparency)],
+    )
+
+
+def _window_frame_representation(
+    model: ifcopenshell.file,
+    length_m: float,
+    width_m: float,
+    height_m: float,
+    *,
+    include_mullion: bool = True,
+) -> ifcopenshell.entity_instance:
+    frame = max(min(length_m, height_m) * 0.055, _mm_to_model_units(model, 55.0, 55.0))
+    frame = min(frame, max(min(length_m, height_m) * 0.18, _mm_to_model_units(model, 90.0, 90.0)))
+    mullion = max(frame * 0.72, _mm_to_model_units(model, 40.0, 40.0))
+    glass_depth = min(width_m * 0.35, _mm_to_model_units(model, 45.0, 45.0))
+    glass_depth = max(glass_depth, _mm_to_model_units(model, 20.0, 20.0))
+    inner_length = max(length_m - (frame * 2.0), frame)
+    inner_height = max(height_m - (frame * 2.0), frame)
+
+    frame_items = [
+        _box_solid(model, length_m, width_m, frame, (0.0, 0.0, 0.0)),
+        _box_solid(model, length_m, width_m, frame, (0.0, 0.0, max(height_m - frame, 0.0))),
+        _box_solid(model, frame, width_m, height_m, (0.0, 0.0, 0.0)),
+        _box_solid(model, frame, width_m, height_m, (max(length_m - frame, 0.0), 0.0, 0.0)),
+    ]
+    if include_mullion:
+        center_x = max((length_m - mullion) / 2.0, frame)
+        frame_items.append(_box_solid(model, mullion, width_m, height_m, (center_x, 0.0, 0.0)))
+    glass = _box_solid(
+        model,
+        inner_length,
+        glass_depth,
+        inner_height,
+        (frame, max((width_m - glass_depth) / 2.0, 0.0), frame),
+    )
+
+    for item in frame_items:
+        _style_item(model, item, "#B77A3D")
+    _style_item(model, glass, "#8FD3FF", transparency=0.55)
+
+    shape = model.create_entity(
+        "IfcShapeRepresentation",
+        ContextOfItems=_body_context(model),
+        RepresentationIdentifier="Body",
+        RepresentationType="SweptSolid",
+        Items=[*frame_items, glass],
+    )
+    return model.create_entity("IfcProductDefinitionShape", Representations=[shape])
+
+
 def _stair_preset_representation(
     model: ifcopenshell.file,
     length_m: float,
@@ -2740,10 +2915,77 @@ def _body_representation_items(element: ifcopenshell.entity_instance) -> list[An
     return items
 
 
-def _create_surface_style_assignment(model: ifcopenshell.file, color_value: str):
+def _mapping_source_is_shared_outside_selection(
+    model: ifcopenshell.file,
+    mapping_source: ifcopenshell.entity_instance | None,
+    selected_mapped_item_ids: set[int],
+) -> bool:
+    if mapping_source is None:
+        return True
+    try:
+        inverses = model.get_inverse(mapping_source)
+    except Exception:
+        return True
+    for inverse in inverses:
+        if (
+            inverse.is_a("IfcMappedItem")
+            and int(inverse.id()) not in selected_mapped_item_ids
+        ):
+            return True
+    return False
+
+
+def _styleable_representation_items(
+    model: ifcopenshell.file,
+    item: ifcopenshell.entity_instance,
+    *,
+    include_mapped_sources: bool,
+    selected_mapped_item_ids: set[int],
+    _seen: set[int] | None = None,
+) -> list[ifcopenshell.entity_instance]:
+    seen = _seen if _seen is not None else set()
+    item_id = int(item.id())
+    if item_id in seen:
+        return []
+    seen.add(item_id)
+
+    items = [item]
+    if not include_mapped_sources or not item.is_a("IfcMappedItem"):
+        return items
+
+    mapping_source = getattr(item, "MappingSource", None)
+    if _mapping_source_is_shared_outside_selection(
+        model,
+        mapping_source,
+        selected_mapped_item_ids,
+    ):
+        return items
+    mapped_representation = getattr(mapping_source, "MappedRepresentation", None)
+    for source_item in getattr(mapped_representation, "Items", []) or []:
+        items.extend(
+            _styleable_representation_items(
+                model,
+                source_item,
+                include_mapped_sources=include_mapped_sources,
+                selected_mapped_item_ids=selected_mapped_item_ids,
+                _seen=seen,
+            )
+        )
+    return items
+
+
+def _create_surface_style_assignment(
+    model: ifcopenshell.file,
+    color_value: str,
+    *,
+    transparency: float | None = None,
+):
     r, g, b = _color_to_rgb(color_value)
     color = model.create_entity("IfcColourRgb", Name=color_value, Red=r, Green=g, Blue=b)
-    rendering = model.create_entity("IfcSurfaceStyleRendering", SurfaceColour=color)
+    rendering_kwargs: dict[str, Any] = {"SurfaceColour": color}
+    if transparency is not None:
+        rendering_kwargs["Transparency"] = float(max(0.0, min(1.0, transparency)))
+    rendering = model.create_entity("IfcSurfaceStyleRendering", **rendering_kwargs)
     style = model.create_entity(
         "IfcSurfaceStyle", Name=f"Style_{color_value}", Side="BOTH", Styles=[rendering]
     )
@@ -3671,7 +3913,7 @@ def create_door_with_template_reuse(
 def create_window_with_opening(
     model, storey, *, length_mm=1200, width_mm=200, height_mm=1200,
     x_mm=0, y_mm=0, z_mm=0, direction="north", color=None, material_name=None,
-    host_wall=None, sill_height_mm=900,
+    host_wall=None, sill_height_mm=900, window_style=None,
 ):
     try:
         if not host_wall:
@@ -3723,15 +3965,28 @@ def create_window_with_opening(
         _assign_to_storey(model, window, storey)
         window.ObjectPlacement = placement
         wt = _mm_to_model_units(model, 100, 100)
+        window_length = _mm_to_model_units(model, length_mm, 1200)
+        window_height = _mm_to_model_units(model, height_mm, 1200)
+        window.OverallWidth = window_length
+        window.OverallHeight = window_height
         bx, by = (
-            (_mm_to_model_units(model, length_mm, 1200), wt)
+            (window_length, wt)
             if ew_wall
-            else (wt, _mm_to_model_units(model, length_mm, 1200))
+            else (wt, window_length)
         )
-        window.Representation, _ = _box_representation(
-            model, bx, by, _mm_to_model_units(model, height_mm, 1200), center_origin=False
-        )
-        _apply_color_and_material(model, window, color or "#AADDFF", material_name)
+        if color or material_name:
+            window.Representation, _ = _box_representation(
+                model, bx, by, window_height, center_origin=False
+            )
+            _apply_color_and_material(model, window, color, material_name)
+        else:
+            window.Representation = _window_frame_representation(
+                model,
+                bx,
+                by,
+                window_height,
+                include_mullion=window_style != "picture",
+            )
         if opening:
             model.create_entity(
                 "IfcRelFillsElement",
@@ -3761,6 +4016,7 @@ def create_window_with_template_reuse(
     material_name=None,
     host_wall=None,
     sill_height_mm=900,
+    window_style=None,
 ):
     del direction, color, material_name
     created_entities: list[ifcopenshell.entity_instance] = []
@@ -3870,22 +4126,31 @@ def create_window_with_template_reuse(
             fallback_width_m=host_thickness,
             fallback_height_m=window.OverallHeight,
         )
-        _resize_box_like_representation(
+        did_resize_representation = _resize_box_like_representation(
             window.Representation,
             length=window.OverallWidth,
             width=host_thickness,
             height=window.OverallHeight,
         )
+        if not did_resize_representation:
+            window.Representation = _window_frame_representation(
+                model,
+                window.OverallWidth,
+                host_thickness,
+                window.OverallHeight,
+                include_mullion=window_style != "picture",
+            )
         _copy_product_type_relation(
             model,
             template_product=template_window,
             product=window,
         )
-        _copy_material_associations_from_template(
-            model,
-            template_product=template_window,
-            product=window,
-        )
+        if did_resize_representation:
+            _copy_material_associations_from_template(
+                model,
+                template_product=template_window,
+                product=window,
+            )
         fill_rel = model.create_entity(
             "IfcRelFillsElement",
             GlobalId=ifcopenshell.guid.new(),

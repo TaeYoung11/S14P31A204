@@ -254,6 +254,7 @@ const PRODUCT_TYPE_BY_STEP_ENTITY: Record<string, string> = {
   STAIRFLIGHT: 'IfcStairFlight',
   COLUMN: 'IfcColumn',
   BEAM: 'IfcBeam',
+  SPACE: 'IfcSpace',
 }
 
 const splitIfcStepArguments = (text: string): string[] => {
@@ -309,7 +310,7 @@ export const parseBatangDimensionProperties = (ifcText: string): IfcPsetMetricMa
   const metricsByElementId: Record<number, ParsedIfcElementInfo> = {}
   const metricsByElementName: Record<string, ParsedIfcElementInfo> = {}
 
-  Array.from(ifcText.matchAll(/#(\d+)=IFC(WALLSTANDARDCASE|WALL|SLAB|ROOF|DOOR|WINDOW|STAIRFLIGHT|STAIR|COLUMN|BEAM)\(([^;]*)\);/gi)).forEach((match) => {
+  Array.from(ifcText.matchAll(/#(\d+)=IFC(WALLSTANDARDCASE|WALL|SLAB|ROOF|DOOR|WINDOW|STAIRFLIGHT|STAIR|COLUMN|BEAM|SPACE)\(([^;]*)\);/gi)).forEach((match) => {
     const productId = Number(match[1])
     const ifcClass = PRODUCT_TYPE_BY_STEP_ENTITY[match[2].toUpperCase()]
     if (!ifcClass) return
@@ -319,6 +320,8 @@ export const parseBatangDimensionProperties = (ifcText: string): IfcPsetMetricMa
     const decodedName = parseIfcStepStringArgument(args[2])
     const category = IFC_CATEGORY_LABELS.find(([candidate]) => candidate.toLowerCase() === ifcClass.toLowerCase())?.[1]
       ?? ifcClass.replace(/^Ifc/i, '')
+    const objectPlacementId = parseIfcReferenceId(args[5])
+    const representationId = parseIfcReferenceId(args[6])
     productById[productId] = {
       expressId: productId,
       globalId,
@@ -327,8 +330,6 @@ export const parseBatangDimensionProperties = (ifcText: string): IfcPsetMetricMa
       category,
     }
     aliasToProductId[productId] = productId
-    const objectPlacementId = parseIfcReferenceId(args[5])
-    const representationId = parseIfcReferenceId(args[6])
     if (objectPlacementId !== undefined) aliasToProductId[objectPlacementId] = productId
     if (representationId !== undefined) aliasToProductId[representationId] = productId
   })
@@ -417,6 +418,8 @@ export type IfcStoreyInfo = {
   elevation: number | null
   /** 해당 층에 속하는 요소의 localId 집합 (IFCRELCONTAINEDINSPATIALSTRUCTURE 기반) */
   elementLocalIds: Set<number>
+  /** ThatOpen hider에 전달할 visibility ID 집합. 벽처럼 product id와 geometry id가 다른 요소를 포함한다. */
+  visibilityLocalIds?: Set<number>
   /** 계층 패널 표시용 요소 미리보기 목록 (없으면 localId 기반 fallback 렌더링) */
   elements?: Array<{
     localId: number
@@ -497,6 +500,36 @@ export const parseIfcStoreys = (ifcText: string): IfcStoreyInfo[] => {
 
   return storeyList
 }
+
+export const expandIfcStoreysForVisibility = (
+  storeys: IfcStoreyInfo[],
+  aliasesByExpressId: Map<number, Set<number>>,
+  metricsById: Record<number, ParsedIfcElementInfo>,
+): IfcStoreyInfo[] => storeys.map((storey) => {
+  const visibilityLocalIds = new Set<number>()
+  storey.elementLocalIds.forEach((rawId) => {
+    if (Number.isFinite(rawId)) visibilityLocalIds.add(rawId)
+    aliasesByExpressId.get(rawId)?.forEach((aliasId) => {
+      if (Number.isFinite(aliasId)) visibilityLocalIds.add(aliasId)
+    })
+  })
+
+  const elements = Array.from(storey.elementLocalIds).map((localId) => {
+    const parsed = metricsById[localId]
+    return {
+      localId,
+      name: parsed?.name ?? `요소 ${localId}`,
+      ifcClass: parsed?.ifcClass ?? 'IfcElement',
+      category: parsed?.category ?? 'Element',
+    }
+  })
+
+  return {
+    ...storey,
+    visibilityLocalIds,
+    elements,
+  }
+})
 
 export const getIfcElementFromFragments = async (
   fragments: import('@thatopen/components').FragmentsManager,

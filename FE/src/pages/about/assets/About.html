@@ -1,1974 +1,2258 @@
 <!DOCTYPE html>
 <html lang="ko">
+
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>About — 바탕:BATANG</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css" rel="stylesheet">
-
-<style>
-  :root{
-    --bg: #f4f5f9;
-    --bg-2: #eaecf2;
-    --paper: #ffffff;
-    --ink: #111827;
-    --ink-2: #374151;
-    --muted: #6b7280;
-    --muted-2: #9ca3af;
-    --line: #e5e7eb;
-    --line-2: #d1d5db;
-    --accent: #4f46e5;
-    --accent-soft: rgba(79, 70, 229, 0.08);
-    --serif: 'Pretendard Variable', 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-    --mono: var(--serif);
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  html, body { height: 100%; }
-  body{
-    font-family: var(--serif);
-    color: var(--ink);
-    background: var(--bg);
-    word-break: keep-all;
-    overflow-wrap: break-word;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-    letter-spacing: -0.005em;
-    overflow-x: hidden;
-  }
-
-  h1, h2, h3, p, a, span, button, .tag{
-    word-break: keep-all;
-    overflow-wrap: break-word;
-  }
-
-  h1, h2, h3, h4, h5, h6, p, li, dt, dd, blockquote, figcaption{
-    text-wrap: pretty;
-  }
-
-  h1, h2, h3, h4, h5, h6{
-    text-wrap: balance;
-  }
-
-  /* 은은한 그리드 배경 */
-  body::before{
-    content: "";
-    position: fixed; inset: 0;
-    background-image:
-      linear-gradient(to right, rgba(17,24,39,0.04) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(17,24,39,0.04) 1px, transparent 1px);
-    background-size: 64px 64px;
-    mask-image: radial-gradient(ellipse 100% 80% at 50% 50%, black 30%, transparent 80%);
-    pointer-events: none;
-    z-index: 0;
-  }
-  body::after{
-    content: "";
-    position: fixed; inset: 0;
-    background:
-      radial-gradient(50% 60% at 90% 0%, rgba(79,70,229,0.08), transparent 70%),
-      radial-gradient(40% 40% at 0% 100%, rgba(79,70,229,0.05), transparent 70%);
-    pointer-events: none;
-    z-index: 0;
-  }
-
-  main, header, footer{ position: relative; z-index: 1; }
-
-  /* ── 헤더 ─────────────────────────────────── */
-  header.nav{
-    position: fixed; top: 0; left: 0; right: 0;
-    z-index: 10;
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 24px 40px;
-    background: rgba(244,245,249,0.7);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
-    border-bottom: 1px solid var(--line);
-  }
-  .logo-link{ display: inline-flex; align-items: center; text-decoration: none; }
-  .logo-img{ height: 22px; width: auto; display: block; }
-  .nav-right{ display: flex; align-items: center; gap: 24px; }
-  .nav-link{
-    font-family: var(--mono);
-    font-size: 12px; color: var(--ink-2);
-    text-decoration: none; font-weight: 500;
-    letter-spacing: 0.14em;
-    transition: color .15s ease;
-    position: relative;
-  }
-  .nav-link:hover{ color: var(--accent); }
-  .nav-link.active{ color: var(--accent); }
-  .nav-link.active::after{
-    content: ""; position: absolute;
-    left: 0; right: 0; bottom: -8px;
-    height: 2px; background: var(--accent);
-  }
-  .nav-cta{
-    background: var(--ink);
-    color: white; font-size: 13px; font-weight: 500;
-    padding: 9px 16px; border-radius: 8px;
-    border: 0; cursor: pointer;
-    transition: background .15s ease, transform .15s ease;
-    text-decoration: none;
-    display: inline-flex; align-items: center;
-  }
-  .nav-cta:hover{ background: #1f2937; transform: translateY(-1px); }
-
-  /* ── 히어로 영역 ───────────────────────────── */
-  .hero{
-    max-width: 1280px;
-    margin: 0 auto;
-    padding: 180px 40px 100px;
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 80px;
-    align-items: end;
-  }
-  .eyebrow{
-    display: inline-flex; align-items: center; gap: 10px;
-    font-family: var(--mono);
-    font-size: 11px; letter-spacing: 0.18em;
-    color: var(--muted);
-    text-transform: uppercase;
-    margin-bottom: 28px;
-    padding: 6px 12px;
-    border: 1px solid var(--line);
-    border-radius: 999px;
-    background: rgba(255,255,255,0.6);
-    backdrop-filter: blur(8px);
-  }
-  .eyebrow .dot{
-    width: 6px; height: 6px; border-radius: 50%;
-    background: var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-soft);
-  }
-  h1.title{
-    font-size: clamp(40px, 5vw, 72px);
-    font-weight: 700;
-    line-height: 1.04;
-    letter-spacing: -0.035em;
-    color: var(--ink);
-    text-wrap: balance;
-  }
-  h1.title .accent{ color: var(--accent); }
-  .hero-side{
-    display: flex; flex-direction: column; gap: 28px;
-    padding-bottom: 12px;
-  }
-  .hero-side p{
-    font-size: 16px;
-    line-height: 1.75;
-    color: var(--ink-2);
-    text-wrap: pretty;
-  }
-  .meta-row{
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    border-top: 1px solid var(--line);
-    padding-top: 24px;
-    gap: 24px;
-  }
-  .meta-row .cell{
-    display: flex; flex-direction: column; gap: 4px;
-  }
-  .meta-row .k{
-    font-family: var(--mono);
-    font-size: 10px;
-    letter-spacing: 0.14em;
-    color: var(--muted);
-    text-transform: uppercase;
-  }
-  .meta-row .v{
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--ink);
-    letter-spacing: -0.02em;
-  }
-  .meta-row .v small{
-    font-weight: 400;
-    color: var(--muted);
-    font-size: 12px;
-    margin-left: 4px;
-  }
-
-  /* ── 섹션 헤더 ─────────────────────────────── */
-  .section{
-    max-width: 1280px;
-    margin: 0 auto;
-    padding: 80px 40px;
-  }
-  .section-head{
-    display: flex; align-items: baseline;
-    gap: 24px;
-    margin-bottom: 56px;
-    padding-bottom: 20px;
-    border-bottom: 1px solid var(--line);
-  }
-  .section-head .num{
-    font-family: var(--mono);
-    font-size: 12px; color: var(--accent);
-    letter-spacing: 0.18em;
-  }
-  .section-head h2{
-    font-size: 36px;
-    font-weight: 700;
-    letter-spacing: -0.025em;
-    color: var(--ink);
-  }
-  .section-head .desc{
-    margin-left: auto;
-    flex: 1 1 560px;
-    font-size: 14px;
-    color: var(--muted);
-    max-width: 620px;
-    text-align: right;
-  }
-
-  /* ── 서비스 가치 ───────────────────────────── */
-  .mission-grid{
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 24px;
-  }
-  .mcard{
-    background: rgba(255,255,255,0.6);
-    border: 1px solid var(--line);
-    border-radius: 16px;
-    padding: 32px;
-    transition: transform .25s ease, box-shadow .25s ease, border-color .25s ease;
-  }
-  .mcard:hover{
-    transform: translateY(-4px);
-    box-shadow: 0 16px 40px rgba(17,24,39,0.06);
-    border-color: var(--line-2);
-  }
-  .mcard .badge{
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--accent);
-    letter-spacing: 0.16em;
-    margin-bottom: 24px;
-    display: inline-block;
-  }
-  .mcard h3{
-    font-size: 22px;
-    font-weight: 700;
-    letter-spacing: -0.02em;
-    margin-bottom: 12px;
-    color: var(--ink);
-  }
-  .mcard p{
-    font-size: 14px; line-height: 1.7;
-    color: var(--ink-2);
-    text-wrap: pretty;
-  }
-
-  /* ── 팀 소개 ───────────────────────────────── */
-  .team-grid{
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 16px;
-  }
-  .member{
-    position: relative;
-    background: rgba(255,255,255,0.7);
-    border: 1px solid var(--line);
-    border-radius: 14px;
-    padding: 24px 28px;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    transition: transform .25s ease, box-shadow .25s ease, border-color .25s ease;
-    cursor: default;
-  }
-  .member:hover{
-    transform: translateY(-3px);
-    box-shadow: 0 12px 30px rgba(17,24,39,0.06);
-    border-color: var(--line-2);
-  }
-  .member .info{ display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-  .member .name{
-    font-size: 17px;
-    font-weight: 700;
-    color: var(--ink);
-    letter-spacing: -0.015em;
-  }
-  .member .name .num{
-    font-family: var(--mono);
-    font-size: 10px;
-    color: var(--muted-2);
-    margin-right: 8px;
-    letter-spacing: 0.1em;
-    font-weight: 500;
-  }
-  .member .tags{
-    display: flex; flex-wrap: wrap; gap: 4px;
-  }
-  .tag{
-    font-family: var(--mono);
-    font-size: 10px;
-    font-weight: 500;
-    letter-spacing: 0.06em;
-    padding: 3px 7px;
-    border-radius: 4px;
-    background: var(--bg-2);
-    color: var(--ink-2);
-    border: 1px solid var(--line);
-  }
-  .tag.t-AI{ background: var(--accent-soft); color: var(--accent); border-color: rgba(79,70,229,0.18); }
-  .tag.t-PD, .tag.t-PM{ background: rgba(17,24,39,0.06); color: var(--ink); border-color: rgba(17,24,39,0.12); font-weight: 600; }
-
-  /* ── 제품 원칙 ─────────────────────────────── */
-  .values{
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 0;
-    border-top: 1px solid var(--line);
-    border-bottom: 1px solid var(--line);
-  }
-  .value{
-    padding: 56px 40px;
-    border-right: 1px solid var(--line);
-  }
-  .value:last-child{ border-right: 0; }
-  .value .num{
-    font-family: var(--mono);
-    font-size: 12px;
-    color: var(--muted-2);
-    letter-spacing: 0.18em;
-    margin-bottom: 24px;
-    display: block;
-  }
-  .value h3{
-    font-size: 28px;
-    font-weight: 700;
-    letter-spacing: -0.02em;
-    color: var(--ink);
-    margin-bottom: 12px;
-  }
-  .value h3 em{
-    font-style: normal;
-    font-family: var(--mono);
-    font-size: 14px;
-    color: var(--accent);
-    font-weight: 500;
-    margin-left: 8px;
-    letter-spacing: 0.04em;
-  }
-  .value p{
-    font-size: 14px;
-    line-height: 1.7;
-    color: var(--ink-2);
-    max-width: 320px;
-  }
-
-  /* ── CTA ──────────────────────────────────── */
-  .cta-block{
-    max-width: 1280px;
-    margin: 80px auto 0;
-    padding: 80px 40px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 40px;
-    border-top: 1px dashed var(--line-2);
-  }
-  .cta-block h2{
-    font-size: 36px;
-    font-weight: 700;
-    letter-spacing: -0.025em;
-    color: var(--ink);
-    line-height: 1.2;
-    text-wrap: balance;
-  }
-  .btn{
-    display: inline-flex; align-items: center;
-    gap: 8px;
-    font-family: var(--serif); font-weight: 500; font-size: 15px;
-    padding: 14px 26px;
-    border-radius: 10px;
-    border: 0; cursor: pointer;
-    text-decoration: none;
-    transition: transform .15s ease, box-shadow .2s ease, background .15s ease;
-  }
-  .btn-primary{
-    background: var(--accent);
-    color: white;
-    box-shadow: 0 4px 14px rgba(79,70,229,0.28), 0 1px 0 rgba(255,255,255,0.2) inset;
-  }
-  .btn-primary:hover{
-    transform: translateY(-1px);
-    box-shadow: 0 8px 22px rgba(79,70,229,0.36);
-    background: #4338ca;
-  }
-
-  /* ── 푸터 ─────────────────────────────────── */
-  footer.foot{
-    margin-top: 40px;
-    padding: 32px 40px;
-    border-top: 1px solid var(--line);
-    display: flex; align-items: center; justify-content: flex-end;
-    font-family: var(--mono);
-    font-size: 11px;
-    color: var(--muted);
-    letter-spacing: 0.14em;
-  }
-
-  /* 반응형 레이아웃 */
-  @media (max-width: 900px){
-    .hero{ grid-template-columns: 1fr; padding-top: 140px; gap: 40px; }
-    .meta-row{ grid-template-columns: 1fr; gap: 16px; }
-    .mission-grid, .team-grid, .values{ grid-template-columns: 1fr; }
-    .value{ border-right: 0; border-bottom: 1px solid var(--line); }
-    .value:last-child{ border-bottom: 0; }
-    .cta-block{ flex-direction: column; align-items: flex-start; }
-    .section-head{ flex-direction: column; align-items: flex-start; gap: 12px; }
-    .section-head .desc{ flex: initial; margin-left: 0; max-width: none; text-align: left; }
-  }
-
-  /* About 화면 최신 스타일 보정 */
-  :root {
-    --bg: #f8fafc;
-    --bg-2: #ede9fe;
-    --paper: rgba(255, 255, 255, 0.78);
-    --accent: #5b46e8;
-    --accent-2: #7c3aed;
-    --accent-soft: rgba(91, 70, 232, 0.1);
-  }
-
-  body {
-    background:
-      radial-gradient(900px 520px at 84% 4%, rgba(124, 58, 237, 0.16), transparent 64%),
-      radial-gradient(720px 480px at 0% 34%, rgba(91, 70, 232, 0.12), transparent 65%),
-      linear-gradient(180deg, #f8fafc 0%, #f1efff 56%, #f8fafc 100%);
-    letter-spacing: 0;
-  }
-
-  body::after {
-    background:
-      linear-gradient(120deg, rgba(255, 255, 255, 0.72), transparent 42%),
-      radial-gradient(44% 42% at 82% 18%, rgba(124, 58, 237, 0.14), transparent 70%);
-  }
-
-  .hero,
-  .section,
-  .values,
-  .cta-block {
-    animation: sectionReveal .72s cubic-bezier(.2, .8, .2, 1) both;
-  }
-
-  .about-ambient,
-  .about-beam,
-  .about-noise {
-    position: fixed;
-    inset: 0;
-    z-index: 0;
-    pointer-events: none;
-  }
-
-  .about-ambient {
-    overflow: hidden;
-    mix-blend-mode: multiply;
-  }
-
-  .about-ambient::before,
-  .about-ambient::after {
-    content: "";
-    position: absolute;
-    width: 54vw;
-    height: 54vw;
-    min-width: 520px;
-    min-height: 520px;
-    border-radius: 42% 58% 62% 38%;
-    filter: blur(52px);
-    opacity: .2;
-    animation: ambientDrift 14s ease-in-out infinite alternate;
-  }
-
-  .about-ambient::before {
-    right: -16vw;
-    top: -18vw;
-    background: conic-gradient(from 140deg, rgba(91,70,232,.72), rgba(124,58,237,.56), rgba(167,139,250,.34), rgba(91,70,232,.72));
-  }
-
-  .about-ambient::after {
-    left: -18vw;
-    top: 42vh;
-    background: conic-gradient(from 30deg, rgba(139,92,246,.42), rgba(99,102,241,.34), rgba(139,92,246,.2), rgba(139,92,246,.42));
-    animation-delay: -5s;
-  }
-
-  .about-beam {
-    background:
-      linear-gradient(112deg, transparent 0 38%, rgba(255,255,255,.58) 42%, transparent 47%),
-      linear-gradient(68deg, transparent 0 58%, rgba(91,70,232,.1) 62%, transparent 68%);
-    opacity: .6;
-    animation: aboutBeam 8s ease-in-out infinite;
-  }
-
-  .about-noise {
-    opacity: .34;
-    background-image:
-      linear-gradient(to right, rgba(15,23,42,.035) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(15,23,42,.035) 1px, transparent 1px);
-    background-size: 42px 42px;
-    mask-image: linear-gradient(180deg, black, transparent 86%);
-    animation: gridFloat 20s linear infinite;
-  }
-
-  .hero {
-    align-items: center;
-    min-height: 82vh;
-    padding-bottom: 64px;
-    position: relative;
-  }
-
-  .eyebrow {
-    border-color: rgba(91, 70, 232, 0.18);
-    background: rgba(255, 255, 255, 0.76);
-    box-shadow: 0 14px 40px rgba(15, 23, 42, 0.08);
-  }
-
-  .eyebrow .dot {
-    animation: pulse 2.2s ease-in-out infinite;
-  }
-
-  h1.title {
-    font-size: clamp(42px, 6.5vw, 84px);
-    line-height: 0.98;
-    letter-spacing: 0;
-    filter: drop-shadow(0 22px 48px rgba(15,23,42,.1));
-  }
-
-  h1.title .accent,
-  .section-head .num,
-  .mcard .badge,
-  .value h3 em {
-    background: linear-gradient(120deg, var(--accent), var(--accent-2));
-    background-size: 220% auto;
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-    animation: textFlow 5s ease-in-out infinite;
-  }
-
-  .hero-copy {
-    position: relative;
-    z-index: 2;
-  }
-
-  .hero-side {
-    position: relative;
-    padding: 32px;
-    border: 1px solid rgba(91, 70, 232, 0.14);
-    border-radius: 24px;
-    background: rgba(255, 255, 255, 0.68);
-    box-shadow: 0 24px 80px rgba(15, 23, 42, 0.1);
-    backdrop-filter: blur(18px);
-    z-index: 2;
-  }
-
-  .hero-side::before {
-    content: "";
-    position: absolute;
-    inset: -1px;
-    border-radius: inherit;
-    background: linear-gradient(135deg, rgba(91, 70, 232, 0.18), rgba(124, 58, 237, 0.1), transparent 55%);
-    pointer-events: none;
-    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    mask-composite: exclude;
-    padding: 1px;
-  }
-
-  .hero-side p {
-    font-size: clamp(15px, 1.45vw, 18px);
-    color: #334155;
-  }
-
-  .about-visual {
-    position: absolute;
-    right: clamp(30px, 6vw, 90px);
-    bottom: 32px;
-    z-index: 1;
-    width: min(460px, 38vw);
-    aspect-ratio: 1.12;
-    border-radius: 34px;
-    border: 1px solid rgba(255,255,255,.72);
-    background:
-      linear-gradient(135deg, rgba(255,255,255,.82), rgba(255,255,255,.42)),
-      radial-gradient(circle at 70% 20%, rgba(124,58,237,.18), transparent 48%);
-    box-shadow: 0 34px 110px rgba(15,23,42,.16);
-    backdrop-filter: blur(20px);
-    overflow: hidden;
-    transform: rotate(-2deg);
-    animation: visualFloat 6s ease-in-out infinite;
-  }
-
-  .about-visual::before {
-    content: "";
-    position: absolute;
-    inset: 24px;
-    border-radius: 24px;
-    background:
-      linear-gradient(to right, rgba(91,70,232,.14) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(91,70,232,.14) 1px, transparent 1px);
-    background-size: 32px 32px;
-  }
-
-  .plan-line {
-    position: absolute;
-    border: 2px solid rgba(91,70,232,.5);
-    border-radius: 10px;
-    box-shadow: 0 0 34px rgba(91,70,232,.12);
-  }
-
-  .plan-line.one { left: 70px; top: 78px; width: 190px; height: 128px; }
-  .plan-line.two { right: 70px; top: 118px; width: 120px; height: 158px; border-color: rgba(124,58,237,.56); }
-  .plan-line.three { left: 98px; bottom: 72px; width: 238px; height: 96px; border-color: rgba(167,139,250,.52); }
-
-  .visual-chip {
-    position: absolute;
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    min-height: 38px;
-    padding: 0 14px;
-    border-radius: 999px;
-    background: rgba(15,23,42,.86);
-    color: white;
-    font-size: 12px;
-    font-weight: 700;
-    box-shadow: 0 18px 46px rgba(15,23,42,.2);
-  }
-
-  .visual-chip::before {
-    content: "";
-    width: 8px;
-    height: 8px;
-    border-radius: 999px;
-    background: #8b5cf6;
-    box-shadow: 0 0 18px rgba(139,92,246,.8);
-  }
-
-  .visual-chip.a { left: 28px; top: 28px; }
-  .visual-chip.b { right: 30px; bottom: 30px; background: rgba(91,70,232,.9); }
-
-  .workflow-panel {
-    max-width: 1280px;
-    margin: 0 auto;
-    padding: 0 40px 32px;
-    position: relative;
-    z-index: 1;
-  }
-
-  .workflow-track {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 12px;
-    border: 1px solid rgba(91,70,232,.12);
-    border-radius: 24px;
-    padding: 12px;
-    background: rgba(255,255,255,.62);
-    box-shadow: 0 22px 70px rgba(15,23,42,.08);
-    backdrop-filter: blur(16px);
-  }
-
-  .workflow-step {
-    position: relative;
-    overflow: hidden;
-    min-height: 120px;
-    border-radius: 18px;
-    padding: 20px;
-    background:
-      linear-gradient(145deg, rgba(255,255,255,.82), rgba(239,246,255,.62));
-    border: 1px solid rgba(255,255,255,.7);
-  }
-
-  .workflow-step::after {
-    content: "";
-    position: absolute;
-    inset: auto -30% -42% 35%;
-    height: 90px;
-    border-radius: 999px;
-    background: linear-gradient(90deg, rgba(91,70,232,.16), rgba(124,58,237,.22));
-    filter: blur(14px);
-    animation: stepGlow 4.6s ease-in-out infinite;
-  }
-
-  .workflow-step strong {
-    display: block;
-    font-size: 18px;
-    letter-spacing: 0;
-    color: #0f172a;
-  }
-
-  .workflow-step span {
-    display: block;
-    margin-top: 10px;
-    font-size: 13px;
-    line-height: 1.55;
-    color: #475569;
-  }
-
-  .about-process {
-    position: relative;
-    z-index: 3;
-    border: 1px solid rgba(255,255,255,.74);
-    border-radius: 30px;
-    padding: 18px;
-    background:
-      linear-gradient(145deg, rgba(255,255,255,.84), rgba(255,255,255,.5)),
-      radial-gradient(circle at 84% 10%, rgba(124,58,237,.18), transparent 42%);
-    box-shadow: 0 34px 110px rgba(15,23,42,.16);
-    backdrop-filter: blur(22px);
-    animation: visualFloat 6s ease-in-out infinite;
-  }
-
-  .about-process-head {
-    margin-bottom: 14px;
-  }
-
-  .about-process-head strong {
-    display: block;
-    color: #0f172a;
-    font-size: 24px;
-    letter-spacing: 0;
-  }
-
-  .about-process-head span {
-    display: block;
-    margin-top: 7px;
-    color: #64748b;
-    font-size: 14px;
-    line-height: 1.55;
-  }
-
-  .about-process-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
-  }
-
-  .about-process-card {
-    position: relative;
-    min-height: 178px;
-    overflow: hidden;
-    border: 1px solid rgba(255,255,255,.78);
-    border-radius: 24px;
-    padding: 16px;
-    background: rgba(255,255,255,.58);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 16px 42px rgba(91,70,232,.1);
-  }
-
-  .about-process-label {
-    position: relative;
-    z-index: 2;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    color: #111827;
-    font-size: 24px;
-    font-weight: 800;
-  }
-
-  .about-process-label em {
-    font-style: normal;
-    font-family: var(--mono);
-    font-size: 13px;
-    letter-spacing: .14em;
-    color: #7c3aed;
-  }
-
-  .about-stage {
-    position: absolute;
-    inset: 58px 16px 16px;
-    border-radius: 18px;
-    background: rgba(248,250,252,.72);
-  }
-
-  .about-stage-bubble {
-    background:
-      radial-gradient(circle at 30% 45%, rgba(91,70,232,.28) 0 19%, transparent 20%),
-      radial-gradient(circle at 55% 32%, rgba(124,58,237,.22) 0 16%, transparent 17%),
-      radial-gradient(circle at 68% 66%, rgba(167,139,250,.3) 0 21%, transparent 22%),
-      radial-gradient(circle at 40% 72%, rgba(91,70,232,.18) 0 13%, transparent 14%),
-      rgba(248,250,252,.74);
-  }
-
-  .about-stage-bubble::after {
-    content: "";
-    position: absolute;
-    left: 26%;
-    top: 40%;
-    width: 48%;
-    height: 32%;
-    border: 2px dashed rgba(91,70,232,.42);
-    border-radius: 999px;
-    animation: pulse 2.8s ease-in-out infinite;
-  }
-
-  .about-stage-plan {
-    background:
-      linear-gradient(to right, rgba(91,70,232,.12) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(91,70,232,.12) 1px, transparent 1px),
-      rgba(248,250,252,.82);
-    background-size: 22px 22px;
-  }
-
-  .about-stage-plan {
-    background:
-      linear-gradient(135deg, rgba(91,70,232,.2), rgba(255,255,255,.12)),
-      url('/mock/about-2d-plan.svg');
-    background-size: cover;
-    background-position: center;
-  }
-
-  .about-stage-plan::before,
-  .about-stage-plan::after {
-    content: "";
-    position: absolute;
-    border: 2px solid rgba(91,70,232,.46);
-    border-radius: 12px;
-  }
-
-  .about-stage-plan::before,
-  .about-stage-plan::after {
-    display: none;
-  }
-
-  .about-stage-model {
-    background:
-      linear-gradient(135deg, rgba(91,70,232,.18), rgba(255,255,255,.08)),
-      url('/mock/about-3d-model.svg');
-    background-size: cover;
-    background-position: center;
-  }
-
-  .about-stage-plan::before {
-    left: 16%;
-    top: 22%;
-    width: 42%;
-    height: 34%;
-  }
-
-  .about-stage-plan::after {
-    right: 14%;
-    bottom: 16%;
-    width: 46%;
-    height: 42%;
-    border-color: rgba(124,58,237,.5);
-  }
-
-  .about-stage-model::before,
-  .about-stage-model::after {
-    content: "";
-    position: absolute;
-    bottom: 24%;
-    width: 32%;
-    border-radius: 8px 8px 3px 3px;
-    background: linear-gradient(160deg, rgba(91,70,232,.86), rgba(167,139,250,.64));
-    box-shadow: 0 22px 45px rgba(91,70,232,.22);
-    transform: rotateX(58deg) rotateZ(-18deg);
-  }
-
-  .about-stage-model::before,
-  .about-stage-model::after {
-    display: none;
-  }
-
-  .about-stage-model::before {
-    left: 23%;
-    height: 50%;
-  }
-
-  .about-stage-model::after {
-    right: 23%;
-    height: 70%;
-  }
-
-  .about-stage-render {
-    background-image:
-      linear-gradient(145deg, rgba(91,70,232,.42), rgba(196,181,253,.28)),
-      url('/mock/rendering_mock.png');
-    background-size: cover;
-    background-position: center;
-    background-blend-mode: color, normal;
-    filter: saturate(.8) contrast(.98);
-  }
-
-  .meta-row {
-    border-top-color: rgba(91, 70, 232, 0.16);
-  }
-
-  .section {
-    padding-block: clamp(56px, 8vw, 96px);
-  }
-
-  .section-head {
-    align-items: flex-end;
-  }
-
-  .section-head h2 {
-    font-size: clamp(28px, 4vw, 46px);
-    letter-spacing: 0;
-  }
-
-  .mcard,
-  .member {
-    border-color: rgba(91, 70, 232, 0.12);
-    border-radius: 20px;
-    background: rgba(255, 255, 255, 0.74);
-    box-shadow: 0 14px 42px rgba(15, 23, 42, 0.06);
-    backdrop-filter: blur(12px);
-  }
-
-  .mcard,
-  .member,
-  .value,
-  .workflow-step {
-    opacity: 0;
-    transform: translateY(22px);
-    transition: opacity .65s ease, transform .65s ease, box-shadow .25s ease, border-color .25s ease;
-  }
-
-  .is-visible .mcard,
-  .is-visible.member,
-  .is-visible.value,
-  .workflow-step.is-visible {
-    opacity: 1;
-    transform: translateY(0);
-  }
-
-  .is-visible .mcard:nth-child(2),
-  .workflow-step.is-visible:nth-child(2) {
-    transition-delay: .08s;
-  }
-
-  .is-visible .mcard:nth-child(3),
-  .workflow-step.is-visible:nth-child(3) {
-    transition-delay: .16s;
-  }
-
-  .workflow-step.is-visible:nth-child(4) {
-    transition-delay: .24s;
-  }
-
-  .mcard:hover,
-  .member:hover {
-    transform: translateY(-8px);
-    border-color: rgba(91, 70, 232, 0.28);
-    box-shadow: 0 24px 70px rgba(91, 70, 232, 0.16);
-  }
-
-  .values {
-    max-width: 1280px;
-    margin: 0 auto;
-    border: 1px solid rgba(91, 70, 232, 0.14);
-    border-radius: 24px;
-    overflow: hidden;
-    background: rgba(255, 255, 255, 0.56);
-    box-shadow: 0 24px 80px rgba(15, 23, 42, 0.08);
-  }
-
-  .value {
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.6), rgba(255, 255, 255, 0.32));
-  }
-
-  .cta-block {
-    border-top: 0;
-    border-radius: 28px;
-    background:
-      linear-gradient(135deg, rgba(91, 70, 232, 0.92), rgba(124, 58, 237, 0.86)),
-      #5b46e8;
-    color: white;
-    box-shadow: 0 24px 80px rgba(91, 70, 232, 0.24);
-    position: relative;
-    overflow: hidden;
-  }
-
-  .cta-block::before {
-    content: "";
-    position: absolute;
-    inset: -80% auto -80% -20%;
-    width: 34%;
-    transform: rotate(18deg);
-    background: linear-gradient(90deg, transparent, rgba(255,255,255,.36), transparent);
-    animation: ctaSweep 4.2s ease-in-out infinite;
-  }
-
-  .cta-block h2 {
-    color: white;
-  }
-
-  .cta-block .btn-primary {
-    background: white;
-    color: #4f46e5;
-    box-shadow: 0 16px 40px rgba(15, 23, 42, 0.2);
-  }
-
-  .cta-block .btn-primary:hover {
-    background: #f8fafc;
-  }
-
-  .btn {
-    min-height: 50px;
-    border-radius: 999px;
-    white-space: nowrap;
-  }
-
-  @keyframes sectionReveal {
-    from {
-      opacity: 0;
-      transform: translateY(22px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
-  }
-
-  @keyframes pulse {
-    0%, 100% {
-      opacity: 1;
-      box-shadow: 0 0 0 3px var(--accent-soft);
-    }
-    50% {
-      opacity: .58;
-      box-shadow: 0 0 0 8px rgba(91, 70, 232, 0);
-    }
-  }
-
-  @keyframes ambientDrift {
-    from { transform: translate3d(0,0,0) rotate(0deg) scale(1); }
-    to { transform: translate3d(-5vw,4vh,0) rotate(18deg) scale(1.08); }
-  }
-
-  @keyframes aboutBeam {
-    0%, 100% { transform: translateX(-8%); opacity: .2; }
-    48%, 62% { transform: translateX(8%); opacity: .64; }
-  }
-
-  @keyframes gridFloat {
-    from { background-position: 0 0; }
-    to { background-position: 42px 42px; }
-  }
-
-  @keyframes textFlow {
-    0%, 100% { background-position: 0% center; }
-    50% { background-position: 100% center; }
-  }
-
-  @keyframes visualFloat {
-    0%, 100% { transform: translateY(0) rotate(-2deg); }
-    50% { transform: translateY(-16px) rotate(1deg); }
-  }
-
-  @keyframes stepGlow {
-    0%, 100% { transform: translateX(-10%); opacity: .56; }
-    50% { transform: translateX(18%); opacity: .95; }
-  }
-
-  @keyframes ctaSweep {
-    0%, 48% { left: -30%; }
-    100% { left: 120%; }
-  }
-
-  @media (max-width: 1080px){
-    .about-visual {
-      width: min(360px, 42vw);
-      opacity: .78;
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>About — 바탕:BATANG</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css"
+    rel="stylesheet">
+
+  <style>
+    :root {
+      --bg: #f4f5f9;
+      --bg-2: #eaecf2;
+      --paper: #ffffff;
+      --ink: #111827;
+      --ink-2: #374151;
+      --muted: #6b7280;
+      --muted-2: #9ca3af;
+      --line: #e5e7eb;
+      --line-2: #d1d5db;
+      --accent: #4f46e5;
+      --accent-soft: rgba(79, 70, 229, 0.08);
+      --serif: 'Pretendard Variable', 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      --mono: var(--serif);
     }
 
-    .workflow-track {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-  }
-
-  @media (max-width: 720px){
-    .hero,
-    .section,
-    .cta-block {
-      padding-left: 22px;
-      padding-right: 22px;
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
     }
 
-    .hero {
-      min-height: auto;
-      padding-top: 126px;
+    html,
+    body {
+      height: 100%;
     }
 
-    .about-visual {
-      display: none;
+    body {
+      font-family: var(--serif);
+      color: var(--ink);
+      background: var(--bg);
+      word-break: keep-all;
+      overflow-wrap: break-word;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      letter-spacing: -0.005em;
+      overflow-x: hidden;
     }
 
-    .about-process {
-      padding: 14px;
-      border-radius: 22px;
+    h1,
+    h2,
+    h3,
+    p,
+    a,
+    span,
+    button,
+    .tag {
+      word-break: keep-all;
+      overflow-wrap: break-word;
     }
 
-    .about-process-grid {
-      grid-template-columns: 1fr;
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    p,
+    li,
+    dt,
+    dd,
+    blockquote,
+    figcaption {
+      text-wrap: pretty;
     }
 
-    .about-process-card {
-      min-height: 150px;
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6 {
+      text-wrap: balance;
     }
 
-    .workflow-panel {
-      padding: 0 22px 24px;
+    /* 은은한 그리드 배경 */
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(to right, rgba(17, 24, 39, 0.04) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(17, 24, 39, 0.04) 1px, transparent 1px);
+      background-size: 64px 64px;
+      mask-image: radial-gradient(ellipse 100% 80% at 50% 50%, black 30%, transparent 80%);
+      pointer-events: none;
+      z-index: 0;
     }
 
-    .workflow-track {
-      grid-template-columns: 1fr;
-      border-radius: 18px;
+    body::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(50% 60% at 90% 0%, rgba(79, 70, 229, 0.08), transparent 70%),
+        radial-gradient(40% 40% at 0% 100%, rgba(79, 70, 229, 0.05), transparent 70%);
+      pointer-events: none;
+      z-index: 0;
     }
 
-    .workflow-step {
-      min-height: auto;
-      padding: 18px;
+    main,
+    header,
+    footer {
+      position: relative;
+      z-index: 1;
     }
 
-    .hero-side {
-      padding: 22px;
-      border-radius: 18px;
-    }
-
-    .section-head {
-      margin-bottom: 32px;
-    }
-
-    .mcard,
-    .member {
-      padding: 24px;
-      border-radius: 16px;
-    }
-
-    .values {
-      margin: 0 22px;
-      border-radius: 18px;
-    }
-
-    .value {
-      padding: 32px 24px;
-    }
-
-    .cta-block {
-      margin: 56px 22px 0;
-      padding: 34px 24px;
-      border-radius: 20px;
-    }
-
-    footer.foot {
-      align-items: center;
-      padding: 28px 22px;
-    }
-  }
-
-  /* About 화면 레이아웃 정돈 */
-  body {
-    background:
-      radial-gradient(980px 640px at 86% 8%, rgba(124, 58, 237, 0.18), transparent 62%),
-      radial-gradient(760px 500px at 8% 38%, rgba(91, 70, 232, 0.1), transparent 68%),
-      linear-gradient(180deg, #f8fafc 0%, #f4f2ff 52%, #f8fafc 100%);
-  }
-
-  body::before {
-    background-image:
-      linear-gradient(to right, rgba(91, 70, 232, 0.055) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(91, 70, 232, 0.045) 1px, transparent 1px);
-    background-size: 56px 56px;
-    mask-image: linear-gradient(180deg, black 0%, rgba(0, 0, 0, 0.84) 64%, transparent 100%);
-  }
-
-  .about-noise {
-    opacity: .16;
-  }
-
-  .hero {
-    max-width: 1360px;
-    min-height: 86vh;
-    padding: clamp(132px, 14vh, 190px) clamp(28px, 5vw, 72px) clamp(72px, 9vh, 120px);
-    grid-template-columns: minmax(0, .86fr) minmax(520px, 1.14fr);
-    gap: clamp(42px, 6vw, 92px);
-    align-items: center;
-  }
-
-  .hero-copy {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 28px;
-  }
-
-  .eyebrow {
-    margin-bottom: 0;
-    border-color: rgba(91, 70, 232, .18);
-    background: rgba(255, 255, 255, .72);
-    box-shadow: 0 14px 40px rgba(15, 23, 42, .07);
-  }
-
-  h1.title {
-    max-width: 720px;
-    font-size: clamp(54px, 7.2vw, 98px);
-    line-height: .98;
-    letter-spacing: 0;
-  }
-
-  .about-process {
-    border-radius: 34px;
-    padding: 24px;
-    background:
-      linear-gradient(145deg, rgba(255, 255, 255, .9), rgba(255, 255, 255, .58)),
-      radial-gradient(circle at 78% 8%, rgba(124, 58, 237, .18), transparent 44%);
-    border-color: rgba(255, 255, 255, .86);
-    box-shadow:
-      0 34px 110px rgba(91, 70, 232, .18),
-      inset 0 1px 0 rgba(255, 255, 255, .92);
-  }
-
-  .about-process-head {
-    display: flex;
-    align-items: end;
-    justify-content: space-between;
-    gap: 24px;
-    margin-bottom: 18px;
-  }
-
-  .about-process-head strong {
-    font-size: clamp(24px, 2.3vw, 34px);
-  }
-
-  .about-process-head span {
-    max-width: 320px;
-    text-align: right;
-  }
-
-  .about-process-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-
-  .about-process-card {
-    min-height: 330px;
-    border-radius: 24px;
-    padding: 18px;
-    background:
-      linear-gradient(180deg, rgba(255, 255, 255, .78), rgba(248, 250, 252, .56));
-    transition: transform .25s ease, box-shadow .25s ease, border-color .25s ease;
-  }
-
-  .about-process-card:hover {
-    transform: translateY(-6px);
-    border-color: rgba(91, 70, 232, .2);
-    box-shadow: 0 24px 70px rgba(91, 70, 232, .16);
-  }
-
-  .about-process-label {
-    font-size: 22px;
-  }
-
-  .about-stage {
-    inset: 70px 18px 18px;
-    border-radius: 20px;
-    box-shadow: inset 0 0 0 1px rgba(91, 70, 232, .08);
-  }
-
-  .section {
-    max-width: 1360px;
-    padding: clamp(64px, 8vw, 104px) clamp(28px, 5vw, 72px);
-  }
-
-  .section-head {
-    display: grid;
-    grid-template-columns: 150px minmax(280px, 1fr) minmax(300px, 600px);
-    gap: 32px;
-    align-items: end;
-    margin-bottom: 38px;
-    padding-bottom: 28px;
-    border-bottom-color: rgba(91, 70, 232, .14);
-  }
-
-  .section-head .num {
-    align-self: start;
-    padding-top: 9px;
-    line-height: 1.45;
-  }
-
-  .section-head h2 {
-    max-width: 540px;
-    font-size: clamp(34px, 4.6vw, 64px);
-    line-height: 1.06;
-    letter-spacing: 0;
-  }
-
-  .section-head .desc {
-    align-self: center;
-    margin-left: 0;
-    max-width: none;
-    text-align: left;
-    font-size: 16px;
-    line-height: 1.72;
-    color: #64748b;
-  }
-
-  .mission-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 18px;
-  }
-
-  .mcard {
-    position: relative;
-    min-height: 250px;
-    padding: 34px;
-    border-radius: 28px;
-    overflow: hidden;
-    background:
-      linear-gradient(145deg, rgba(255, 255, 255, .86), rgba(255, 255, 255, .58));
-  }
-
-  .mcard::before {
-    content: "0" counter(mission-card);
-    position: absolute;
-    right: 28px;
-    top: 26px;
-    font-family: var(--mono);
-    font-size: 48px;
-    color: rgba(91, 70, 232, .1);
-    letter-spacing: 0;
-  }
-
-  .mission-grid {
-    counter-reset: mission-card;
-  }
-
-  .mcard {
-    counter-increment: mission-card;
-  }
-
-  .mcard::after {
-    content: "";
-    position: absolute;
-    left: 34px;
-    top: 34px;
-    width: 42px;
-    height: 42px;
-    border-radius: 14px;
-    background:
-      radial-gradient(circle at 35% 30%, rgba(255, 255, 255, .82), transparent 34%),
-      linear-gradient(135deg, rgba(91, 70, 232, .92), rgba(124, 58, 237, .72));
-    box-shadow: 0 16px 34px rgba(91, 70, 232, .24);
-  }
-
-  .mcard h3 {
-    margin-top: 74px;
-    font-size: 28px;
-    line-height: 1.18;
-    letter-spacing: 0;
-  }
-
-  .mcard p {
-    max-width: 390px;
-    font-size: 16px;
-    line-height: 1.78;
-    color: #475569;
-  }
-
-  .values {
-    max-width: 1360px;
-    border-radius: 30px;
-    background:
-      linear-gradient(145deg, rgba(255, 255, 255, .8), rgba(255, 255, 255, .52));
-  }
-
-  .value {
-    padding: clamp(38px, 5vw, 64px);
-  }
-
-  .value h3 {
-    font-size: clamp(26px, 2.7vw, 38px);
-    letter-spacing: 0;
-  }
-
-  .value p {
-    font-size: 16px;
-    line-height: 1.75;
-    color: #475569;
-  }
-
-  .team-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 14px;
-  }
-
-  .member {
-    min-height: 168px;
-    justify-content: space-between;
-    border-radius: 24px;
-    padding: 26px;
-  }
-
-  .member::before {
-    content: "";
-    width: 48px;
-    height: 48px;
-    border-radius: 16px;
-    background:
-      radial-gradient(circle at 36% 30%, rgba(255, 255, 255, .86), transparent 34%),
-      linear-gradient(135deg, rgba(15, 23, 42, .9), rgba(91, 70, 232, .76));
-    box-shadow: 0 18px 38px rgba(15, 23, 42, .16);
-  }
-
-  .member .name {
-    font-size: 20px;
-    letter-spacing: 0;
-  }
-
-  .member .name .num {
-    display: block;
-    margin: 0 0 8px;
-    color: #8b5cf6;
-  }
-
-  .tag {
-    border-radius: 999px;
-    padding: 5px 9px;
-    background: rgba(248, 250, 252, .86);
-  }
-
-  .cta-block {
-    max-width: 1360px;
-    margin: 40px auto 0;
-    padding: clamp(48px, 7vw, 86px) clamp(28px, 5vw, 72px);
-    border-radius: 36px;
-    border: 1px solid rgba(124, 58, 237, .16);
-    background:
-      linear-gradient(135deg, rgba(255, 255, 255, .86), rgba(245, 243, 255, .72)),
-      radial-gradient(circle at 86% 20%, rgba(124, 58, 237, .18), transparent 44%);
-    color: #111827;
-    box-shadow:
-      0 24px 76px rgba(91, 70, 232, .14),
-      inset 0 1px 0 rgba(255, 255, 255, .88);
-  }
-
-  .cta-block h2 {
-    font-size: clamp(34px, 4.7vw, 64px);
-    line-height: 1.08;
-    letter-spacing: 0;
-    color: #111827;
-  }
-
-  .cta-block::before {
-    opacity: .28;
-    background: linear-gradient(90deg, transparent, rgba(124, 58, 237, .16), transparent);
-  }
-
-  .cta-block .btn-primary {
-    background: linear-gradient(135deg, #5b46e8, #7c3aed);
-    color: white;
-    box-shadow: 0 16px 36px rgba(91, 70, 232, .24);
-  }
-
-  .cta-block .btn-primary:hover {
-    background: linear-gradient(135deg, #4f46e5, #6d28d9);
-  }
-
-  footer.foot {
-    max-width: 1360px;
-    margin: 56px auto 0;
-    padding: 28px clamp(28px, 5vw, 72px);
-    border-top-color: rgba(91, 70, 232, .12);
-  }
-
-  @media (max-width: 1180px) {
-    .hero {
-      grid-template-columns: 1fr;
-      min-height: auto;
-    }
-
-    .about-process-grid,
-    .team-grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    .about-process-card {
-      min-height: 240px;
-    }
-
-    .section-head {
-      grid-template-columns: 120px 1fr;
-    }
-
-    .section-head .desc {
-      grid-column: 2;
-    }
-  }
-
-  @media (max-width: 760px) {
+    /* ── 헤더 ─────────────────────────────────── */
     header.nav {
-      padding: 18px 22px;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 24px 40px;
+      background: rgba(244, 245, 249, 0.7);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--line);
     }
 
-    .nav-right {
-      gap: 14px;
+    .logo-link {
+      display: inline-flex;
+      align-items: center;
+      text-decoration: none;
     }
 
-    .hero {
-      padding: 120px 22px 54px;
-      gap: 32px;
-    }
-
-    h1.title {
-      font-size: clamp(42px, 14vw, 66px);
-    }
-
-    .about-process {
-      padding: 16px;
-      border-radius: 24px;
-    }
-
-    .about-process-head {
+    .logo-img {
+      height: 22px;
+      width: auto;
       display: block;
     }
 
-    .about-process-head span {
-      max-width: none;
-      text-align: left;
+    .nav-right {
+      display: flex;
+      align-items: center;
+      gap: 24px;
     }
 
-    .about-process-grid,
-    .mission-grid,
-    .team-grid {
-      grid-template-columns: 1fr;
+    .nav-link {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--ink-2);
+      text-decoration: none;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      transition: color .15s ease;
+      position: relative;
     }
 
-    .about-process-card {
-      min-height: 178px;
+    .nav-link:hover {
+      color: var(--accent);
     }
 
+    .nav-link.active {
+      color: var(--accent);
+    }
+
+    .nav-link.active::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: -8px;
+      height: 2px;
+      background: var(--accent);
+    }
+
+    .nav-cta {
+      background: var(--ink);
+      color: white;
+      font-size: 13px;
+      font-weight: 500;
+      padding: 9px 16px;
+      border-radius: 8px;
+      border: 0;
+      cursor: pointer;
+      transition: background .15s ease, transform .15s ease;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+    }
+
+    .nav-cta:hover {
+      background: #1f2937;
+      transform: translateY(-1px);
+    }
+
+    /* ── 히어로 영역 ───────────────────────────── */
+    .hero {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 180px 40px 100px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 80px;
+      align-items: end;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.18em;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 28px;
+      padding: 6px 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.6);
+      backdrop-filter: blur(8px);
+    }
+
+    .eyebrow .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    h1.title {
+      font-size: clamp(40px, 5vw, 72px);
+      font-weight: 700;
+      line-height: 1.04;
+      letter-spacing: -0.035em;
+      color: var(--ink);
+      text-wrap: balance;
+    }
+
+    h1.title .accent {
+      color: var(--accent);
+    }
+
+    .hero-side {
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+      padding-bottom: 12px;
+    }
+
+    .hero-side p {
+      font-size: 16px;
+      line-height: 1.75;
+      color: var(--ink-2);
+      text-wrap: pretty;
+    }
+
+    .meta-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      border-top: 1px solid var(--line);
+      padding-top: 24px;
+      gap: 24px;
+    }
+
+    .meta-row .cell {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .meta-row .k {
+      font-family: var(--mono);
+      font-size: 10px;
+      letter-spacing: 0.14em;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    .meta-row .v {
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--ink);
+      letter-spacing: -0.02em;
+    }
+
+    .meta-row .v small {
+      font-weight: 400;
+      color: var(--muted);
+      font-size: 12px;
+      margin-left: 4px;
+    }
+
+    /* ── 섹션 헤더 ─────────────────────────────── */
     .section {
-      padding: 56px 22px;
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 80px 40px;
     }
 
     .section-head {
-      grid-template-columns: 1fr;
-      gap: 14px;
+      display: flex;
+      align-items: baseline;
+      gap: 24px;
+      margin-bottom: 56px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .section-head .num {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--accent);
+      letter-spacing: 0.18em;
+    }
+
+    .section-head h2 {
+      font-size: 36px;
+      font-weight: 700;
+      letter-spacing: -0.025em;
+      color: var(--ink);
     }
 
     .section-head .desc {
-      grid-column: auto;
+      margin-left: auto;
+      flex: 1 1 560px;
+      font-size: 14px;
+      color: var(--muted);
+      max-width: 620px;
+      text-align: right;
+    }
+
+    /* ── 서비스 가치 ───────────────────────────── */
+    .mission-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
     }
 
     .mcard {
-      min-height: 220px;
-      padding: 28px;
+      background: rgba(255, 255, 255, 0.6);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 32px;
+      transition: transform .25s ease, box-shadow .25s ease, border-color .25s ease;
     }
 
-    .mcard::after {
+    .mcard:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 16px 40px rgba(17, 24, 39, 0.06);
+      border-color: var(--line-2);
+    }
+
+    .mcard .badge {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--accent);
+      letter-spacing: 0.16em;
+      margin-bottom: 24px;
+      display: inline-block;
+    }
+
+    .mcard h3 {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 12px;
+      color: var(--ink);
+    }
+
+    .mcard p {
+      font-size: 14px;
+      line-height: 1.7;
+      color: var(--ink-2);
+      text-wrap: pretty;
+    }
+
+    /* ── 팀 소개 ───────────────────────────────── */
+    .team-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+
+    .member {
+      position: relative;
+      background: rgba(255, 255, 255, 0.7);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 24px 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      transition: transform .25s ease, box-shadow .25s ease, border-color .25s ease;
+      cursor: default;
+    }
+
+    .member:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 12px 30px rgba(17, 24, 39, 0.06);
+      border-color: var(--line-2);
+    }
+
+    .member .info {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .member .name {
+      font-size: 17px;
+      font-weight: 700;
+      color: var(--ink);
+      letter-spacing: -0.015em;
+    }
+
+    .member .name .num {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--muted-2);
+      margin-right: 8px;
+      letter-spacing: 0.1em;
+      font-weight: 500;
+    }
+
+    .member .tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+
+    .tag {
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.06em;
+      padding: 3px 7px;
+      border-radius: 4px;
+      background: var(--bg-2);
+      color: var(--ink-2);
+      border: 1px solid var(--line);
+    }
+
+    .tag.t-AI {
+      background: var(--accent-soft);
+      color: var(--accent);
+      border-color: rgba(79, 70, 229, 0.18);
+    }
+
+    .tag.t-PD,
+    .tag.t-PM {
+      background: rgba(17, 24, 39, 0.06);
+      color: var(--ink);
+      border-color: rgba(17, 24, 39, 0.12);
+      font-weight: 600;
+    }
+
+    /* ── 제품 원칙 ─────────────────────────────── */
+    .values {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .value {
+      padding: 56px 40px;
+      border-right: 1px solid var(--line);
+    }
+
+    .value:last-child {
+      border-right: 0;
+    }
+
+    .value .num {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--muted-2);
+      letter-spacing: 0.18em;
+      margin-bottom: 24px;
+      display: block;
+    }
+
+    .value h3 {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--ink);
+      margin-bottom: 12px;
+    }
+
+    .value h3 em {
+      font-style: normal;
+      font-family: var(--mono);
+      font-size: 14px;
+      color: var(--accent);
+      font-weight: 500;
+      margin-left: 8px;
+      letter-spacing: 0.04em;
+    }
+
+    .value p {
+      font-size: 14px;
+      line-height: 1.7;
+      color: var(--ink-2);
+      max-width: 320px;
+    }
+
+    /* ── CTA ──────────────────────────────────── */
+    .cta-block {
+      max-width: 1280px;
+      margin: 80px auto 0;
+      padding: 80px 40px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 40px;
+      border-top: 1px dashed var(--line-2);
+    }
+
+    .cta-block h2 {
+      font-size: 36px;
+      font-weight: 700;
+      letter-spacing: -0.025em;
+      color: var(--ink);
+      line-height: 1.2;
+      text-wrap: balance;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--serif);
+      font-weight: 500;
+      font-size: 15px;
+      padding: 14px 26px;
+      border-radius: 10px;
+      border: 0;
+      cursor: pointer;
+      text-decoration: none;
+      transition: transform .15s ease, box-shadow .2s ease, background .15s ease;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+      box-shadow: 0 4px 14px rgba(79, 70, 229, 0.28), 0 1px 0 rgba(255, 255, 255, 0.2) inset;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 22px rgba(79, 70, 229, 0.36);
+      background: #4338ca;
+    }
+
+    /* ── 푸터 ─────────────────────────────────── */
+    footer.foot {
+      margin-top: 40px;
+      padding: 32px 40px;
+      border-top: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.14em;
+    }
+
+    /* 반응형 레이아웃 */
+    @media (max-width: 900px) {
+      .hero {
+        grid-template-columns: 1fr;
+        padding-top: 140px;
+        gap: 40px;
+      }
+
+      .meta-row {
+        grid-template-columns: 1fr;
+        gap: 16px;
+      }
+
+      .mission-grid,
+      .team-grid,
+      .values {
+        grid-template-columns: 1fr;
+      }
+
+      .value {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .value:last-child {
+        border-bottom: 0;
+      }
+
+      .cta-block {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .section-head {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+      }
+
+      .section-head .desc {
+        flex: initial;
+        margin-left: 0;
+        max-width: none;
+        text-align: left;
+      }
+    }
+
+    /* About 화면 최신 스타일 보정 */
+    :root {
+      --bg: #f8fafc;
+      --bg-2: #ede9fe;
+      --paper: rgba(255, 255, 255, 0.78);
+      --accent: #5b46e8;
+      --accent-2: #7c3aed;
+      --accent-soft: rgba(91, 70, 232, 0.1);
+    }
+
+    body {
+      background:
+        radial-gradient(900px 520px at 84% 4%, rgba(124, 58, 237, 0.16), transparent 64%),
+        radial-gradient(720px 480px at 0% 34%, rgba(91, 70, 232, 0.12), transparent 65%),
+        linear-gradient(180deg, #f8fafc 0%, #f1efff 56%, #f8fafc 100%);
+      letter-spacing: 0;
+    }
+
+    body::after {
+      background:
+        linear-gradient(120deg, rgba(255, 255, 255, 0.72), transparent 42%),
+        radial-gradient(44% 42% at 82% 18%, rgba(124, 58, 237, 0.14), transparent 70%);
+    }
+
+    .hero,
+    .section,
+    .values,
+    .cta-block {
+      animation: sectionReveal .72s cubic-bezier(.2, .8, .2, 1) both;
+    }
+
+    .about-ambient,
+    .about-beam,
+    .about-noise {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+    }
+
+    .about-ambient {
+      overflow: hidden;
+      mix-blend-mode: multiply;
+    }
+
+    .about-ambient::before,
+    .about-ambient::after {
+      content: "";
+      position: absolute;
+      width: 54vw;
+      height: 54vw;
+      min-width: 520px;
+      min-height: 520px;
+      border-radius: 42% 58% 62% 38%;
+      filter: blur(52px);
+      opacity: .2;
+      animation: ambientDrift 14s ease-in-out infinite alternate;
+    }
+
+    .about-ambient::before {
+      right: -16vw;
+      top: -18vw;
+      background: conic-gradient(from 140deg, rgba(91, 70, 232, .72), rgba(124, 58, 237, .56), rgba(167, 139, 250, .34), rgba(91, 70, 232, .72));
+    }
+
+    .about-ambient::after {
+      left: -18vw;
+      top: 42vh;
+      background: conic-gradient(from 30deg, rgba(139, 92, 246, .42), rgba(99, 102, 241, .34), rgba(139, 92, 246, .2), rgba(139, 92, 246, .42));
+      animation-delay: -5s;
+    }
+
+    .about-beam {
+      background:
+        linear-gradient(112deg, transparent 0 38%, rgba(255, 255, 255, .58) 42%, transparent 47%),
+        linear-gradient(68deg, transparent 0 58%, rgba(91, 70, 232, .1) 62%, transparent 68%);
+      opacity: .6;
+      animation: aboutBeam 8s ease-in-out infinite;
+    }
+
+    .about-noise {
+      opacity: .34;
+      background-image:
+        linear-gradient(to right, rgba(15, 23, 42, .035) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(15, 23, 42, .035) 1px, transparent 1px);
+      background-size: 42px 42px;
+      mask-image: linear-gradient(180deg, black, transparent 86%);
+      animation: gridFloat 20s linear infinite;
+    }
+
+    .hero {
+      align-items: center;
+      min-height: 82vh;
+      padding-bottom: 64px;
+      position: relative;
+    }
+
+    .eyebrow {
+      border-color: rgba(91, 70, 232, 0.18);
+      background: rgba(255, 255, 255, 0.76);
+      box-shadow: 0 14px 40px rgba(15, 23, 42, 0.08);
+    }
+
+    .eyebrow .dot {
+      animation: pulse 2.2s ease-in-out infinite;
+    }
+
+    h1.title {
+      font-size: clamp(42px, 6.5vw, 84px);
+      line-height: 0.98;
+      letter-spacing: 0;
+      filter: drop-shadow(0 22px 48px rgba(15, 23, 42, .1));
+    }
+
+    h1.title .accent,
+    .section-head .num,
+    .mcard .badge,
+    .value h3 em {
+      background: linear-gradient(120deg, var(--accent), var(--accent-2));
+      background-size: 220% auto;
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      animation: textFlow 5s ease-in-out infinite;
+    }
+
+    .hero-copy {
+      position: relative;
+      z-index: 2;
+    }
+
+    .hero-side {
+      position: relative;
+      padding: 32px;
+      border: 1px solid rgba(91, 70, 232, 0.14);
+      border-radius: 24px;
+      background: rgba(255, 255, 255, 0.68);
+      box-shadow: 0 24px 80px rgba(15, 23, 42, 0.1);
+      backdrop-filter: blur(18px);
+      z-index: 2;
+    }
+
+    .hero-side::before {
+      content: "";
+      position: absolute;
+      inset: -1px;
+      border-radius: inherit;
+      background: linear-gradient(135deg, rgba(91, 70, 232, 0.18), rgba(124, 58, 237, 0.1), transparent 55%);
+      pointer-events: none;
+      mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+      mask-composite: exclude;
+      padding: 1px;
+    }
+
+    .hero-side p {
+      font-size: clamp(15px, 1.45vw, 18px);
+      color: #334155;
+    }
+
+    .about-visual {
+      position: absolute;
+      right: clamp(30px, 6vw, 90px);
+      bottom: 32px;
+      z-index: 1;
+      width: min(460px, 38vw);
+      aspect-ratio: 1.12;
+      border-radius: 34px;
+      border: 1px solid rgba(255, 255, 255, .72);
+      background:
+        linear-gradient(135deg, rgba(255, 255, 255, .82), rgba(255, 255, 255, .42)),
+        radial-gradient(circle at 70% 20%, rgba(124, 58, 237, .18), transparent 48%);
+      box-shadow: 0 34px 110px rgba(15, 23, 42, .16);
+      backdrop-filter: blur(20px);
+      overflow: hidden;
+      transform: rotate(-2deg);
+      animation: visualFloat 6s ease-in-out infinite;
+    }
+
+    .about-visual::before {
+      content: "";
+      position: absolute;
+      inset: 24px;
+      border-radius: 24px;
+      background:
+        linear-gradient(to right, rgba(91, 70, 232, .14) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(91, 70, 232, .14) 1px, transparent 1px);
+      background-size: 32px 32px;
+    }
+
+    .plan-line {
+      position: absolute;
+      border: 2px solid rgba(91, 70, 232, .5);
+      border-radius: 10px;
+      box-shadow: 0 0 34px rgba(91, 70, 232, .12);
+    }
+
+    .plan-line.one {
+      left: 70px;
+      top: 78px;
+      width: 190px;
+      height: 128px;
+    }
+
+    .plan-line.two {
+      right: 70px;
+      top: 118px;
+      width: 120px;
+      height: 158px;
+      border-color: rgba(124, 58, 237, .56);
+    }
+
+    .plan-line.three {
+      left: 98px;
+      bottom: 72px;
+      width: 238px;
+      height: 96px;
+      border-color: rgba(167, 139, 250, .52);
+    }
+
+    .visual-chip {
+      position: absolute;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 38px;
+      padding: 0 14px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, .86);
+      color: white;
+      font-size: 12px;
+      font-weight: 700;
+      box-shadow: 0 18px 46px rgba(15, 23, 42, .2);
+    }
+
+    .visual-chip::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #8b5cf6;
+      box-shadow: 0 0 18px rgba(139, 92, 246, .8);
+    }
+
+    .visual-chip.a {
       left: 28px;
       top: 28px;
     }
 
-    .values {
-      margin: 0 22px;
+    .visual-chip.b {
+      right: 30px;
+      bottom: 30px;
+      background: rgba(91, 70, 232, .9);
     }
 
-    .value {
-      padding: 32px 24px;
+    .workflow-panel {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 0 40px 32px;
+      position: relative;
+      z-index: 1;
     }
 
-    .cta-block {
-      margin: 42px 22px 0;
-      border-radius: 24px;
-    }
-  }
-
-  /* 타이포그래피와 여백 균형 */
-  .hero {
-    min-height: auto;
-    padding-top: clamp(108px, 11vh, 148px);
-    padding-bottom: clamp(56px, 7vh, 86px);
-    grid-template-columns: minmax(0, .95fr) minmax(500px, 1.05fr);
-    gap: clamp(36px, 5vw, 72px);
-  }
-
-  .eyebrow {
-    min-height: 30px;
-    padding: 7px 12px;
-    font-size: 12px;
-    letter-spacing: .12em;
-  }
-
-  h1.title {
-    max-width: 640px;
-    font-size: clamp(46px, 5.6vw, 74px);
-    line-height: 1.05;
-  }
-
-  .about-process {
-    padding: 20px;
-    border-radius: 28px;
-  }
-
-  .about-process-head {
-    align-items: center;
-    margin-bottom: 16px;
-  }
-
-  .about-process-head strong {
-    font-size: clamp(22px, 1.9vw, 28px);
-  }
-
-  .about-process-head span {
-    font-size: 13px;
-    line-height: 1.55;
-  }
-
-  .about-process-card {
-    min-height: 260px;
-    border-radius: 20px;
-  }
-
-  .about-process-label {
-    font-size: 18px;
-  }
-
-  .about-process-label em {
-    font-size: 11px;
-  }
-
-  .about-stage {
-    inset: 58px 14px 14px;
-  }
-
-  .section {
-    padding-top: clamp(56px, 6vw, 78px);
-    padding-bottom: clamp(56px, 6vw, 78px);
-  }
-
-  .section-head {
-    grid-template-columns: 150px minmax(360px, .95fr) minmax(360px, 1fr);
-    gap: 28px;
-    align-items: center;
-    margin-bottom: 32px;
-  }
-
-  .section-head .num {
-    padding-top: 0;
-    font-size: 13px;
-    letter-spacing: .13em;
-    line-height: 1.55;
-  }
-
-  .section-head h2 {
-    max-width: 680px;
-    font-size: clamp(32px, 3.4vw, 48px);
-    line-height: 1.14;
-  }
-
-  .section-head .desc {
-    font-size: 15px;
-    line-height: 1.65;
-  }
-
-  .mcard {
-    min-height: 220px;
-    padding: 30px;
-    border-radius: 22px;
-  }
-
-  .mcard::before {
-    right: 24px;
-    top: 22px;
-    font-size: 38px;
-  }
-
-  .mcard::after {
-    left: 30px;
-    top: 30px;
-    width: 34px;
-    height: 34px;
-    border-radius: 11px;
-  }
-
-  .mcard h3 {
-    margin-top: 58px;
-    font-size: 23px;
-  }
-
-  .mcard p,
-  .value p {
-    font-size: 15px;
-    line-height: 1.7;
-  }
-
-  .value {
-    padding: clamp(34px, 4vw, 50px);
-  }
-
-  .value .num {
-    font-size: 12px;
-    margin-bottom: 18px;
-  }
-
-  .value h3 {
-    font-size: clamp(24px, 2.35vw, 32px);
-  }
-
-  .value h3 em {
-    font-size: 12px;
-  }
-
-  .member {
-    min-height: 148px;
-    padding: 22px;
-    border-radius: 20px;
-  }
-
-  .member::before {
-    width: 40px;
-    height: 40px;
-    border-radius: 13px;
-  }
-
-  .member .name {
-    font-size: 18px;
-  }
-
-  .tag {
-    font-size: 10px;
-  }
-
-  .cta-block {
-    padding-top: clamp(42px, 5vw, 64px);
-    padding-bottom: clamp(42px, 5vw, 64px);
-    border-radius: 28px;
-  }
-
-  .cta-block h2 {
-    font-size: clamp(30px, 3.6vw, 48px);
-    line-height: 1.16;
-  }
-
-  @media (max-width: 1180px) {
-    .hero {
-      grid-template-columns: 1fr;
-      padding-top: 112px;
-    }
-
-    .section-head {
-      grid-template-columns: 128px minmax(0, 1fr);
-    }
-  }
-
-  @media (max-width: 760px) {
-    .hero {
-      padding: 104px 22px 44px;
-    }
-
-    h1.title {
-      font-size: clamp(38px, 11vw, 54px);
-    }
-
-    .section-head {
-      grid-template-columns: 1fr;
+    .workflow-track {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 12px;
+      border: 1px solid rgba(91, 70, 232, .12);
+      border-radius: 24px;
+      padding: 12px;
+      background: rgba(255, 255, 255, .62);
+      box-shadow: 0 22px 70px rgba(15, 23, 42, .08);
+      backdrop-filter: blur(16px);
     }
 
-    .section-head h2 {
-      font-size: clamp(28px, 8vw, 38px);
+    .workflow-step {
+      position: relative;
+      overflow: hidden;
+      min-height: 120px;
+      border-radius: 18px;
+      padding: 20px;
+      background:
+        linear-gradient(145deg, rgba(255, 255, 255, .82), rgba(239, 246, 255, .62));
+      border: 1px solid rgba(255, 255, 255, .7);
+    }
+
+    .workflow-step::after {
+      content: "";
+      position: absolute;
+      inset: auto -30% -42% 35%;
+      height: 90px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, rgba(91, 70, 232, .16), rgba(124, 58, 237, .22));
+      filter: blur(14px);
+      animation: stepGlow 4.6s ease-in-out infinite;
+    }
+
+    .workflow-step strong {
+      display: block;
+      font-size: 18px;
+      letter-spacing: 0;
+      color: #0f172a;
+    }
+
+    .workflow-step span {
+      display: block;
+      margin-top: 10px;
+      font-size: 13px;
+      line-height: 1.55;
+      color: #475569;
+    }
+
+    .about-process {
+      position: relative;
+      z-index: 3;
+      border: 1px solid rgba(255, 255, 255, .74);
+      border-radius: 30px;
+      padding: 18px;
+      background:
+        linear-gradient(145deg, rgba(255, 255, 255, .84), rgba(255, 255, 255, .5)),
+        radial-gradient(circle at 84% 10%, rgba(124, 58, 237, .18), transparent 42%);
+      box-shadow: 0 34px 110px rgba(15, 23, 42, .16);
+      backdrop-filter: blur(22px);
+      animation: visualFloat 6s ease-in-out infinite;
+    }
+
+    .about-process-head {
+      margin-bottom: 14px;
+    }
+
+    .about-process-head strong {
+      display: block;
+      color: #0f172a;
+      font-size: 24px;
+      letter-spacing: 0;
+    }
+
+    .about-process-head span {
+      display: block;
+      margin-top: 7px;
+      color: #64748b;
+      font-size: 14px;
+      line-height: 1.55;
     }
 
     .about-process-grid {
-      grid-template-columns: 1fr;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
     }
 
     .about-process-card {
-      min-height: 168px;
+      position: relative;
+      min-height: 178px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, .78);
+      border-radius: 24px;
+      padding: 16px;
+      background: rgba(255, 255, 255, .58);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .9), 0 16px 42px rgba(91, 70, 232, .1);
     }
-  }
 
-  /* 중간 크기 텍스트 가독성 보정 */
-  body{
-    font-size: 15px;
-  }
+    .about-process-label {
+      position: relative;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: #111827;
+      font-size: 24px;
+      font-weight: 800;
+    }
 
-  .nav-link,
-  .eyebrow,
-  .meta-row .k,
-  .section-head .num,
-  .mcard .badge,
-  .value .num,
-  .member .name .num,
-  .tag,
-  footer.foot{
-    font-size: 12.5px;
-  }
+    .about-process-label em {
+      font-style: normal;
+      font-family: var(--mono);
+      font-size: 13px;
+      letter-spacing: .14em;
+      color: #7c3aed;
+    }
 
-  .nav-cta{
-    font-size: 14px;
-  }
+    .about-stage {
+      position: absolute;
+      inset: 58px 16px 16px;
+      border-radius: 18px;
+      background: rgba(248, 250, 252, .72);
+    }
 
-  .section-head .desc,
-  .hero-side p,
-  .mcard p,
-  .value p{
-    font-size: 16px;
-  }
+    .about-stage-bubble {
+      background:
+        radial-gradient(circle at 30% 45%, rgba(91, 70, 232, .28) 0 19%, transparent 20%),
+        radial-gradient(circle at 55% 32%, rgba(124, 58, 237, .22) 0 16%, transparent 17%),
+        radial-gradient(circle at 68% 66%, rgba(167, 139, 250, .3) 0 21%, transparent 22%),
+        radial-gradient(circle at 40% 72%, rgba(91, 70, 232, .18) 0 13%, transparent 14%),
+        rgba(248, 250, 252, .74);
+    }
 
-  .about-process-head span{
-    font-size: 14px;
-  }
+    .about-stage-bubble::after {
+      content: "";
+      position: absolute;
+      left: 26%;
+      top: 40%;
+      width: 48%;
+      height: 32%;
+      border: 2px dashed rgba(91, 70, 232, .42);
+      border-radius: 999px;
+      animation: pulse 2.8s ease-in-out infinite;
+    }
 
-  .about-process-label em{
-    font-size: 12.5px;
-  }
-</style>
+    .about-stage-plan {
+      background:
+        linear-gradient(to right, rgba(91, 70, 232, .12) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(91, 70, 232, .12) 1px, transparent 1px),
+        rgba(248, 250, 252, .82);
+      background-size: 22px 22px;
+    }
+
+    .about-stage-plan {
+      background:
+        linear-gradient(135deg, rgba(91, 70, 232, .2), rgba(255, 255, 255, .12)),
+        url('/mock/about-2d-plan.svg');
+      background-size: cover;
+      background-position: center;
+    }
+
+    .about-stage-plan::before,
+    .about-stage-plan::after {
+      content: "";
+      position: absolute;
+      border: 2px solid rgba(91, 70, 232, .46);
+      border-radius: 12px;
+    }
+
+    .about-stage-plan::before,
+    .about-stage-plan::after {
+      display: none;
+    }
+
+    .about-stage-model {
+      background:
+        linear-gradient(135deg, rgba(91, 70, 232, .18), rgba(255, 255, 255, .08)),
+        url('/mock/about-3d-model.svg');
+      background-size: cover;
+      background-position: center;
+    }
+
+    .about-stage-plan::before {
+      left: 16%;
+      top: 22%;
+      width: 42%;
+      height: 34%;
+    }
+
+    .about-stage-plan::after {
+      right: 14%;
+      bottom: 16%;
+      width: 46%;
+      height: 42%;
+      border-color: rgba(124, 58, 237, .5);
+    }
+
+    .about-stage-model::before,
+    .about-stage-model::after {
+      content: "";
+      position: absolute;
+      bottom: 24%;
+      width: 32%;
+      border-radius: 8px 8px 3px 3px;
+      background: linear-gradient(160deg, rgba(91, 70, 232, .86), rgba(167, 139, 250, .64));
+      box-shadow: 0 22px 45px rgba(91, 70, 232, .22);
+      transform: rotateX(58deg) rotateZ(-18deg);
+    }
+
+    .about-stage-model::before,
+    .about-stage-model::after {
+      display: none;
+    }
+
+    .about-stage-model::before {
+      left: 23%;
+      height: 50%;
+    }
+
+    .about-stage-model::after {
+      right: 23%;
+      height: 70%;
+    }
+
+    .about-stage-render {
+      background-image:
+        linear-gradient(145deg, rgba(91, 70, 232, .42), rgba(196, 181, 253, .28)),
+        url('/mock/rendering_mock.png');
+      background-size: cover;
+      background-position: center;
+      background-blend-mode: color, normal;
+      filter: saturate(.8) contrast(.98);
+    }
+
+    .meta-row {
+      border-top-color: rgba(91, 70, 232, 0.16);
+    }
+
+    .section {
+      padding-block: clamp(56px, 8vw, 96px);
+    }
+
+    .section-head {
+      align-items: flex-end;
+    }
+
+    .section-head h2 {
+      font-size: clamp(28px, 4vw, 46px);
+      letter-spacing: 0;
+    }
+
+    .mcard,
+    .member {
+      border-color: rgba(91, 70, 232, 0.12);
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.74);
+      box-shadow: 0 14px 42px rgba(15, 23, 42, 0.06);
+      backdrop-filter: blur(12px);
+    }
+
+    .mcard,
+    .member,
+    .value,
+    .workflow-step {
+      opacity: 0;
+      transform: translateY(22px);
+      transition: opacity .65s ease, transform .65s ease, box-shadow .25s ease, border-color .25s ease;
+    }
+
+    .is-visible .mcard,
+    .is-visible.member,
+    .is-visible.value,
+    .workflow-step.is-visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .is-visible .mcard:nth-child(2),
+    .workflow-step.is-visible:nth-child(2) {
+      transition-delay: .08s;
+    }
+
+    .is-visible .mcard:nth-child(3),
+    .workflow-step.is-visible:nth-child(3) {
+      transition-delay: .16s;
+    }
+
+    .workflow-step.is-visible:nth-child(4) {
+      transition-delay: .24s;
+    }
+
+    .mcard:hover,
+    .member:hover {
+      transform: translateY(-8px);
+      border-color: rgba(91, 70, 232, 0.28);
+      box-shadow: 0 24px 70px rgba(91, 70, 232, 0.16);
+    }
+
+    .values {
+      max-width: 1280px;
+      margin: 0 auto;
+      border: 1px solid rgba(91, 70, 232, 0.14);
+      border-radius: 24px;
+      overflow: hidden;
+      background: rgba(255, 255, 255, 0.56);
+      box-shadow: 0 24px 80px rgba(15, 23, 42, 0.08);
+    }
+
+    .value {
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.6), rgba(255, 255, 255, 0.32));
+    }
+
+    .cta-block {
+      border-top: 0;
+      border-radius: 28px;
+      background:
+        linear-gradient(135deg, rgba(91, 70, 232, 0.92), rgba(124, 58, 237, 0.86)),
+        #5b46e8;
+      color: white;
+      box-shadow: 0 24px 80px rgba(91, 70, 232, 0.24);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .cta-block::before {
+      content: "";
+      position: absolute;
+      inset: -80% auto -80% -20%;
+      width: 34%;
+      transform: rotate(18deg);
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .36), transparent);
+      animation: ctaSweep 4.2s ease-in-out infinite;
+    }
+
+    .cta-block h2 {
+      color: white;
+    }
+
+    .cta-block .btn-primary {
+      background: white;
+      color: #4f46e5;
+      box-shadow: 0 16px 40px rgba(15, 23, 42, 0.2);
+    }
+
+    .cta-block .btn-primary:hover {
+      background: #f8fafc;
+    }
+
+    .btn {
+      min-height: 50px;
+      border-radius: 999px;
+      white-space: nowrap;
+    }
+
+    @keyframes sectionReveal {
+      from {
+        opacity: 0;
+        transform: translateY(22px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes pulse {
+
+      0%,
+      100% {
+        opacity: 1;
+        box-shadow: 0 0 0 3px var(--accent-soft);
+      }
+
+      50% {
+        opacity: .58;
+        box-shadow: 0 0 0 8px rgba(91, 70, 232, 0);
+      }
+    }
+
+    @keyframes ambientDrift {
+      from {
+        transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+      }
+
+      to {
+        transform: translate3d(-5vw, 4vh, 0) rotate(18deg) scale(1.08);
+      }
+    }
+
+    @keyframes aboutBeam {
+
+      0%,
+      100% {
+        transform: translateX(-8%);
+        opacity: .2;
+      }
+
+      48%,
+      62% {
+        transform: translateX(8%);
+        opacity: .64;
+      }
+    }
+
+    @keyframes gridFloat {
+      from {
+        background-position: 0 0;
+      }
+
+      to {
+        background-position: 42px 42px;
+      }
+    }
+
+    @keyframes textFlow {
+
+      0%,
+      100% {
+        background-position: 0% center;
+      }
+
+      50% {
+        background-position: 100% center;
+      }
+    }
+
+    @keyframes visualFloat {
+
+      0%,
+      100% {
+        transform: translateY(0) rotate(-2deg);
+      }
+
+      50% {
+        transform: translateY(-16px) rotate(1deg);
+      }
+    }
+
+    @keyframes stepGlow {
+
+      0%,
+      100% {
+        transform: translateX(-10%);
+        opacity: .56;
+      }
+
+      50% {
+        transform: translateX(18%);
+        opacity: .95;
+      }
+    }
+
+    @keyframes ctaSweep {
+
+      0%,
+      48% {
+        left: -30%;
+      }
+
+      100% {
+        left: 120%;
+      }
+    }
+
+    @media (max-width: 1080px) {
+      .about-visual {
+        width: min(360px, 42vw);
+        opacity: .78;
+      }
+
+      .workflow-track {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 720px) {
+
+      .hero,
+      .section,
+      .cta-block {
+        padding-left: 22px;
+        padding-right: 22px;
+      }
+
+      .hero {
+        min-height: auto;
+        padding-top: 126px;
+      }
+
+      .about-visual {
+        display: none;
+      }
+
+      .about-process {
+        padding: 14px;
+        border-radius: 22px;
+      }
+
+      .about-process-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .about-process-card {
+        min-height: 150px;
+      }
+
+      .workflow-panel {
+        padding: 0 22px 24px;
+      }
+
+      .workflow-track {
+        grid-template-columns: 1fr;
+        border-radius: 18px;
+      }
+
+      .workflow-step {
+        min-height: auto;
+        padding: 18px;
+      }
+
+      .hero-side {
+        padding: 22px;
+        border-radius: 18px;
+      }
+
+      .section-head {
+        margin-bottom: 32px;
+      }
+
+      .mcard,
+      .member {
+        padding: 24px;
+        border-radius: 16px;
+      }
+
+      .values {
+        margin: 0 22px;
+        border-radius: 18px;
+      }
+
+      .value {
+        padding: 32px 24px;
+      }
+
+      .cta-block {
+        margin: 56px 22px 0;
+        padding: 34px 24px;
+        border-radius: 20px;
+      }
+
+      footer.foot {
+        align-items: center;
+        padding: 28px 22px;
+      }
+    }
+
+    /* About 화면 레이아웃 정돈 */
+    body {
+      background:
+        radial-gradient(980px 640px at 86% 8%, rgba(124, 58, 237, 0.18), transparent 62%),
+        radial-gradient(760px 500px at 8% 38%, rgba(91, 70, 232, 0.1), transparent 68%),
+        linear-gradient(180deg, #f8fafc 0%, #f4f2ff 52%, #f8fafc 100%);
+    }
+
+    body::before {
+      background-image:
+        linear-gradient(to right, rgba(91, 70, 232, 0.055) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(91, 70, 232, 0.045) 1px, transparent 1px);
+      background-size: 56px 56px;
+      mask-image: linear-gradient(180deg, black 0%, rgba(0, 0, 0, 0.84) 64%, transparent 100%);
+    }
+
+    .about-noise {
+      opacity: .16;
+    }
+
+    .hero {
+      max-width: 1360px;
+      min-height: 86vh;
+      padding: clamp(132px, 14vh, 190px) clamp(28px, 5vw, 72px) clamp(72px, 9vh, 120px);
+      grid-template-columns: minmax(0, .86fr) minmax(520px, 1.14fr);
+      gap: clamp(42px, 6vw, 92px);
+      align-items: center;
+    }
+
+    .hero-copy {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 28px;
+    }
+
+    .eyebrow {
+      margin-bottom: 0;
+      border-color: rgba(91, 70, 232, .18);
+      background: rgba(255, 255, 255, .72);
+      box-shadow: 0 14px 40px rgba(15, 23, 42, .07);
+    }
+
+    h1.title {
+      max-width: 720px;
+      font-size: clamp(54px, 7.2vw, 98px);
+      line-height: .98;
+      letter-spacing: 0;
+    }
+
+    .about-process {
+      border-radius: 34px;
+      padding: 24px;
+      background:
+        linear-gradient(145deg, rgba(255, 255, 255, .9), rgba(255, 255, 255, .58)),
+        radial-gradient(circle at 78% 8%, rgba(124, 58, 237, .18), transparent 44%);
+      border-color: rgba(255, 255, 255, .86);
+      box-shadow:
+        0 34px 110px rgba(91, 70, 232, .18),
+        inset 0 1px 0 rgba(255, 255, 255, .92);
+    }
+
+    .about-process-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 24px;
+      margin-bottom: 18px;
+    }
+
+    .about-process-head strong {
+      font-size: clamp(24px, 2.3vw, 34px);
+    }
+
+    .about-process-head span {
+      max-width: 320px;
+      text-align: right;
+    }
+
+    .about-process-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .about-process-card {
+      min-height: 330px;
+      border-radius: 24px;
+      padding: 18px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, .78), rgba(248, 250, 252, .56));
+      transition: transform .25s ease, box-shadow .25s ease, border-color .25s ease;
+    }
+
+    .about-process-card:hover {
+      transform: translateY(-6px);
+      border-color: rgba(91, 70, 232, .2);
+      box-shadow: 0 24px 70px rgba(91, 70, 232, .16);
+    }
+
+    .about-process-label {
+      font-size: 22px;
+    }
+
+    .about-stage {
+      inset: 70px 18px 18px;
+      border-radius: 20px;
+      box-shadow: inset 0 0 0 1px rgba(91, 70, 232, .08);
+    }
+
+    .section {
+      max-width: 1360px;
+      padding: clamp(64px, 8vw, 104px) clamp(28px, 5vw, 72px);
+    }
+
+    .section-head {
+      display: grid;
+      grid-template-columns: 150px minmax(280px, 1fr) minmax(300px, 600px);
+      gap: 32px;
+      align-items: end;
+      margin-bottom: 38px;
+      padding-bottom: 28px;
+      border-bottom-color: rgba(91, 70, 232, .14);
+    }
+
+    .section-head .num {
+      align-self: start;
+      padding-top: 9px;
+      line-height: 1.45;
+    }
+
+    .section-head h2 {
+      max-width: 540px;
+      font-size: clamp(34px, 4.6vw, 64px);
+      line-height: 1.06;
+      letter-spacing: 0;
+    }
+
+    .section-head .desc {
+      align-self: center;
+      margin-left: 0;
+      max-width: none;
+      text-align: left;
+      font-size: 16px;
+      line-height: 1.72;
+      color: #64748b;
+    }
+
+    .mission-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .mcard {
+      position: relative;
+      min-height: 250px;
+      padding: 34px;
+      border-radius: 28px;
+      overflow: hidden;
+      background:
+        linear-gradient(145deg, rgba(255, 255, 255, .86), rgba(255, 255, 255, .58));
+    }
+
+    .mcard::before {
+      content: "0" counter(mission-card);
+      position: absolute;
+      right: 28px;
+      top: 26px;
+      font-family: var(--mono);
+      font-size: 48px;
+      color: rgba(91, 70, 232, .1);
+      letter-spacing: 0;
+    }
+
+    .mission-grid {
+      counter-reset: mission-card;
+    }
+
+    .mcard {
+      counter-increment: mission-card;
+    }
+
+    .mcard::after {
+      content: "";
+      position: absolute;
+      left: 34px;
+      top: 34px;
+      width: 42px;
+      height: 42px;
+      border-radius: 14px;
+      background:
+        radial-gradient(circle at 35% 30%, rgba(255, 255, 255, .82), transparent 34%),
+        linear-gradient(135deg, rgba(91, 70, 232, .92), rgba(124, 58, 237, .72));
+      box-shadow: 0 16px 34px rgba(91, 70, 232, .24);
+    }
+
+    .mcard h3 {
+      margin-top: 74px;
+      font-size: 28px;
+      line-height: 1.18;
+      letter-spacing: 0;
+    }
+
+    .mcard p {
+      max-width: 390px;
+      font-size: 16px;
+      line-height: 1.78;
+      color: #475569;
+    }
+
+    .values {
+      max-width: 1360px;
+      border-radius: 30px;
+      background:
+        linear-gradient(145deg, rgba(255, 255, 255, .8), rgba(255, 255, 255, .52));
+    }
+
+    .value {
+      padding: clamp(38px, 5vw, 64px);
+    }
+
+    .value h3 {
+      font-size: clamp(26px, 2.7vw, 38px);
+      letter-spacing: 0;
+    }
+
+    .value p {
+      font-size: 16px;
+      line-height: 1.75;
+      color: #475569;
+    }
+
+    .team-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .member {
+      min-height: 168px;
+      justify-content: space-between;
+      border-radius: 24px;
+      padding: 26px;
+    }
+
+    .member::before {
+      content: "";
+      width: 48px;
+      height: 48px;
+      border-radius: 16px;
+      background:
+        radial-gradient(circle at 36% 30%, rgba(255, 255, 255, .86), transparent 34%),
+        linear-gradient(135deg, rgba(15, 23, 42, .9), rgba(91, 70, 232, .76));
+      box-shadow: 0 18px 38px rgba(15, 23, 42, .16);
+    }
+
+    .member .name {
+      font-size: 20px;
+      letter-spacing: 0;
+    }
+
+    .member .name .num {
+      display: block;
+      margin: 0 0 8px;
+      color: #8b5cf6;
+    }
+
+    .tag {
+      border-radius: 999px;
+      padding: 5px 9px;
+      background: rgba(248, 250, 252, .86);
+    }
+
+    .cta-block {
+      max-width: 1360px;
+      margin: 40px auto 0;
+      padding: clamp(48px, 7vw, 86px) clamp(28px, 5vw, 72px);
+      border-radius: 36px;
+      border: 1px solid rgba(124, 58, 237, .16);
+      background:
+        linear-gradient(135deg, rgba(255, 255, 255, .86), rgba(245, 243, 255, .72)),
+        radial-gradient(circle at 86% 20%, rgba(124, 58, 237, .18), transparent 44%);
+      color: #111827;
+      box-shadow:
+        0 24px 76px rgba(91, 70, 232, .14),
+        inset 0 1px 0 rgba(255, 255, 255, .88);
+    }
+
+    .cta-block h2 {
+      font-size: clamp(34px, 4.7vw, 64px);
+      line-height: 1.08;
+      letter-spacing: 0;
+      color: #111827;
+    }
+
+    .cta-block::before {
+      opacity: .28;
+      background: linear-gradient(90deg, transparent, rgba(124, 58, 237, .16), transparent);
+    }
+
+    .cta-block .btn-primary {
+      background: linear-gradient(135deg, #5b46e8, #7c3aed);
+      color: white;
+      box-shadow: 0 16px 36px rgba(91, 70, 232, .24);
+    }
+
+    .cta-block .btn-primary:hover {
+      background: linear-gradient(135deg, #4f46e5, #6d28d9);
+    }
+
+    footer.foot {
+      max-width: 1360px;
+      margin: 56px auto 0;
+      padding: 28px clamp(28px, 5vw, 72px);
+      border-top-color: rgba(91, 70, 232, .12);
+    }
+
+    @media (max-width: 1180px) {
+      .hero {
+        grid-template-columns: 1fr;
+        min-height: auto;
+      }
+
+      .about-process-grid,
+      .team-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .about-process-card {
+        min-height: 240px;
+      }
+
+      .section-head {
+        grid-template-columns: 120px 1fr;
+      }
+
+      .section-head .desc {
+        grid-column: 2;
+      }
+    }
+
+    @media (max-width: 760px) {
+      header.nav {
+        padding: 18px 22px;
+      }
+
+      .nav-right {
+        gap: 14px;
+      }
+
+      .hero {
+        padding: 120px 22px 54px;
+        gap: 32px;
+      }
+
+      h1.title {
+        font-size: clamp(42px, 14vw, 66px);
+      }
+
+      .about-process {
+        padding: 16px;
+        border-radius: 24px;
+      }
+
+      .about-process-head {
+        display: block;
+      }
+
+      .about-process-head span {
+        max-width: none;
+        text-align: left;
+      }
+
+      .about-process-grid,
+      .mission-grid,
+      .team-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .about-process-card {
+        min-height: 178px;
+      }
+
+      .section {
+        padding: 56px 22px;
+      }
+
+      .section-head {
+        grid-template-columns: 1fr;
+        gap: 14px;
+      }
+
+      .section-head .desc {
+        grid-column: auto;
+      }
+
+      .mcard {
+        min-height: 220px;
+        padding: 28px;
+      }
+
+      .mcard::after {
+        left: 28px;
+        top: 28px;
+      }
+
+      .values {
+        margin: 0 22px;
+      }
+
+      .value {
+        padding: 32px 24px;
+      }
+
+      .cta-block {
+        margin: 42px 22px 0;
+        border-radius: 24px;
+      }
+    }
+
+    /* 타이포그래피와 여백 균형 */
+    .hero {
+      min-height: auto;
+      padding-top: clamp(108px, 11vh, 148px);
+      padding-bottom: clamp(56px, 7vh, 86px);
+      grid-template-columns: minmax(0, .95fr) minmax(500px, 1.05fr);
+      gap: clamp(36px, 5vw, 72px);
+    }
+
+    .eyebrow {
+      min-height: 30px;
+      padding: 7px 12px;
+      font-size: 12px;
+      letter-spacing: .12em;
+    }
+
+    h1.title {
+      max-width: 640px;
+      font-size: clamp(46px, 5.6vw, 74px);
+      line-height: 1.05;
+    }
+
+    .about-process {
+      padding: 20px;
+      border-radius: 28px;
+    }
+
+    .about-process-head {
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .about-process-head strong {
+      font-size: clamp(22px, 1.9vw, 28px);
+    }
+
+    .about-process-head span {
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .about-process-card {
+      min-height: 260px;
+      border-radius: 20px;
+    }
+
+    .about-process-label {
+      font-size: 18px;
+    }
+
+    .about-process-label em {
+      font-size: 11px;
+    }
+
+    .about-stage {
+      inset: 58px 14px 14px;
+    }
+
+    .section {
+      padding-top: clamp(56px, 6vw, 78px);
+      padding-bottom: clamp(56px, 6vw, 78px);
+    }
+
+    .section-head {
+      grid-template-columns: 150px minmax(360px, .95fr) minmax(360px, 1fr);
+      gap: 28px;
+      align-items: center;
+      margin-bottom: 32px;
+    }
+
+    .section-head .num {
+      padding-top: 0;
+      font-size: 13px;
+      letter-spacing: .13em;
+      line-height: 1.55;
+    }
+
+    .section-head h2 {
+      max-width: 680px;
+      font-size: clamp(32px, 3.4vw, 48px);
+      line-height: 1.14;
+    }
+
+    .section-head .desc {
+      font-size: 15px;
+      line-height: 1.65;
+    }
+
+    .mcard {
+      min-height: 220px;
+      padding: 30px;
+      border-radius: 22px;
+    }
+
+    .mcard::before {
+      right: 24px;
+      top: 22px;
+      font-size: 38px;
+    }
+
+    .mcard::after {
+      left: 30px;
+      top: 30px;
+      width: 34px;
+      height: 34px;
+      border-radius: 11px;
+    }
+
+    .mcard h3 {
+      margin-top: 58px;
+      font-size: 23px;
+    }
+
+    .mcard p,
+    .value p {
+      font-size: 15px;
+      line-height: 1.7;
+    }
+
+    .value {
+      padding: clamp(34px, 4vw, 50px);
+    }
+
+    .value .num {
+      font-size: 12px;
+      margin-bottom: 18px;
+    }
+
+    .value h3 {
+      font-size: clamp(24px, 2.35vw, 32px);
+    }
+
+    .value h3 em {
+      font-size: 12px;
+    }
+
+    .member {
+      min-height: 148px;
+      padding: 22px;
+      border-radius: 20px;
+    }
+
+    .member::before {
+      width: 40px;
+      height: 40px;
+      border-radius: 13px;
+    }
+
+    .member .name {
+      font-size: 18px;
+    }
+
+    .tag {
+      font-size: 10px;
+    }
+
+    .cta-block {
+      padding-top: clamp(42px, 5vw, 64px);
+      padding-bottom: clamp(42px, 5vw, 64px);
+      border-radius: 28px;
+    }
+
+    .cta-block h2 {
+      font-size: clamp(30px, 3.6vw, 48px);
+      line-height: 1.16;
+    }
+
+    @media (max-width: 1180px) {
+      .hero {
+        grid-template-columns: 1fr;
+        padding-top: 112px;
+      }
+
+      .section-head {
+        grid-template-columns: 128px minmax(0, 1fr);
+      }
+    }
+
+    @media (max-width: 760px) {
+      .hero {
+        padding: 104px 22px 44px;
+      }
+
+      h1.title {
+        font-size: clamp(38px, 11vw, 54px);
+      }
+
+      .section-head {
+        grid-template-columns: 1fr;
+        gap: 12px;
+      }
+
+      .section-head h2 {
+        font-size: clamp(28px, 8vw, 38px);
+      }
+
+      .about-process-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .about-process-card {
+        min-height: 168px;
+      }
+    }
+
+    /* 중간 크기 텍스트 가독성 보정 */
+    body {
+      font-size: 15px;
+    }
+
+    .nav-link,
+    .eyebrow,
+    .meta-row .k,
+    .section-head .num,
+    .mcard .badge,
+    .value .num,
+    .member .name .num,
+    .tag,
+    footer.foot {
+      font-size: 12.5px;
+    }
+
+    .nav-cta {
+      font-size: 14px;
+    }
+
+    .section-head .desc,
+    .hero-side p,
+    .mcard p,
+    .value p {
+      font-size: 16px;
+    }
+
+    .about-process-head span {
+      font-size: 14px;
+    }
+
+    .about-process-label em {
+      font-size: 12.5px;
+    }
+  </style>
 </head>
+
 <body>
-<div class="about-ambient"></div>
-<div class="about-beam"></div>
-<div class="about-noise"></div>
+  <div class="about-ambient"></div>
+  <div class="about-beam"></div>
+  <div class="about-noise"></div>
 
-<header class="nav">
-  <a href="Intro.html" class="logo-link">
-    <img src="logo.svg" alt="바탕 : BATANG" class="logo-img" />
-  </a>
-  <nav class="nav-right">
-    <a class="nav-link active" href="About.html">ABOUT</a>
-    <a class="nav-cta" href="Login.html">로그인 →</a>
-  </nav>
-</header>
-
-<main>
-
-  <!-- 히어로 영역 -->
-  <section class="hero">
-    <div class="hero-copy">
-      <h1 class="title">
-        더 빠른 <span class="accent">초기 설계</span>,<br>
-        더 선명한 협업
-      </h1>
-    </div>
-    <div class="about-process" aria-label="BATANG 설계 생성 과정">
-      <div class="about-process-head">
-        <strong>설계 생성 과정</strong>
-        <span>초기 관계도부터 실사 이미지까지 한 흐름으로 확인합니다.</span>
-      </div>
-      <div class="about-process-grid">
-        <article class="about-process-card">
-          <div class="about-process-label"><span>버블</span><em>01</em></div>
-          <div class="about-stage about-stage-bubble" aria-hidden="true"></div>
-        </article>
-        <article class="about-process-card">
-          <div class="about-process-label"><span>2D</span><em>02</em></div>
-          <div class="about-stage about-stage-plan" aria-hidden="true"></div>
-        </article>
-        <article class="about-process-card">
-          <div class="about-process-label"><span>3D</span><em>03</em></div>
-          <div class="about-stage about-stage-model" aria-hidden="true"></div>
-        </article>
-        <article class="about-process-card">
-          <div class="about-process-label"><span>실사</span><em>04</em></div>
-          <div class="about-stage about-stage-render" aria-hidden="true"></div>
-        </article>
-      </div>
-    </div>
-  </section>
-
-  <!-- 서비스 가치 -->
-  <section class="section">
-    <div class="section-head">
-      <span class="num">01 / DESIGN SPEED</span>
-      <h2>초기 설계의 속도를 바꿉니다.</h2>
-      <p class="desc">아이디어, 검토, 공유가 끊기지 않도록 설계 정보를 한 화면에 모읍니다.</p>
-    </div>
-    <div class="mission-grid">
-      <div class="mcard">
-        <h3>다양한 툴</h3>
-        <p>단축키와 도구 전환으로 버블, 2D, 3D 작업을 빠르게 오가며 설계를 이어갑니다.</p>
-      </div>
-      <div class="mcard">
-        <h3>빠른 소통</h3>
-        <p>핀에 댓글을 달아 도면과 모델 위에서 바로 피드백을 주고받습니다.</p>
-      </div>
-      <div class="mcard">
-        <h3>AI 설계 요청</h3>
-        <p>채팅창에 원하는 변경을 적으면 벽 생성 같은 설계 작업을 빠르게 반영합니다.</p>
-      </div>
-    </div>
-  </section>
-
-  <!-- 제품 원칙 -->
-  <section class="section" style="padding-bottom: 0;">
-    <div class="section-head">
-      <span class="num">02 / PRINCIPLES</span>
-      <h2>우리가 지키는 기준.</h2>
-    </div>
-  </section>
-  <div class="values">
-    <div class="value">
-      <span class="num">— 01</span>
-      <h3>정밀함 <em>Precision</em></h3>
-      <p>도면의 수치와 화면의 1px까지 작업 결과의 신뢰도를 좌우한다고 봅니다.</p>
-    </div>
-    <div class="value">
-      <span class="num">— 02</span>
-      <h3>명료함 <em>Clarity</em></h3>
-      <p>복잡한 설계 정보를 빠르게 읽고 판단할 수 있는 인터페이스를 만듭니다.</p>
-    </div>
-    <div class="value">
-      <span class="num">— 03</span>
-      <h3>구조 <em>Structure</em></h3>
-      <p>데이터와 협업 구조가 안정적이어야 AI 기능도 실제 업무에 들어갈 수 있습니다.</p>
-    </div>
-  </div>
-
-  <!-- 팀 소개 -->
-  <section class="section">
-    <div class="section-head">
-      <span class="num">03 / TEAM</span>
-      <h2>제품을 만드는 팀.</h2>
-      <p class="desc">프론트엔드, 백엔드, AI, 인프라가 같은 설계 흐름을 기준으로 움직입니다.</p>
-    </div>
-    <div class="team-grid" id="team-grid"></div>
-  </section>
-
-  <!-- CTA -->
-  <section class="cta-block">
-    <h2>아이디어를 바로<br>공간으로 전환해보세요.</h2>
-    <a class="btn btn-primary" href="Intro.html">
-      시작하기 <span>→</span>
+  <header class="nav">
+    <a href="Intro.html" class="logo-link">
+      <img src="logo.svg" alt="바탕 : BATANG" class="logo-img" />
     </a>
-  </section>
+    <nav class="nav-right">
+      <a class="nav-link active" href="About.html">ABOUT</a>
+      <a class="nav-cta" href="Login.html">로그인 →</a>
+    </nav>
+  </header>
 
-</main>
+  <main>
 
-<footer class="foot">
-  <span>© 2026 BATANG</span>
-</footer>
+    <!-- 히어로 영역 -->
+    <section class="hero">
+      <div class="hero-copy">
+        <h1 class="title">
+          더 빠른 <span class="accent">초기 설계</span>,<br>
+          더 선명한 협업
+        </h1>
+      </div>
+      <div class="about-process" aria-label="BATANG 설계 생성 과정">
+        <div class="about-process-head">
+          <strong>설계 생성 과정</strong>
+          <span>초기 관계도부터 실사 이미지까지 한 흐름으로 확인합니다.</span>
+        </div>
+        <div class="about-process-grid">
+          <article class="about-process-card">
+            <div class="about-process-label"><span>버블</span><em>01</em></div>
+            <div class="about-stage about-stage-bubble" aria-hidden="true"></div>
+          </article>
+          <article class="about-process-card">
+            <div class="about-process-label"><span>2D</span><em>02</em></div>
+            <div class="about-stage about-stage-plan" aria-hidden="true"></div>
+          </article>
+          <article class="about-process-card">
+            <div class="about-process-label"><span>3D</span><em>03</em></div>
+            <div class="about-stage about-stage-model" aria-hidden="true"></div>
+          </article>
+          <article class="about-process-card">
+            <div class="about-process-label"><span>실사</span><em>04</em></div>
+            <div class="about-stage about-stage-render" aria-hidden="true"></div>
+          </article>
+        </div>
+      </div>
+    </section>
 
-<script>
-  const TEAM = [
-    { name: '김나연', tags: ['BE', 'AI'], num: '01' },
-    { name: '김태영', tags: ['FE'], num: '02' },
-    { name: '박동한', tags: ['AI', 'BE', 'Infra'], num: '03' },
-    { name: '박연준', tags: ['BE', 'Infra'], num: '04' },
-    { name: '변희연', tags: ['PM', 'AI'], num: '05' },
-    { name: '양대천', tags: ['AI'], num: '06' },
-    { name: '오지수', tags: ['메인PD', 'FE', 'BE'], num: '07' },
-  ];
+    <!-- 서비스 가치 -->
+    <section class="section">
+      <div class="section-head">
+        <span class="num">01 / DESIGN SPEED</span>
+        <h2>초기 설계의 속도를 바꿉니다.</h2>
+        <p class="desc">아이디어, 검토, 공유가 끊기지 않도록 설계 정보를 한 화면에 모읍니다.</p>
+      </div>
+      <div class="mission-grid">
+        <div class="mcard">
+          <h3>다양한 툴</h3>
+          <p>단축키와 도구 전환으로 버블, 2D, 3D 작업을 빠르게 오가며 설계를 이어갑니다.</p>
+        </div>
+        <div class="mcard">
+          <h3>빠른 소통</h3>
+          <p>핀에 댓글을 달아 도면과 모델 위에서 바로 피드백을 주고받습니다.</p>
+        </div>
+        <div class="mcard">
+          <h3>AI 설계 요청</h3>
+          <p>채팅창에 원하는 변경을 적으면 벽 생성 같은 설계 작업을 빠르게 반영합니다.</p>
+        </div>
+      </div>
+    </section>
 
-  const tagClass = (t) => {
-    if (t === 'AI') return 't-AI';
-    if (t === '메인PD' || t === 'PM') return 't-PD';
-    return '';
-  };
+    <!-- 제품 원칙 -->
+    <section class="section" style="padding-bottom: 0;">
+      <div class="section-head">
+        <span class="num">02 / PRINCIPLES</span>
+        <h2>우리가 지키는 기준.</h2>
+      </div>
+    </section>
+    <div class="values">
+      <div class="value">
+        <span class="num">— 01</span>
+        <h3>정밀함 <em>Precision</em></h3>
+        <p>도면의 수치와 화면의 1px까지 작업 결과의 신뢰도를 좌우한다고 봅니다.</p>
+      </div>
+      <div class="value">
+        <span class="num">— 02</span>
+        <h3>명료함 <em>Clarity</em></h3>
+        <p>복잡한 설계 정보를 빠르게 읽고 판단할 수 있는 인터페이스를 만듭니다.</p>
+      </div>
+      <div class="value">
+        <span class="num">— 03</span>
+        <h3>구조 <em>Structure</em></h3>
+        <p>데이터와 협업 구조가 안정적이어야 AI 기능도 실제 업무에 들어갈 수 있습니다.</p>
+      </div>
+    </div>
 
-  const grid = document.getElementById('team-grid');
-  TEAM.forEach((m) => {
-    const el = document.createElement('div');
-    el.className = 'member';
-    el.innerHTML = `
+    <!-- 팀 소개 -->
+    <section class="section">
+      <div class="section-head">
+        <span class="num">03 / TEAM</span>
+        <h2>제품을 만드는 팀.</h2>
+        <p class="desc">프론트엔드, 백엔드, AI, 인프라가 같은 설계 흐름을 기준으로 움직입니다.</p>
+      </div>
+      <div class="team-grid" id="team-grid"></div>
+    </section>
+
+    <!-- CTA -->
+    <section class="cta-block">
+      <h2>아이디어를 바로<br>공간으로 전환해보세요.</h2>
+      <a class="btn btn-primary" href="Intro.html">
+        시작하기 <span>→</span>
+      </a>
+    </section>
+
+  </main>
+
+  <footer class="foot">
+    <span>© 2026 BATANG</span>
+  </footer>
+
+  <script>
+    const TEAM = [
+      { name: '김나연', tags: ['BE', 'AI'], num: '01' },
+      { name: '김태영', tags: ['FE'], num: '02' },
+      { name: '박동한', tags: ['AI', 'BE', 'Infra'], num: '03' },
+      { name: '박연준', tags: ['BE', 'Infra'], num: '04' },
+      { name: '변희연', tags: ['PM', 'AI'], num: '05' },
+      { name: '양대천', tags: ['AI'], num: '06' },
+      { name: '오지수', tags: ['FE', 'BE'], num: '07' },
+    ];
+
+    const tagClass = (t) => {
+      if (t === 'AI') return 't-AI';
+      if (t === 'PM') return 't-PD';
+      return '';
+    };
+
+    const grid = document.getElementById('team-grid');
+    TEAM.forEach((m) => {
+      const el = document.createElement('div');
+      el.className = 'member';
+      el.innerHTML = `
       <div class="info">
         <div class="name"><span class="num">${m.num}</span>${m.name}</div>
         <div class="tags">
@@ -1976,24 +2260,25 @@
         </div>
       </div>
     `;
-    grid.appendChild(el);
-  });
+      grid.appendChild(el);
+    });
 
-  const revealTargets = document.querySelectorAll('.section, .member, .value, .cta-block');
-  if ('IntersectionObserver' in window) {
-    const revealObserver = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        if (!entry.isIntersecting) return;
-        entry.target.classList.add('is-visible');
-        revealObserver.unobserve(entry.target);
-      });
-    }, { threshold: 0.16, rootMargin: '0px 0px -8% 0px' });
+    const revealTargets = document.querySelectorAll('.section, .member, .value, .cta-block');
+    if ('IntersectionObserver' in window) {
+      const revealObserver = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+          entry.target.classList.add('is-visible');
+          revealObserver.unobserve(entry.target);
+        });
+      }, { threshold: 0.16, rootMargin: '0px 0px -8% 0px' });
 
-    revealTargets.forEach((target) => revealObserver.observe(target));
-  } else {
-    revealTargets.forEach((target) => target.classList.add('is-visible'));
-  }
-</script>
+      revealTargets.forEach((target) => revealObserver.observe(target));
+    } else {
+      revealTargets.forEach((target) => target.classList.add('is-visible'));
+    }
+  </script>
 
 </body>
+
 </html>

@@ -10,6 +10,10 @@ interface AuthLocationState {
   redirectTo?: string | null
 }
 
+interface LoginOptions {
+  redirectTo?: string | null
+}
+
 export const useAuth = () => {
   const queryClient = useQueryClient()
   const {
@@ -39,7 +43,6 @@ export const useAuth = () => {
       setToken(access_token)
       setRefreshToken(refresh_token)
       setUser(nextUser)
-      navigate(resolveSafeInternalRedirect(locationState?.redirectTo))
     },
   })
 
@@ -71,7 +74,11 @@ export const useAuth = () => {
     refreshToken,
     isAuthenticated: !!token,
     isMeLoading,
-    login: (data: LoginDto) => loginMutation.mutate(data),
+    login: (data: LoginDto, options?: LoginOptions) => loginMutation.mutate(data, {
+      onSuccess: () => {
+        navigate(resolveSafeInternalRedirect(options?.redirectTo ?? locationState?.redirectTo), { replace: true })
+      },
+    }),
     loginError: loginMutation.error,
     isLoggingIn: loginMutation.isPending,
     logout: () => logoutMutation.mutate(),

@@ -113,6 +113,19 @@ def _resize_room_cmd(target_room_name: str, target_floor: int | None = None) -> 
     )
 
 
+def _merge_windows_cmd(target_room_name: str, target_floor: int | None = None) -> FloorNLPCommand:
+    return FloorNLPCommand(
+        action="merge_windows",
+        target_room_name=target_room_name,
+        target_floor=target_floor,
+        needs_clarification=False,
+        clarification_question=None,
+        confidence=0.9,
+        apply_to_all=False,
+        resize_shape="rect",
+    )
+
+
 @pytest.mark.asyncio
 async def test_remove_room_duplicate_floors_generates_alternatives() -> None:
     """동일 이름 방이 복수 층에 있을 때 alternatives + fill이 생성되어야 한다."""
@@ -157,6 +170,25 @@ async def test_resize_room_duplicate_floors_generates_alternatives() -> None:
     for alt in alts:
         assert "fill" in alt
         assert alt["fill"]["target_room_name"] == "거실"
+
+
+@pytest.mark.asyncio
+async def test_merge_windows_duplicate_floors_generates_alternatives() -> None:
+    ctx = _two_floor_living_ctx()
+    pipeline = LLM2DPipeline(ifc_context=ctx)
+
+    result = await pipeline.execute_command_preview(_merge_windows_cmd("거실"))
+
+    assert result["status"] == "alternatives"
+    alts = result.get("alternatives", [])
+    assert len(alts) == 2
+    assert {alt["fill"]["target_floor"] for alt in alts} == {1, 2}
+    for alt in alts:
+        floor = alt["fill"]["target_floor"]
+        assert alt["fill"]["target_room_name"] == "거실"
+        assert alt["fill"]["action"] == "merge_windows"
+        assert alt["title"] == f"{floor}층 거실"
+        assert alt["prompt"] == f"{floor}층 거실 창문 2개 통창으로 변경"
 
 
 @pytest.mark.asyncio

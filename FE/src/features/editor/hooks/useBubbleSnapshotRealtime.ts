@@ -3,6 +3,7 @@ import type { IMessage } from '@stomp/stompjs'
 import { getStompClient } from '@/shared/lib/stomp'
 import { getRuntimeEnvBoolean } from '@/shared/lib/runtimeEnv'
 import type { BubbleData, ConnectionData, PhaseStatus } from '../types'
+import { normalizeIfcSourceDedupeKey } from '../utils/ifcSource'
 import { subscribeStompTopicsWithPolling } from '../utils/stompSubscription'
 import {
   CURSOR_INVALID_CODE,
@@ -40,7 +41,10 @@ interface UseBubbleSnapshotRealtimeParams {
     snapshot: BubbleSnapshotPayload,
     meta?: { action: string | null; payloadBaseIndex: number | null },
   ) => void
-  onRemoteFloorPlanSnapshot?: (snapshot: FloorPlanSnapshotPayload) => void
+  onRemoteFloorPlanSnapshot?: (
+    snapshot: FloorPlanSnapshotPayload,
+    meta?: { action?: string | null; layoutOnly?: boolean; payloadBaseIndex?: number | null; revisionId?: string | null },
+  ) => void
   onPhaseStatusChanged?: (status: PhaseStatus) => void
   onIfcStorageUrlReceived?: (
     ifcStorageUrl: string,
@@ -212,9 +216,12 @@ export function useBubbleSnapshotRealtime({
       syncBubbleHistoryCursor(action, payloadBaseIndex)
     }
 
-    const applyFloorPlanSnapshot = (snapshot: FloorPlanSnapshotPayload) => {
+    const applyFloorPlanSnapshot = (
+      snapshot: FloorPlanSnapshotPayload,
+      meta?: { action?: string | null; layoutOnly?: boolean; payloadBaseIndex?: number | null; revisionId?: string | null },
+    ) => {
       if (floorPlanSnapshotHandlerRef.current) {
-        floorPlanSnapshotHandlerRef.current(snapshot)
+        floorPlanSnapshotHandlerRef.current(snapshot, meta)
       } else {
         remoteSnapshotHandlerRef.current(snapshot)
       }
@@ -252,7 +259,9 @@ export function useBubbleSnapshotRealtime({
         const assetId = extractIfcAssetId(parsed)
         const revisionId = extractRevisionId(parsed)
         const floorPlanSnapshot = extractFloorPlanSnapshot(parsed)
-        const dedupRaw = assetId ?? ifcStorageUrl
+        const dedupRaw = assetId
+          ?? (revisionId ? `revision:${revisionId}` : null)
+          ?? (ifcStorageUrl ? normalizeIfcSourceDedupeKey(ifcStorageUrl) : null)
         if (dedupRaw) {
           const dedupKey = `${action}:${dedupRaw}`
           const now = Date.now()
@@ -283,7 +292,7 @@ export function useBubbleSnapshotRealtime({
         return
       }
 
-      const shouldSkipFloorPlanSnapshotForIfcUpdate =
+      const shouldApplyFloorPlanLayoutOnly =
         action === WORKSPACE_SYNC_ACTION.floorPlanUpdated && extractIfcStorageUrl(parsed) !== null
 
       // 평면도 저장 완료가 곧 발행(publish) 응답(echo)은 아닙니다. 백엔드는 먼저
@@ -296,9 +305,14 @@ export function useBubbleSnapshotRealtime({
         syncFloorPlanHistoryCursor(action, extractFloorPlanBaseIndex(parsed))
       }
 
-      if (shouldApplyFloorPlanHistoryEvent && !shouldSkipFloorPlanSnapshotForIfcUpdate) {
+      if (shouldApplyFloorPlanHistoryEvent) {
         if (floorPlanSnapshot) {
-          applyFloorPlanSnapshot(floorPlanSnapshot)
+          applyFloorPlanSnapshot(floorPlanSnapshot, {
+            action,
+            layoutOnly: shouldApplyFloorPlanLayoutOnly,
+            payloadBaseIndex: extractFloorPlanBaseIndex(parsed),
+            revisionId: extractRevisionId(parsed),
+          })
         }
       }
 

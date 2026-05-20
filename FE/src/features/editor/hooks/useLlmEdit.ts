@@ -339,10 +339,14 @@ export function useLlmEdit({
   const selectAlternative = useCallback((alternative: ClarificationAlternative) => {
     const hasFill = alternative.fill && Object.keys(alternative.fill).length > 0
     const plannerOptions = hasFill ? (alternative.fill as Record<string, unknown>) : undefined
-    setPrompt(alternative.title)
+    const nextPrompt =
+      typeof alternative.prompt === 'string' && alternative.prompt.trim().length > 0
+        ? alternative.prompt.trim()
+        : alternative.title
+    setPrompt(nextPrompt)
     setClarificationArtifact(null)
     setMessage('')
-    void run(alternative.title, plannerOptions ? { plannerOptions } : undefined)
+    void run(nextPrompt, plannerOptions ? { plannerOptions } : undefined)
   }, [run])
 
   const discard = useCallback(() => {
