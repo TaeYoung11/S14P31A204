@@ -19,4 +19,7 @@ def test_event_output_ref_accepts_floor_plan_project_payload():
     )
 
     assert output.floorPlanProject == floor_project
-    assert output.model_dump(by_alias=True, exclude_none=True)["floor_plan_project"] == floor_project
+    assert (
+        output.model_dump(by_alias=True, exclude_none=True)["floor_plan_project"]
+        == floor_project
+    )
