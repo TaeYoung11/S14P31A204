@@ -70,8 +70,8 @@ export default function EditorToolbar({
             {hasUnsavedDbChanges && (
               <span
                 className={`shrink-0 text-base font-black leading-none ${isView ? 'text-white/80' : 'text-[#A35F00]'}`}
-                title="DB에 저장되지 않은 변경사항이 있습니다"
-                aria-label="DB에 저장되지 않은 변경사항"
+                title="저장되지 않은 변경사항이 있습니다"
+                aria-label="저장되지 않은 변경사항"
               >
                 *
               </span>
