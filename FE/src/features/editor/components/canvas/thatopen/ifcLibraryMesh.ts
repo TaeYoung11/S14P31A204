@@ -113,6 +113,15 @@ export const parsePresetDimensions = (preset: ThreeDLibraryPreset) => {
   }
 }
 
+export const formatLibraryPresetDimensions = (
+  lengthMm?: number,
+  heightMm?: number,
+  thicknessMm?: number,
+) => {
+  if (![lengthMm, heightMm, thicknessMm].every((value) => Number.isFinite(value))) return undefined
+  return `${Math.round(lengthMm as number)} x ${Math.round(heightMm as number)} x ${Math.round(thicknessMm as number)}`
+}
+
 const getPresetWorldScale = (
   presetDimensions: ReturnType<typeof parsePresetDimensions>,
   baseWorldSize: { x: number; y: number; z: number },
@@ -145,7 +154,11 @@ const isIdentityPresetScale = (scale: ThreeDLibraryPreset['scale']) => (
   Math.abs((scale?.z ?? 1) - 1) < 1e-6
 )
 
-const cloneMaterialsForLibraryInstance = (object: Object3D) => {
+/**
+ * IFC 에셋 템플릿을 여러 인스턴스로 재사용할 때 재질 참조를 분리한다.
+ * 색상/재질 편집이 한 인스턴스에서 다른 인스턴스로 번지는 것을 막는다.
+ */
+export const cloneMaterialsForLibraryInstance = (object: Object3D) => {
   object.traverse((child) => {
     const materialTarget = child as Object3D & {
       material?: unknown
@@ -163,6 +176,32 @@ const cloneMaterialsForLibraryInstance = (object: Object3D) => {
       materialTarget.material = (material as { clone: () => unknown }).clone()
     }
   })
+}
+
+const getLocalBoxRelativeTo = (
+  THREE: ThreeModule,
+  object: Object3D,
+  root: Object3D,
+) => {
+  object.updateMatrixWorld(true)
+  root.updateMatrixWorld(true)
+  const worldBox = new THREE.Box3().setFromObject(object)
+  if (worldBox.isEmpty()) return worldBox
+
+  const toRootLocal = new THREE.Matrix4().copy(root.matrixWorld).invert()
+  const { min, max } = worldBox
+  const points = [
+    new THREE.Vector3(min.x, min.y, min.z),
+    new THREE.Vector3(min.x, min.y, max.z),
+    new THREE.Vector3(min.x, max.y, min.z),
+    new THREE.Vector3(min.x, max.y, max.z),
+    new THREE.Vector3(max.x, min.y, min.z),
+    new THREE.Vector3(max.x, min.y, max.z),
+    new THREE.Vector3(max.x, max.y, min.z),
+    new THREE.Vector3(max.x, max.y, max.z),
+  ].map((point) => point.applyMatrix4(toRootLocal))
+
+  return new THREE.Box3().setFromPoints(points)
 }
 
 const applyLibraryPresetMetadata = (
@@ -195,6 +234,39 @@ const applyLibraryPresetMetadata = (
   })
 }
 
+const moveGroupPivotToLocalPoint = (
+  group: import('three').Group,
+  localPoint: import('three').Vector3,
+) => {
+  if ([localPoint.x, localPoint.y, localPoint.z].every((value) => Math.abs(value) < 1e-8)) {
+    return
+  }
+
+  const parentOffset = localPoint
+    .clone()
+    .multiply(group.scale)
+    .applyQuaternion(group.quaternion)
+
+  group.position.add(parentOffset)
+  group.children.forEach((child) => {
+    child.position.sub(localPoint)
+  })
+  group.updateMatrixWorld(true)
+}
+
+const moveGroupPivotToBoundsCenter = (
+  THREE: ThreeModule,
+  group: import('three').Group,
+  options: { includeY?: boolean } = {},
+) => {
+  const box = getLocalBoxRelativeTo(THREE, group, group)
+  if (box.isEmpty()) return
+  const center = new THREE.Vector3()
+  box.getCenter(center)
+  if (!options.includeY) center.y = 0
+  moveGroupPivotToLocalPoint(group, center)
+}
+
 const finalizePresetGroup = (
   THREE: ThreeModule,
   group: import('three').Group,
@@ -203,13 +275,14 @@ const finalizePresetGroup = (
   worldUnitsPerMm: number,
   parsedDimensions: ReturnType<typeof parsePresetDimensions>,
   options: {
+    alignPivotToBoundsCenter?: boolean
     fallbackBaseWorldSize?: { x: number; y: number; z: number }
     ignoreIdentityPresetScale?: boolean
   } = {},
 ) => {
   group.name = preset.name
   const objectSize = new THREE.Vector3()
-  new THREE.Box3().setFromObject(group).getSize(objectSize)
+  getLocalBoxRelativeTo(THREE, group, group).getSize(objectSize)
   const hasMeasuredSize = [objectSize.x, objectSize.y, objectSize.z]
     .every((value) => Number.isFinite(value) && value > 1e-8)
   const baseDimensions = {
@@ -234,7 +307,7 @@ const finalizePresetGroup = (
   const spacingX = Math.max(visualLength + 700 * worldUnitsPerMm, 1800 * worldUnitsPerMm)
   const spacingZ = Math.max(visualThickness + 700 * worldUnitsPerMm, 1800 * worldUnitsPerMm)
   group.scale.set(worldScale.x, worldScale.y, worldScale.z)
-  const scaledBox = new THREE.Box3().setFromObject(group)
+  const scaledBox = getLocalBoxRelativeTo(THREE, group, group)
   const scaledCenter = new THREE.Vector3()
   const scaledSize = new THREE.Vector3()
   scaledBox.getCenter(scaledCenter)
@@ -244,6 +317,9 @@ const finalizePresetGroup = (
     -(scaledCenter.y - scaledSize.y / 2),
     -row * spacingZ,
   )
+  if (options.alignPivotToBoundsCenter) {
+    moveGroupPivotToBoundsCenter(THREE, group)
+  }
   if (preset.position) {
     group.position.set(preset.position.x, preset.position.y, preset.position.z)
   }
@@ -577,6 +653,7 @@ export const createIfcAssetPresetPlaceholder = (
 
   group.name = `${preset.name} IFC asset placeholder`
   group.position.set(column * spacingX, 0, -row * spacingZ)
+  moveGroupPivotToBoundsCenter(THREE, group)
   if (preset.position) {
     group.position.set(preset.position.x, preset.position.y, preset.position.z)
   }
@@ -647,7 +724,7 @@ export const refreshIfcAssetPresetMeshLayout = (
 
   if (assetRoot) {
     assetRoot.updateMatrixWorld(true)
-    const assetBox = new THREE.Box3().setFromObject(assetRoot)
+    const assetBox = getLocalBoxRelativeTo(THREE, assetRoot, group)
     if (!assetBox.isEmpty()) {
       const center = new THREE.Vector3()
       assetBox.getCenter(center)
@@ -660,6 +737,7 @@ export const refreshIfcAssetPresetMeshLayout = (
 
   const parsedDimensions = parsePresetDimensions(preset)
   return finalizePresetGroup(THREE, group, preset, index, worldUnitsPerMm, parsedDimensions, {
+    alignPivotToBoundsCenter: true,
     fallbackBaseWorldSize: getPresetWorldSize(parsedDimensions, worldUnitsPerMm),
     ignoreIdentityPresetScale: true,
   })

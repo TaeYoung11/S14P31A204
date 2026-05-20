@@ -8,6 +8,7 @@ import com.a204.batang.domain.ifcedit.entity.IfcEditJobStep;
 import com.a204.batang.domain.ifcedit.messaging.dto.IfcEditCommandMessage;
 import com.a204.batang.domain.ifcedit.messaging.event.IfcEditCommandPublishRequestedEvent;
 import com.a204.batang.domain.ifcedit.messaging.event.IfcEditStatusChangedEvent;
+import com.a204.batang.domain.ifcedit.repository.IfcEditArtifactRepository;
 import com.a204.batang.domain.ifcedit.repository.IfcEditJobRepository;
 import com.a204.batang.domain.ifcedit.repository.IfcEditJobStepRepository;
 import com.a204.batang.domain.project.entity.Project;
@@ -30,9 +31,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static com.a204.batang.domain.ifcedit.IfcEditConstants.*;
@@ -47,6 +50,7 @@ public class DirectIfcEditCommandService {
     private final ProjectAccessService projectAccessService;
     private final IfcEditJobRepository ifcEditJobRepository;
     private final IfcEditJobStepRepository ifcEditJobStepRepository;
+    private final IfcEditArtifactRepository ifcEditArtifactRepository;
     private final IfcEditActiveJobGuard ifcEditActiveJobGuard;
     private final IfcEditStoragePathBuilder pathBuilder;
     private final ApplicationEventPublisher eventPublisher;
@@ -76,7 +80,7 @@ public class DirectIfcEditCommandService {
             throw new CustomException(ErrorCode.IFC_EDIT_JOB_CONFLICT);
         }
 
-        revisionRepository.findById(request.baseRevisionId())
+        Revision sourceRevision = revisionRepository.findById(request.baseRevisionId())
                 .orElseThrow(() -> new CustomException(ErrorCode.IFC_EDIT_SOURCE_NOT_FOUND));
 
         UUID jobId = UUID.randomUUID();
@@ -90,7 +94,7 @@ public class DirectIfcEditCommandService {
                 .map(r -> r.getRevisionNo() + 1)
                 .orElse(1);
 
-        String sourceIfcUrl = pathBuilder.buildSourceIfcStorageUrl(projectId, request.baseRevisionId());
+        String sourceIfcUrl = resolveSourceIfcStorageUrl(projectId, sourceRevision);
         String outputIfcUrl = pathBuilder.buildOutputIfcStorageUrl(projectId, targetRevisionId);
         String validationUrl = pathBuilder.buildValidationReportStorageUrl(projectId, jobId, 1);
         String sceneSnapshotUrl = pathBuilder.buildSceneSnapshotStorageUrl(projectId, targetRevisionId, request.sourceSceneType());
@@ -118,6 +122,8 @@ public class DirectIfcEditCommandService {
         Map<String, Object> workerPayloadMap = new LinkedHashMap<>();
         workerPayloadMap.put("engineRequest", resolvedEngineRequestPayload);
         JsonNode workerPayload = objectMapper.valueToTree(workerPayloadMap);
+
+        logResolvedEngineRequest(projectId, jobId, request.baseRevisionId(), resolvedEngineRequestPayload);
 
         LocalDateTime now = LocalDateTime.now();
         Revision revision = Revision.createCreating(
@@ -184,5 +190,128 @@ public class DirectIfcEditCommandService {
         }
 
         return objectMapper.valueToTree(engineRequest);
+    }
+
+    private void logResolvedEngineRequest(
+            UUID projectId,
+            UUID jobId,
+            UUID baseRevisionId,
+            JsonNode engineRequest
+    ) {
+        JsonNode operations = engineRequest == null ? null : engineRequest.get("operations");
+        int operationCount = operations != null && operations.isArray() ? operations.size() : 0;
+        String schemaVersion = engineRequest == null ? null : engineRequest.path("schema_version").asText(null);
+        log.info(
+                "Resolved IFC edit engine request. projectId={}, jobId={}, baseRevisionId={}, schemaVersion={}, operationCount={}, operationTypes={}, selectorIds={}, rotationDeg={}",
+                projectId,
+                jobId,
+                baseRevisionId,
+                schemaVersion,
+                operationCount,
+                summarizeOperationTypes(operations),
+                summarizeSelectorIds(operations),
+                summarizeRotationDeg(operations)
+        );
+        if (log.isDebugEnabled()) {
+            log.debug(
+                    "Resolved IFC edit engine request JSON. projectId={}, jobId={}, engineRequest={}",
+                    projectId,
+                    jobId,
+                    engineRequest
+            );
+        }
+    }
+
+    private String summarizeOperationTypes(JsonNode operations) {
+        if (operations == null || !operations.isArray()) {
+            return "[]";
+        }
+        StringBuilder summary = new StringBuilder("[");
+        for (int i = 0; i < operations.size(); i++) {
+            if (i > 0) {
+                summary.append(", ");
+            }
+            JsonNode type = operations.get(i).get("type");
+            summary.append(type == null || type.isNull() ? "<missing>" : type.asText());
+        }
+        return summary.append("]").toString();
+    }
+
+    private String summarizeSelectorIds(JsonNode operations) {
+        if (operations == null || !operations.isArray()) {
+            return "[]";
+        }
+        StringBuilder summary = new StringBuilder("[");
+        boolean first = true;
+        for (JsonNode operation : operations) {
+            JsonNode ids = operation.at("/selector/global_ids");
+            if (ids == null || !ids.isArray()) {
+                continue;
+            }
+            for (JsonNode id : ids) {
+                if (!first) {
+                    summary.append(", ");
+                }
+                summary.append(id.asText());
+                first = false;
+            }
+        }
+        return summary.append("]").toString();
+    }
+
+    private String summarizeRotationDeg(JsonNode operations) {
+        if (operations == null || !operations.isArray()) {
+            return "[]";
+        }
+        StringBuilder summary = new StringBuilder("[");
+        boolean first = true;
+        for (JsonNode operation : operations) {
+            JsonNode rotation = operation.at("/parameters/rotation_deg");
+            if (rotation == null || rotation.isMissingNode() || rotation.isNull()) {
+                continue;
+            }
+            if (!first) {
+                summary.append(", ");
+            }
+            summary.append(rotation);
+            first = false;
+        }
+        return summary.append("]").toString();
+    }
+
+    private String resolveSourceIfcStorageUrl(UUID projectId, Revision sourceRevision) {
+        Revision cursor = sourceRevision;
+        Set<UUID> visitedRevisionIds = new HashSet<>();
+
+        while (cursor != null && visitedRevisionIds.add(cursor.getRevisionId())) {
+            Optional<String> artifactStorageUrl = ifcEditArtifactRepository
+                    .findTopByProjectIdAndRevisionIdAndArtifactTypeOrderByCreatedAtDescArtifactIdDesc(
+                            projectId,
+                            cursor.getRevisionId(),
+                            ARTIFACT_TYPE_IFC_MODEL
+                    )
+                    .map(artifact -> artifact.getStorageUrl())
+                    .filter(storageUrl -> storageUrl != null && !storageUrl.isBlank());
+
+            if (artifactStorageUrl.isPresent()) {
+                if (!cursor.getRevisionId().equals(sourceRevision.getRevisionId())) {
+                    log.info(
+                            "Resolved IFC edit source artifact from ancestor revision. projectId={}, requestedRevisionId={}, artifactRevisionId={}",
+                            projectId,
+                            sourceRevision.getRevisionId(),
+                            cursor.getRevisionId()
+                    );
+                }
+                return pathBuilder.toWorkerStorageUrl(artifactStorageUrl.get());
+            }
+
+            UUID parentRevisionId = cursor.getParentRevisionId();
+            if (parentRevisionId == null) {
+                break;
+            }
+            cursor = revisionRepository.findById(parentRevisionId).orElse(null);
+        }
+
+        return pathBuilder.buildSourceIfcStorageUrl(projectId, sourceRevision.getRevisionId());
     }
 }

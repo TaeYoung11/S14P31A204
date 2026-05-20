@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import ifcopenshell
 import ifcopenshell.api.aggregate
 import ifcopenshell.api.root
+import ifcopenshell.guid
 import pytest
 
 from ai_authoring.worker import AuthoringWorker
@@ -349,6 +350,40 @@ def test_apply_operation_dispatches_delete_wall_void_handler():
     assert len(model.by_type("IfcRelFillsElement")) == 0
 
 
+def test_apply_transform_space_does_not_move_boundary_wall():
+    model, space = _make_space_model()
+    storey = model.by_type("IfcBuildingStorey")[0]
+    wall = create_wall(model, storey, length_mm=3000, width_mm=200, height_mm=2400)
+    assert wall is not None
+    model.create_entity(
+        "IfcRelSpaceBoundary",
+        GlobalId=ifcopenshell.guid.new(),
+        Name="Worker Space boundary",
+        RelatingSpace=space,
+        RelatedBuildingElement=wall,
+        PhysicalOrVirtualBoundary="PHYSICAL",
+        InternalOrExternalBoundary="INTERNAL",
+    )
+    worker, _ = _make_worker(b"")
+
+    result = worker._apply_operation(
+        model,
+        "op-move-space",
+        "transform_elements",
+        {"global_ids": [space.GlobalId]},
+        {"translation_mm": {"x": 1000.0, "y": 0.0, "z": 0.0}},
+    )
+
+    assert result["status"] == "applied"
+    assert {item["global_id"] for item in result["matched_elements"]} == {space.GlobalId}
+    assert tuple(space.ObjectPlacement.RelativePlacement.Location.Coordinates) == pytest.approx(
+        (1.0, 0.0, 0.0)
+    )
+    assert tuple(wall.ObjectPlacement.RelativePlacement.Location.Coordinates) == pytest.approx(
+        (0.0, 0.0, 0.0)
+    )
+
+
 def test_authoring_worker_rejects_zero_scale_dimension_before_mutation():
     root_dir = Path(__file__).resolve().parents[3]
     ifc_path = root_dir / "tests" / "sample_batang.ifc"
@@ -369,6 +404,48 @@ def test_authoring_worker_rejects_zero_scale_dimension_before_mutation():
 
     assert exc_info.value.code == "INVALID_OPERATION_PARAMETERS"
     assert "op-invalid-scale.length" in str(exc_info.value)
+
+
+@pytest.mark.parametrize("axis", ["x", "y"])
+def test_authoring_worker_rejects_legacy_xy_rotation_before_mutation(axis: str):
+    root_dir = Path(__file__).resolve().parents[3]
+    ifc_path = root_dir / "tests" / "sample_batang.ifc"
+    worker, _ = _make_worker(ifc_path.read_bytes())
+    engine_req = {
+        "operations": [
+            {
+                "id": f"op-legacy-{axis}-rotation",
+                "type": "transform_elements",
+                "selector": {"element_type": "IfcWall", "select_all": True},
+                "parameters": {"rotation_deg": {axis: 30.0}},
+            }
+        ]
+    }
+
+    with pytest.raises(NonRetryableWorkerError) as exc_info:
+        worker._validate_operations_before_mutation(engine_req)
+
+    assert exc_info.value.code == "INVALID_OPERATION_PARAMETERS"
+    assert "legacy rotation_deg only supports z" in str(exc_info.value)
+    assert "use axis-angle for x/y rotation" in str(exc_info.value)
+
+
+def test_authoring_worker_accepts_legacy_zero_xy_z_rotation_before_mutation():
+    root_dir = Path(__file__).resolve().parents[3]
+    ifc_path = root_dir / "tests" / "sample_batang.ifc"
+    worker, _ = _make_worker(ifc_path.read_bytes())
+    engine_req = {
+        "operations": [
+            {
+                "id": "op-legacy-yaw-rotation",
+                "type": "transform_elements",
+                "selector": {"element_type": "IfcWall", "select_all": True},
+                "parameters": {"rotation_deg": {"x": 0.0, "y": 0.0, "z": 15.0}},
+            }
+        ]
+    }
+
+    worker._validate_operations_before_mutation(engine_req)
 
 
 def test_authoring_worker_updates_space_with_wrapped_dimensions():

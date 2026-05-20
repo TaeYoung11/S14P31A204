@@ -36,6 +36,8 @@ services:
     container_name: batang-be
     restart: unless-stopped
     environment:
+      TZ: Asia/Seoul
+      JAVA_TOOL_OPTIONS: "-Duser.timezone=Asia/Seoul"
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-docker}
       SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:postgresql://postgres:5432/${POSTGRES_DB:-batang}}
       SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:-${POSTGRES_USER:-batang}}
@@ -159,6 +161,8 @@ services:
         condition: service_completed_successfully
     networks:
       - batang-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   worker-planning-3d:
     build:
@@ -188,6 +192,7 @@ services:
       LLM_MODEL_NAME: ${LLM_MODEL_NAME:-qwen2.5:7b}
       LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
       LLM_API_KEY: ${LLM_API_KEY:-ollama}
+      LLM_REASONING_EFFORT: ${LLM_REASONING_EFFORT:-none}
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -195,6 +200,8 @@ services:
         condition: service_completed_successfully
     networks:
       - batang-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   worker-authoring:
     build:
@@ -251,11 +258,26 @@ services:
       RABBITMQ_USERNAME: ${SPRING_RABBITMQ_USERNAME:-${RABBITMQ_DEFAULT_USER:-guest}}
       RABBITMQ_PASSWORD: ${SPRING_RABBITMQ_PASSWORD:-${RABBITMQ_DEFAULT_PASS:-guest}}
       RABBITMQ_VHOST: ${SPRING_RABBITMQ_VHOST:-/}
+      # SD 렌더는 한 잡당 GPU 작업이 길어 단일 thread 가 RabbitMQ heartbeat 를
+      # 못 보내고 60초 기본값에 끊긴다. 600초로 늘려 H-1.b + H-3 까지 한 잡이
+      # 끝날 때까지 broker 연결을 살린다 (RENDERING_RABBITMQ_HEARTBEAT 로 override).
+      RABBITMQ_HEARTBEAT: ${RENDERING_RABBITMQ_HEARTBEAT:-600}
       S3_BUCKET: ${AWS_S3_BUCKET:-${MINIO_BUCKET:-batang-artifacts}}
       S3_ENDPOINT_URL: ${AWS_S3_ENDPOINT_URL:-http://minio:9000}
       S3_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-${MINIO_ROOT_USER:-minio}}
       S3_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-${MINIO_ROOT_PASSWORD:-minio123}}
       S3_REGION: ${AWS_REGION:-us-east-1}
+      # 모델 캐시를 named volume `hf-cache` 에 영속화.
+      # - HF_HOME: SD 1.5 / ControlNet / Realistic Vision V6 등 HuggingFace
+      #   기반 모델 (~5GB) → /models/huggingface
+      # - IFC2IMG_REALESRGAN_CACHE_DIR: Real-ESRGAN x4plus weight (~70MB) →
+      #   /models/realesrgan (코드 기본값 `~/.cache/realesrgan` 을 override).
+      # 두 캐시 모두 같은 볼륨의 하위 디렉토리에 두므로 인스턴스 재기동 /
+      # 컨테이너 재생성 후에도 재다운로드 없이 첫 잡부터 캐시 hit.
+      HF_HOME: /models/huggingface
+      IFC2IMG_REALESRGAN_CACHE_DIR: /models/realesrgan
+    volumes:
+      - hf-cache:/models
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -263,12 +285,26 @@ services:
         condition: service_completed_successfully
     networks:
       - batang-network
+    # GPU 노출 (EC2 g6.2xlarge / L4 1개 기준).
+    # 호스트에 NVIDIA driver + nvidia-container-toolkit 이 설치돼 있어야 한다.
+    # GPU 가 없는 환경(예: 로컬 Docker Desktop on Windows) 에서는 이 설정이
+    # 무시되지 않고 reservation 실패로 컨테이너 기동을 막을 수 있으므로,
+    # 로컬에서는 `--profile ai` 를 빼고 띄우거나 이 블록을 임시 주석 처리한다.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
 
   postgres:
     image: postgres:16-alpine
     container_name: batang-postgres
     restart: unless-stopped
+    command: ["postgres", "-c", "timezone=Asia/Seoul"]
     environment:
+      TZ: Asia/Seoul
       POSTGRES_DB: ${POSTGRES_DB:-batang}
       POSTGRES_USER: ${POSTGRES_USER:-batang}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-batang}
@@ -365,6 +401,7 @@ volumes:
   redis-data:
   rabbitmq-data:
   minio-data:
+  hf-cache:
 
 networks:
   batang-network:

@@ -33,8 +33,13 @@ export const PREVIEW_SHAPE_BY_TYPE: Record<ThreeDLibraryPresetType, string> = {
 export const PREVIEW_SHAPE_BY_PRESET_ID: Record<string, string> = {
   'roof-gable': '<polygon points="20,58 64,24 108,58 108,84 20,84" />',
   'roof-flat': '<rect x="18" y="60" width="92" height="20" rx="8" /><rect x="22" y="52" width="84" height="8" rx="4" opacity="0.9" />',
+  'roof-178223': '<path d="M12 64H116V82H12Z" /><path d="M18 64L34 46H100L116 64Z" opacity="0.92" /><path d="M34 46L56 28H82L100 46Z" opacity="0.76" /><rect x="18" y="76" width="98" height="6" opacity="0.35" />',
+  'roof-180558': '<path d="M18 62H80V80H18Z" /><path d="M80 58H112V76H80Z" opacity="0.86" /><path d="M24 62L42 42H74L88 58L80 62Z" opacity="0.78" /><path d="M88 58L98 44L112 58Z" opacity="0.62" />',
+  'roof-181099': '<path d="M34 62H92V80H34Z" /><path d="M40 62L56 42H82L92 62Z" opacity="0.88" /><path d="M56 42L68 30L82 42Z" opacity="0.68" /><rect x="38" y="74" width="50" height="6" opacity="0.34" />',
+  'roof-187335': '<path d="M14 64H114V82H14Z" /><path d="M14 64L36 40H72L88 54L104 36L116 64Z" opacity="0.9" /><path d="M36 40L56 22L76 40Z" opacity="0.74" /><path d="M82 54L100 34L116 64Z" opacity="0.62" /><rect x="20" y="76" width="88" height="6" opacity="0.32" />',
   'exterior-wall-200': '<rect x="18" y="36" width="92" height="48" rx="7" /><rect x="26" y="42" width="76" height="6" rx="3" opacity="0.38" /><path d="M24 60H104M24 70H104" fill="none" stroke="currentColor" stroke-width="2.8" opacity="0.45" />',
   'exterior-wall-brick': '<rect x="18" y="36" width="92" height="48" rx="7" /><path d="M22 46H106M22 56H106M22 66H106M22 76H106M30 36V46M46 36V46M62 36V46M78 36V46M94 36V46M38 46V56M54 46V56M70 46V56M86 46V56M30 56V66M46 56V66M62 56V66M78 56V66M94 56V66M38 66V76M54 66V76M70 66V76M86 66V76" fill="none" stroke="currentColor" stroke-width="1.8" opacity="0.45" />',
+  'wall-139029': '<rect x="10" y="52" width="108" height="24" rx="4" /><rect x="18" y="58" width="92" height="5" rx="2.5" opacity="0.42" /><path d="M22 70H108M34 52V76M58 52V76M82 52V76M106 52V76" fill="none" stroke="currentColor" stroke-width="2.2" opacity="0.34" />',
   'interior-wall-100': '<rect x="24" y="36" width="80" height="46" rx="6" /><rect x="30" y="56" width="68" height="5" rx="2.5" opacity="0.5" />',
   'interior-wall-150': '<rect x="20" y="32" width="88" height="50" rx="6" /><path d="M30 48H98M30 58H98M30 68H98" fill="none" stroke="currentColor" stroke-width="2.4" opacity="0.45" />',
   'window-fixed': '<rect x="24" y="26" width="80" height="60" rx="10" /><rect x="30" y="32" width="68" height="48" rx="8" fill="#BFE6FF" /><rect x="34" y="36" width="60" height="40" rx="6" opacity="0.32" />',
@@ -45,6 +50,7 @@ export const PREVIEW_SHAPE_BY_PRESET_ID: Record<string, string> = {
   'front-door-glass': '<rect x="32" y="20" width="64" height="66" rx="8" /><rect x="42" y="30" width="44" height="42" rx="6" fill="#BFE6FF" /><path d="M64 30V72" stroke="currentColor" stroke-width="2.6" opacity="0.45" /><rect x="78" y="49" width="5" height="16" rx="2.5" fill="#F8FAFF" />',
   'stairs-straight': '<path d="M18 84V74H34V64H50V54H66V44H82V34H98V24H110V84Z" />',
   'stairs-l': '<path d="M18 84V74H34V64H50V54H66V44H82V34H98V56H86V66H74V76H62V84Z" />',
+  'stair-145090': '<path d="M20 84V74H38V64H56V54H74V44H92V34H108V84Z" /><path d="M22 54L58 34L104 24" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" opacity="0.65" /><path d="M34 76V58M56 66V45M78 56V35M100 46V27" fill="none" stroke="currentColor" stroke-width="3.4" opacity="0.55" />',
   'column-square': '<rect x="44" y="24" width="40" height="56" rx="5" /><rect x="34" y="24" width="60" height="7" rx="3.5" opacity="0.45" /><rect x="34" y="73" width="60" height="7" rx="3.5" opacity="0.45" />',
   'column-round': '<ellipse cx="64" cy="24" rx="20" ry="7" /><rect x="44" y="24" width="40" height="52" rx="20" /><ellipse cx="64" cy="76" rx="20" ry="7" />',
   'floor-wood': '<rect x="14" y="60" width="100" height="22" rx="8" /><path d="M22 60L34 82M38 60L50 82M54 60L66 82M70 60L82 82M86 60L98 82" fill="none" stroke="currentColor" stroke-width="2.2" opacity="0.5" />',
@@ -87,8 +93,14 @@ export const PRESET_THEME_BY_ID: Record<string, { bgStart: string; bgEnd: string
   'room-door-sliding': { bgStart: '#A88059', bgEnd: '#6F533E', shapeFill: '#F6ECDD' },
   'front-door-steel': { bgStart: '#5E6D84', bgEnd: '#3F4F67', shapeFill: '#E8EEF8' },
   'front-door-glass': { bgStart: '#4F627E', bgEnd: '#35475F', shapeFill: '#E6F4FF' },
+  'roof-178223': { bgStart: '#7B8495', bgEnd: '#515B6F', shapeFill: '#EEF2FF' },
+  'roof-180558': { bgStart: '#8A8391', bgEnd: '#5D6172', shapeFill: '#F2EEF8' },
+  'roof-181099': { bgStart: '#8A93A3', bgEnd: '#626B7D', shapeFill: '#F2F5FF' },
+  'roof-187335': { bgStart: '#737F91', bgEnd: '#4B596D', shapeFill: '#EAF0FF' },
   'stairs-straight': { bgStart: '#B68963', bgEnd: '#8F6241', shapeFill: '#F3E6D9' },
   'stairs-l': { bgStart: '#BF9870', bgEnd: '#987048', shapeFill: '#F5EAD8' },
+  'stair-145090': { bgStart: '#A9A29A', bgEnd: '#77716C', shapeFill: '#F4EBDD' },
+  'wall-139029': { bgStart: '#A5ABB5', bgEnd: '#7C8491', shapeFill: '#F2F0EC' },
   'column-square': { bgStart: '#AEB6C4', bgEnd: '#868FA1', shapeFill: '#EEF2FA' },
   'column-round': { bgStart: '#C0C8D6', bgEnd: '#9AA4B8', shapeFill: '#F2F5FA' },
   'floor-wood': { bgStart: '#BC946C', bgEnd: '#8F6A49', shapeFill: '#F4E7D8' },
@@ -100,6 +112,22 @@ export const PRESET_THEME_BY_ID: Record<string, { bgStart: string; bgEnd: string
   'furniture-bed-double': { bgStart: '#A89A8D', bgEnd: '#7C7066', shapeFill: '#FAF7F3' },
   'furniture-wardrobe': { bgStart: '#C4B8A8', bgEnd: '#9A8E80', shapeFill: '#F5EFE6' },
 }
+
+const LIBRARY_PRESET_DISPLAY_NAME_BY_ID: Record<string, string> = {
+  'roof-178223': '기본 박공지붕',
+  'roof-180558': '복합 경사지붕',
+  'roof-181099': '소형 박공지붕',
+  'roof-187335': '대형 복합지붕',
+  'wall-139029': '기본 외벽 200T',
+  'window-189252': '와이드 고정창',
+  'door-152970': '프레임 방문',
+  'stair-145090': '조합 계단',
+  terrace: '옥외 테라스',
+}
+
+export const getLibraryPresetDisplayName = (preset: ThreeDLibraryPreset) => (
+  LIBRARY_PRESET_DISPLAY_NAME_BY_ID[preset.sourceAssetId ?? preset.id] ?? preset.name
+)
 
 // ─────────────────────────────────────────────
 // IFC manifest 연동 유틸

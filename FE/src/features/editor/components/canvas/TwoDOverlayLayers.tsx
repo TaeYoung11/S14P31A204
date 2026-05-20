@@ -1,6 +1,7 @@
 import { Group, Line, Shape, Text } from 'react-konva'
 import type { FloorLayerOverlay } from '../../types'
 import { hexToRgba } from '../../utils/bubbleCalc'
+import { radiansToDegrees } from '../../utils/canvasViewTransform'
 import {
   getRoomTransformProps,
   renderRoomContourPath,
@@ -11,13 +12,19 @@ import { fitSingleLineFontSize } from './canvasTextFit'
 
 interface TwoDOverlayLayersProps {
   overlayLayers: FloorLayerOverlay[]
+  viewRotationRadians?: number
 }
 
 /**
  * 비활성 층 겹쳐보기 오버레이를 렌더링한다.
  * - Room 원형(컨투어/폴리곤/사각형)을 동일 규칙으로 표시한다.
  */
-export function TwoDOverlayLayers({ overlayLayers }: TwoDOverlayLayersProps) {
+export function TwoDOverlayLayers({
+  overlayLayers,
+  viewRotationRadians = 0,
+}: TwoDOverlayLayersProps) {
+  const inverseViewRotationDegrees = -radiansToDegrees(viewRotationRadians)
+
   return (
     <>
       {overlayLayers.map((overlay) => (
@@ -32,6 +39,8 @@ export function TwoDOverlayLayers({ overlayLayers }: TwoDOverlayLayersProps) {
             const labelHeight = Math.max(1, (room.height - labelPaddingY * 2) * 0.5)
             const labelFontSize = fitSingleLineFontSize(overlay.layerName, labelWidth, labelHeight / 1.15)
             const labelLineHeight = labelFontSize * 1.15
+            const labelCenterX = room.x + room.width / 2
+            const labelCenterY = room.y + room.height / 2
             return (
               <Group
                 key={`overlay-room-${overlay.layerId}-${room.id}`}
@@ -72,19 +81,25 @@ export function TwoDOverlayLayers({ overlayLayers }: TwoDOverlayLayersProps) {
                     lineJoin="round"
                   />
                 )}
-                <Text
-                  x={room.x + labelPaddingX}
-                  y={room.y + room.height / 2 - labelLineHeight / 2}
-                  width={labelWidth}
-                  height={labelLineHeight}
-                  align="center"
-                  verticalAlign="middle"
-                  text={overlay.layerName}
-                  fontSize={labelFontSize}
-                  lineHeight={1.15}
-                  fontStyle="bold"
-                  fill="#6B7A99"
-                />
+                <Group
+                  x={labelCenterX}
+                  y={labelCenterY}
+                  rotation={inverseViewRotationDegrees}
+                >
+                  <Text
+                    x={-labelWidth / 2}
+                    y={-labelLineHeight / 2}
+                    width={labelWidth}
+                    height={labelLineHeight}
+                    align="center"
+                    verticalAlign="middle"
+                    text={overlay.layerName}
+                    fontSize={labelFontSize}
+                    lineHeight={1.15}
+                    fontStyle="bold"
+                    fill="#6B7A99"
+                  />
+                </Group>
               </Group>
             )
           })}

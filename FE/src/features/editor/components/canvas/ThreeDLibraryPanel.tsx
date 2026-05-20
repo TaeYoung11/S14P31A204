@@ -19,11 +19,14 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   PRESETS,
-  applyIfcLibraryManifestToPresets,
   buildPresetPreviewDataUri,
+  getLibraryPresetDisplayName,
+} from './threeDLibraryPresets'
+import {
+  applyIfcLibraryManifestToPresets,
   loadIfcLibraryManifest,
   type IfcLibraryManifest,
-} from './threeDLibraryPresets'
+} from './threeDLibraryManifest'
 import { writeLibraryPresetToDataTransfer } from './threeDLibraryDnd'
 import type { ThreeDLibraryPreset } from './threeDLibrary.types'
 
@@ -109,6 +112,7 @@ function LibraryPresetCard({ preset, onAdd, isEditingLocked }: LibraryPresetCard
   const fallbackPreviewSrc = buildPresetPreviewDataUri(preset)
   const previewSrc = preset.previewImageUrl ?? fallbackPreviewSrc
   const categoryLabel = LIBRARY_CATEGORIES.find((c) => c.id === preset.type)?.label
+  const displayName = getLibraryPresetDisplayName(preset)
   const suppressNextClickRef = useRef(false)
 
   return (
@@ -143,7 +147,7 @@ function LibraryPresetCard({ preset, onAdd, isEditingLocked }: LibraryPresetCard
       <div className="mb-3 h-16 overflow-hidden rounded-xl border border-black/5 bg-[#EEF1F8]">
         <img
           src={previewSrc}
-          alt={`${preset.name} 미리보기`}
+          alt={`${displayName} 미리보기`}
           loading="lazy"
           decoding="async"
           data-fallback-applied="0"
@@ -159,7 +163,7 @@ function LibraryPresetCard({ preset, onAdd, isEditingLocked }: LibraryPresetCard
       </div>
       <div className="flex items-start justify-between gap-2">
         <h4 className="min-w-0 flex-1 truncate text-[13px] font-black text-[#1C1C1E]">
-          {preset.name}
+          {displayName}
         </h4>
         {categoryLabel && (
           <span className="shrink-0 rounded-md bg-[#EEF0FF] px-1.5 py-0.5 text-[9px] font-black text-[#3B45B3]">

@@ -26,6 +26,7 @@ interface ThreeDCanvasSceneProps {
   deletingPinId: string | null
   ifcElementChanges: IfcElementChange[]
   isRotationLocked: boolean
+  isGridVisible: boolean
   zoomScale: number
   selectedTool?: string
   selectedIfcElement?: IfcElementInfo | null
@@ -33,6 +34,7 @@ interface ThreeDCanvasSceneProps {
   deleteRequestToken: number
   onIfcElementSelect?: (element: IfcElementInfo | null) => void
   onIfcElementDelete?: (element: IfcElementInfo) => void
+  onSelectWallForChat?: (wallId: string) => void
   onIfcElementTransformCommit?: (
     element: IfcElementInfo,
     patch: Omit<IfcElementChange, 'expressId'>,
@@ -86,6 +88,7 @@ export default function ThreeDCanvasScene({
   deletingPinId,
   ifcElementChanges,
   isRotationLocked,
+  isGridVisible,
   zoomScale,
   selectedTool,
   selectedIfcElement,
@@ -93,6 +96,7 @@ export default function ThreeDCanvasScene({
   deleteRequestToken,
   onIfcElementSelect,
   onIfcElementDelete,
+  onSelectWallForChat,
   onIfcElementTransformCommit,
   onLibraryElementChange,
   onLibraryElementDelete,
@@ -174,12 +178,14 @@ export default function ThreeDCanvasScene({
       deletingPinId={deletingPinId}
       ifcElementChanges={ifcElementChanges}
       isRotationLocked={isRotationLocked}
+      isGridVisible={isGridVisible}
       zoomScale={zoomScale}
       selectedIfcElement={selectedIfcElement}
       preferredSelectedElementId={preferredSelectedElementId}
       deleteRequestToken={deleteRequestToken}
       onIfcElementSelect={onIfcElementSelect}
       onIfcElementDelete={onIfcElementDelete}
+      onSelectWallForChat={onSelectWallForChat}
       onIfcElementTransformCommit={onIfcElementTransformCommit}
       onLibraryElementChange={onLibraryElementChange}
       onLibraryElementDelete={onLibraryElementDelete}

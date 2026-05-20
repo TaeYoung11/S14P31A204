@@ -319,6 +319,8 @@ export const parseBatangDimensionProperties = (ifcText: string): IfcPsetMetricMa
     const decodedName = parseIfcStepStringArgument(args[2])
     const category = IFC_CATEGORY_LABELS.find(([candidate]) => candidate.toLowerCase() === ifcClass.toLowerCase())?.[1]
       ?? ifcClass.replace(/^Ifc/i, '')
+    const objectPlacementId = parseIfcReferenceId(args[5])
+    const representationId = parseIfcReferenceId(args[6])
     productById[productId] = {
       expressId: productId,
       globalId,
@@ -327,8 +329,6 @@ export const parseBatangDimensionProperties = (ifcText: string): IfcPsetMetricMa
       category,
     }
     aliasToProductId[productId] = productId
-    const objectPlacementId = parseIfcReferenceId(args[5])
-    const representationId = parseIfcReferenceId(args[6])
     if (objectPlacementId !== undefined) aliasToProductId[objectPlacementId] = productId
     if (representationId !== undefined) aliasToProductId[representationId] = productId
   })
@@ -455,6 +455,12 @@ const IFC_STOREY_NAME_KO: Record<string, string> = {
 const toKoreanStoreyName = (name: string): string =>
   IFC_STOREY_NAME_KO[name.trim()] ?? name
 
+const isDisplayableBuildingStoreyName = (name: string): boolean => {
+  const normalized = decodeIfcStepString(name).trim().replace(/\s+/g, ' ').toUpperCase()
+  if (!normalized) return false
+  return !/^(?:B\.O\.|T\.O\.)\b/.test(normalized)
+}
+
 /**
  * IFC 텍스트에서 건물 층(IfcBuildingStorey) 목록과 각 층에 속하는 요소 ID를 추출한다.
  * IFCBUILDINGSTOREY와 IFCRELCONTAINEDINSPATIALSTRUCTURE를 정규식으로 파싱한다.
@@ -471,7 +477,8 @@ export const parseIfcStoreys = (ifcText: string): IfcStoreyInfo[] => {
   Array.from(ifcText.matchAll(/#(\d+)=IFCBUILDINGSTOREY\('[^']+',#\d+,(?:'([^']*)'|\$)/gi)).forEach((match) => {
     const expressId = Number(match[1])
     if (storeyById.has(expressId)) return
-    const rawName = match[2]?.trim() || `층 ${expressId}`
+    const rawName = decodeIfcStepString(match[2]?.trim() || `층 ${expressId}`)
+    if (!isDisplayableBuildingStoreyName(rawName)) return
     const name = toKoreanStoreyName(rawName)
     const storey: IfcStoreyInfo = { expressId, name, elevation: null, elementLocalIds: new Set() }
     storeyList.push(storey)

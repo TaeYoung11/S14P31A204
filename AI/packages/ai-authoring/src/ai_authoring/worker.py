@@ -26,11 +26,18 @@ from ai_authoring.engine_3d import (
     modify_material,
     modify_position,
     modify_rotation,
+    modify_rotation_axis_angle,
     modify_thickness,
+    rotation_targets,
 )
 # operations/__init__ 경유 → create_element @register 실행
 from ai_authoring.operations.registry import get as get_op_handler
-from ai_authoring.operations.space_support import update_space
+from ai_authoring.operations.transform_elements import (
+    LEGACY_ROTATION_XY_ERROR,
+    has_unsupported_legacy_rotation_xy,
+)
+from ai_authoring.operations.space_support import transform_scope_for_product, update_space
+from ai_authoring.operations.wall_support import update_wall_segment
 from ai_authoring.post_validator import PostEditValidator
 from ai_authoring.utils import normalize_space_name, normalize_storey_name
 from ai_common.adapters.storage.s3_client import S3Client, parse_s3_url
@@ -48,6 +55,34 @@ _logger = get_logger(__name__)
 def _pad_step(step_no: int) -> str:
     """MinIO 경로용 3자리 zero-padding 변환."""
     return f"{step_no:03d}"
+
+
+def _rotation_axis_angle(
+    rotation: Any,
+) -> tuple[dict[str, Any], float, str] | None:
+    if not isinstance(rotation, dict):
+        return None
+    axis = rotation.get("axis")
+    angle = rotation.get("angle")
+    if angle is None:
+        angle = rotation.get("angle_degrees")
+    if angle is None or not isinstance(axis, dict):
+        return None
+    try:
+        return (axis, float(angle), str(rotation.get("pivot") or "BBOX_CENTER"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _legacy_rotation_z(rotation: Any) -> float | None:
+    if isinstance(rotation, (int, float)):
+        return float(rotation)
+    if isinstance(rotation, dict) and rotation.get("z") is not None:
+        try:
+            return float(rotation["z"])
+        except (TypeError, ValueError):
+            return None
+    return None
 
 
 class AuthoringWorker(BaseWorker):
@@ -180,9 +215,48 @@ class AuthoringWorker(BaseWorker):
                 self._validate_dimension_params(op_id, params.get("dimensions_mm") or {}, issues)
             if op_type == "transform_elements":
                 self._validate_translation_params(op_id, params.get("translation_mm") or {}, issues)
-                rotation = params.get("rotation_deg") or {}
-                if rotation.get("z") is not None:
-                    self._validate_finite_number(op_id, "rotation_deg.z", rotation.get("z"), issues)
+                rotation = params.get("rotation_deg")
+                if isinstance(rotation, dict) and "axis" in rotation:
+                    axis = rotation.get("axis")
+                    if not isinstance(axis, dict):
+                        issues.append(f"{op_id}: rotation_deg.axis must be an object")
+                    else:
+                        axis_values: list[float] = []
+                        for key in ("x", "y", "z"):
+                            axis_value = self._validate_finite_number(
+                                op_id,
+                                f"rotation_deg.axis.{key}",
+                                axis.get(key),
+                                issues,
+                            )
+                            if axis_value is not None:
+                                axis_values.append(axis_value)
+                        if (
+                            len(axis_values) == 3
+                            and math.sqrt(sum(value * value for value in axis_values)) <= 1.0e-8
+                        ):
+                            issues.append(f"{op_id}: rotation_deg.axis must be non-zero")
+                    angle = rotation.get("angle")
+                    if angle is None:
+                        angle = rotation.get("angle_degrees")
+                    angle_value = self._validate_finite_number(
+                        op_id,
+                        "rotation_deg.angle",
+                        angle,
+                        issues,
+                    )
+                    if angle_value is not None and abs(angle_value) <= 1.0e-6:
+                        issues.append(f"{op_id}: rotation_deg.angle must be non-zero")
+                    pivot = str(rotation.get("pivot") or "BBOX_CENTER").upper()
+                    if pivot != "BBOX_CENTER":
+                        issues.append(f"{op_id}: rotation_deg.pivot only supports BBOX_CENTER")
+                else:
+                    if has_unsupported_legacy_rotation_xy(rotation):
+                        issues.append(f"{op_id}: {LEGACY_ROTATION_XY_ERROR}")
+                        continue
+                    legacy_z = _legacy_rotation_z(rotation)
+                    if legacy_z is not None:
+                        self._validate_finite_number(op_id, "rotation_deg.z", legacy_z, issues)
         if issues:
             raise NonRetryableWorkerError(
                 code="INVALID_OPERATION_PARAMETERS",
@@ -399,6 +473,13 @@ class AuthoringWorker(BaseWorker):
         selector: dict[str, Any],
     ) -> dict[str, Any]:
         applied, issues = [], []
+        if op_type == "transform_elements":
+            scoped_elements: list[ifcopenshell.entity_instance] = []
+            for el in elements:
+                for scoped_el in transform_scope_for_product(model, el):
+                    if scoped_el not in scoped_elements:
+                        scoped_elements.append(scoped_el)
+            elements = scoped_elements
         for el in elements:
             matched = {
                 "global_id": el.GlobalId,
@@ -447,6 +528,23 @@ class AuthoringWorker(BaseWorker):
                     pset_updates=pset_updates,
                     pset_name=pset_name,
                 )
+            segment_mm = params.get("segment_mm") or {}
+            if el.is_a("IfcWall") and segment_mm:
+                start = segment_mm.get("start") or {}
+                end = segment_mm.get("end") or {}
+                if update_wall_segment(
+                    model=model,
+                    wall=el,
+                    start_m=(
+                        float(start.get("x", 0.0)) / 1000.0,
+                        float(start.get("y", 0.0)) / 1000.0,
+                    ),
+                    end_m=(
+                        float(end.get("x", 0.0)) / 1000.0,
+                        float(end.get("y", 0.0)) / 1000.0,
+                    ),
+                ):
+                    changed = True
             # dimensionChangesMm values are authored in millimeters.
             if dims.get("width"):
                 changed |= bool(modify_thickness(el, dims["width"], scale=1000.0))
@@ -472,8 +570,16 @@ class AuthoringWorker(BaseWorker):
                 pos_dict: dict[str, Any] = {"mode": "RELATIVE", **translation}
                 changed |= bool(modify_position(el, pos_dict, scale=1000.0))
             rotation = params.get("rotation_deg")
-            if rotation and rotation.get("z") is not None:
-                changed |= bool(modify_rotation(model, el, float(rotation["z"])))
+            axis_angle = _rotation_axis_angle(rotation)
+            if axis_angle is not None:
+                axis, angle, pivot = axis_angle
+                for target in rotation_targets(el):
+                    changed |= bool(modify_rotation_axis_angle(model, target, axis, angle, pivot))
+            else:
+                legacy_z = _legacy_rotation_z(rotation)
+                if legacy_z is not None:
+                    for target in rotation_targets(el):
+                        changed |= bool(modify_rotation(model, target, legacy_z))
 
         return changed
 

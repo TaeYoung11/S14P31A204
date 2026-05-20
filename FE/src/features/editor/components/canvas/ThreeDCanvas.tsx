@@ -13,14 +13,13 @@ import type { CommentPin3DCreatePosition, FloorCommentPin, FloorLayer, FloorLaye
 import type { IfcStoreyInfo } from './thatopen/ifcPropertyParser'
 import { useCtrlWheelZoom } from '../../hooks/useCtrlWheelZoom'
 import ThreeDCanvasCollaborationOverlay from './ThreeDCanvasCollaborationOverlay'
-import ThreeDCanvasGridOverlay from './ThreeDCanvasGridOverlay'
 import ThreeDCanvasScene from './ThreeDCanvasScene'
 import ThreeDLibraryPanel from './ThreeDLibraryPanel'
 import type { FloorPlan3DData } from '../../utils/floorPlanTo3D'
 import { DEFAULT_MOCK_IFC_URL } from './threeDCanvas.utils'
-import type { ThreeDLibraryPreset } from './threeDLibrary.types'
 import type { ThreeDCameraViewPresetCommand } from '@/pages/editor/components/canvas-content/buildCanvasSectionProps'
 import { useThreeDLibraryDrop } from './useThreeDLibraryDrop'
+import type { ThreeDLibraryPreset } from './threeDLibrary.types'
 
 type ThreeDCoordinates = { x: number; y: number; z: number }
 
@@ -60,12 +59,13 @@ interface ThreeDCanvasProps {
   threeDDeleteRequestToken?: number
   onIfcElementSelect?: (element: IfcElementInfo | null) => void
   onIfcElementDelete?: (element: IfcElementInfo) => void
+  onSelectWallForChat?: (wallId: string) => void
   onIfcElementTransformCommit?: (
     element: IfcElementInfo,
     patch: Omit<IfcElementChange, 'expressId'>,
   ) => void
   libraryElements: ThreeDLibraryPreset[]
-  onAddLibraryPreset: (preset: ThreeDLibraryPreset) => void
+  onAddLibraryPreset: (preset: ThreeDLibraryPreset, options?: { closePanel?: boolean }) => void
   onLibraryElementChange: (id: string, patch: Partial<ThreeDLibraryPreset>) => void
   onLibraryElementDelete: (id: string) => void
   /** 2D 평면도에서 직접 생성한 로컬 3D 데이터. 있으면 IFC 대신 이를 렌더링한다. */
@@ -104,12 +104,12 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
 
   const { onAddLibraryPreset } = props
   const addLibraryPreset = useCallback(
-  (preset: ThreeDLibraryPreset) => {
-    if (isEditingLocked) return
-    onAddLibraryPreset(preset)
-  },
-  [isEditingLocked, onAddLibraryPreset],
-)
+    (preset: ThreeDLibraryPreset, options?: { closePanel?: boolean }) => {
+      if (isEditingLocked) return
+      onAddLibraryPreset(preset, options)
+    },
+    [isEditingLocked, onAddLibraryPreset],
+  )
 
   useCtrlWheelZoom({
     rootRef,
@@ -152,6 +152,7 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
         deletingPinId={props.deletingPinId ?? null}
         ifcElementChanges={props.ifcElementChanges ?? []}
         isRotationLocked={props.isRotationLocked ?? false}
+        isGridVisible={Boolean(props.isGridVisible)}
         zoomScale={props.scale ?? 1}
         selectedTool={props.selectedTool}
         selectedIfcElement={props.selectedIfcElement}
@@ -159,6 +160,7 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
         deleteRequestToken={props.threeDDeleteRequestToken ?? 0}
         onIfcElementSelect={props.onIfcElementSelect}
         onIfcElementDelete={props.onIfcElementDelete}
+        onSelectWallForChat={props.onSelectWallForChat}
         onIfcElementTransformCommit={props.onIfcElementTransformCommit}
         onLibraryElementChange={props.onLibraryElementChange}
         onLibraryElementDelete={props.onLibraryElementDelete}
@@ -180,8 +182,6 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
         isEditingLocked={isEditingLocked}
       />
 
-      <ThreeDCanvasGridOverlay isVisible={Boolean(props.isGridVisible)} />
-
       <ThreeDCanvasCollaborationOverlay isVisible={Boolean(props.isCollaborationMode)} />
 
       {props.isLibraryOpen && (
@@ -192,8 +192,7 @@ export function ThreeDCanvas(props: ThreeDCanvasProps) {
           isEditingLocked={isEditingLocked}
           onAddPreset={(preset) => {
             if (isEditingLocked) return
-            props.onAddLibraryPreset(preset)
-            props.onToggleLibrary?.()
+            addLibraryPreset(preset, { closePanel: true })
           }}
         />
       )}

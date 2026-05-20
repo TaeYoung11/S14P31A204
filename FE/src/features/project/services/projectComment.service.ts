@@ -2,6 +2,7 @@
 import { api } from '@/shared/lib/axios'
 import type { Project } from '@/shared/types'
 import { DEFAULT_PIN_CONTENT } from '@/shared/constants/pin'
+import { parseBackendDateAsKst } from '@/shared/utils/format'
 
 interface ApiResponse<T> {
   status: number
@@ -62,7 +63,7 @@ const fetchProjectPins = async (projectId: string): Promise<ProjectPinResponse[]
 }
 
 const compareCommentTimeDesc = (left: ProjectCommentListItem, right: ProjectCommentListItem): number => {
-  return new Date(right.lastCommentAt).getTime() - new Date(left.lastCommentAt).getTime()
+  return parseBackendDateAsKst(right.lastCommentAt).getTime() - parseBackendDateAsKst(left.lastCommentAt).getTime()
 }
 
 const toProjectCommentItem = (
@@ -81,8 +82,8 @@ const fetchProjectComments = async (project: Project): Promise<ProjectCommentLis
   const commentPins = pins
     .filter((pin) => pin.hasUnreadCommentByOtherUser)
     .sort((left, right) => {
-      const rightTime = right.lastCommentAt ? new Date(right.lastCommentAt).getTime() : 0
-      const leftTime = left.lastCommentAt ? new Date(left.lastCommentAt).getTime() : 0
+      const rightTime = right.lastCommentAt ? parseBackendDateAsKst(right.lastCommentAt).getTime() : 0
+      const leftTime = left.lastCommentAt ? parseBackendDateAsKst(left.lastCommentAt).getTime() : 0
       return rightTime - leftTime
     })
 

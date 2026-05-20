@@ -323,6 +323,7 @@ const writeCachedIfcSource = (
 }
 
 const logBootstrapFloor = (label: string, payload: Record<string, unknown>) => {
+  if (!isBubbleDebugEnabled()) return
   console.info(`[bootstrap-floor] ${label}`, payload)
 }
 
@@ -838,8 +839,8 @@ export function useEditorPage() {
   }, [])
   const [libraryElements, setLibraryElements] = useState<ThreeDLibraryPreset[]>([])
   const [hiddenElementIds, setHiddenElementIds] = useState<string[]>([])
-  const [isTrueNorthView, setIsTrueNorthView] = useState(false)
   const [isGridVisible, setIsGridVisible] = useState(false)
+  const [userViewRotationRadians, setUserViewRotationRadians] = useState(0)
   /** 연결 도구에서 첫 번째로 선택된 버블 id */
   /** 인라인 라벨 편집 상태 */
   const [labelEditState, setLabelEditState] = useState<{
@@ -2056,15 +2057,14 @@ export function useEditorPage() {
       setBubbleHistoryCursor({ baseIndex: bubbleBaseIndex, redoDepth: bubbleRedoDepth })
       setFloorPlanHistoryCursor({ baseIndex: floorPlanBaseIndex, redoDepth: floorPlanRedoDepth })
 
-      const nextPhaseStatus = history.phaseStatus ?? 'BUBBLE_DRAFT'
-      setWorkspacePhaseStatus(nextPhaseStatus)
-
       const bubbleSnapshot = history.bubble?.snapshot
       const hasBubbleSnapshot = isBubbleSnapshotPayload(bubbleSnapshot)
 
       const floorPlanSnapshotRaw = history.floorPlan?.snapshot
       const floorPlanSnapshot: SavedFloorPlanSnapshotPayload | null | undefined = floorPlanSnapshotRaw
       const floorPlanBubbleSnapshot = isBubbleSnapshotPayload(floorPlanSnapshotRaw) ? floorPlanSnapshotRaw : null
+      const nextPhaseStatus = floorPlanSnapshot?.layout?.phaseStatus ?? history.phaseStatus ?? 'BUBBLE_DRAFT'
+      setWorkspacePhaseStatus(nextPhaseStatus)
 
       const resolvedHistoryBubbleSnapshot = hasBubbleSnapshot
         ? bubbleSnapshot
@@ -2493,6 +2493,25 @@ export function useEditorPage() {
       summary: publishDebugSummary,
       floorMeta: extractBubbleFloorMetaFromWorkspaceSnapshot(publishSnapshot),
     })
+    const isServerIfcRotationCommand = serverPublishRecord.workspaceCommand?.entity === 'ifcElement'
+      && serverPublishRecord.workspaceCommand.op === 'update'
+      && serverPublishRecord.workspaceCommand.patch != null
+      && typeof serverPublishRecord.workspaceCommand.patch === 'object'
+      && !Array.isArray(serverPublishRecord.workspaceCommand.patch)
+      && 'rotation_degrees' in serverPublishRecord.workspaceCommand.patch
+    if (import.meta.env.DEV && mode === '3d' && isServerIfcRotationCommand) {
+      const workspaceCommandJson = serverPublishRecord.workspaceCommand
+        ? JSON.stringify(serverPublishRecord.workspaceCommand)
+        : null
+      console.log('[ifc-rotate-save][send-floor-plan-update]', {
+        projectId,
+        baseIndex: serverPublishRecord.baseIndex,
+        revisionId: serverPublishRecord.revisionId,
+        sceneType: serverPublishRecord.sceneType,
+        workspaceCommand: serverPublishRecord.workspaceCommand,
+        workspaceCommandJson,
+      })
+    }
     if (isBubbleDebugEnabled()) {
       console.table(publishDebugSummary.bubbleFloorRows)
     }
@@ -2617,15 +2636,43 @@ export function useEditorPage() {
     onRemoteFloorPlanSnapshot: applyRemoteFloorPlanSnapshot,
     onPhaseStatusChanged: setWorkspacePhaseStatus,
     onIfcStorageUrlReceived: (ifcStorageUrl, action, assetId, revisionId) => {
-      handleIfcSyncMessageRef.current(ifcStorageUrl, action, assetId, revisionId)
       if (
         pendingOpenThreeDOnGenerateCompleteRef.current &&
-        action &&
-        IFC_COMPLETED_ACTION_SET.has(action)
+        action === WORKSPACE_SYNC_ACTION.floorPlanGenerateCompleted &&
+        projectId
       ) {
         pendingOpenThreeDOnGenerateCompleteRef.current = false
+        const normalizedIfcUrl = ifcStorageUrl.trim()
+        if (revisionId !== undefined) {
+          setIfcRevisionByProjectId((prev) => ({
+            ...prev,
+            [projectId]: revisionId ?? null,
+          }))
+        }
+        if (normalizedIfcUrl) {
+          setIfcSourceByProjectId((prev) => ({
+            ...prev,
+            [projectId]: {
+              url: normalizedIfcUrl,
+              storageUrl: normalizedIfcUrl,
+              assetId: assetId ?? null,
+            },
+          }))
+          writeCachedIfcSource(projectId, {
+            url: normalizedIfcUrl,
+            storageUrl: normalizedIfcUrl,
+            assetId: assetId ?? null,
+            revisionId: revisionId ?? null,
+          })
+        }
+        clearFloorPlanGenerateTimeout()
+        setFloorPlanGenerateStatusText('평면도 생성 상태를 확인하는 중입니다.')
+        setWorkspacePhaseStatus('IFC_EDIT')
+        setSaveStatus('synced')
         setMode('3d')
+        return
       }
+      handleIfcSyncMessageRef.current(ifcStorageUrl, action, assetId, revisionId)
     },
     onBubbleHistoryCursorChanged: updateBubbleHistoryCursor,
     onFloorPlanHistoryCursorChanged: updateFloorPlanHistoryCursor,
@@ -3423,14 +3470,22 @@ export function useEditorPage() {
   const {
     bubbleCanvasViewTransform,
     floorCanvasViewTransform,
+    projectNorthViewRotationRadians,
     mapSnapshotForPersistence,
     mapBubblesForFloorPlanGenerate,
     mapLayoutBoundaryInputForFloorPlanGenerate,
   } = useWorkspaceCoordinateFramePolicy({
     bubbleSitePoints,
     sharedSitePlanPoints,
-    isTrueNorthView,
+    userViewRotationRadians,
   })
+  const toggleProjectNorthViewRotation = useCallback(() => {
+    setUserViewRotationRadians((current) => (
+      Math.abs(current - projectNorthViewRotationRadians) < 1e-9
+        ? 0
+        : projectNorthViewRotationRadians
+    ))
+  }, [projectNorthViewRotationRadians])
   // layout effect에서 먼저 ref를 갱신해 bootstrap 초기 publish 경로도 최신 매핑을 사용하게 한다.
   useLayoutEffect(() => {
     mapSnapshotForPersistenceRef.current = mapSnapshotForPersistence
@@ -3948,10 +4003,6 @@ export function useEditorPage() {
 
   /** 협업 핀 클릭 — 해당 핀의 스레드 탭으로 이동 */
   const handlePinClick = useCallback((pinId: string) => {
-    if (selectedPinId === pinId) {
-      setSelectedPinId(null)
-      return
-    }
     setSelectedPinId(pinId)
     markPinNotificationsRead(pinId)
     const targetPin = commentPins.find((pin) => pin.id === pinId)
@@ -3965,7 +4016,7 @@ export function useEditorPage() {
         },
       })
     }
-  }, [commentPins, markPinCommentsRead, markPinNotificationsRead, selectedPinId])
+  }, [commentPins, markPinCommentsRead, markPinNotificationsRead])
 
   /** 2D 평면도 핀 생성 + 첫 댓글 작성 */
   const resolveActiveFloorPinElevationMm = useCallback(() => {
@@ -4186,7 +4237,11 @@ export function useEditorPage() {
     setIfcElementSelectionRequestToken((prev) => prev + 1)
   }, [clearSelection, clearConnectionAndTwoDSelection])
 
-  const handleAddLibraryPreset = useCallback((preset: ThreeDLibraryPreset) => {
+  /**
+   * 3D 라이브러리 프리셋을 현재 활성 IFC 층에 새 인스턴스로 추가한다.
+   * 협업/저장 동기화를 위해 React 상태 변경 전에 workspace command를 먼저 기록한다.
+   */
+  const handleAddLibraryPreset = useCallback((preset: ThreeDLibraryPreset, options?: { closePanel?: boolean }) => {
     const storeyExpressId = activeIfcStoreyExpressId ?? null
 
     // IFC 층이 있는데 현재 활성 층이 없으면 추가를 중단하고 설정 방법을 안내한다.
@@ -4198,33 +4253,71 @@ export function useEditorPage() {
       return
     }
 
+    const nextPreset = {
+      ...preset,
+      id: `${preset.id}-${Date.now()}-${libraryElements.length}`,
+      storeyExpressId,
+    }
+    workspaceCommandPublisher.createLibraryElement(nextPreset)
+    markLocalFloorPlanSnapshotChanged()
     setLibraryElements((prev) => [
       ...prev,
-      {
-        ...preset,
-        id: `${preset.id}-${Date.now()}-${prev.length}`,
-        storeyExpressId,
-      },
+      nextPreset,
     ])
-    setIsLibraryOpen(false)
-  }, [activeIfcStoreyExpressId, ifcStoreys, openNoticeModal])
+    if (options?.closePanel !== false) setIsLibraryOpen(false)
+  }, [
+    activeIfcStoreyExpressId,
+    ifcStoreys,
+    libraryElements.length,
+    markLocalFloorPlanSnapshotChanged,
+    openNoticeModal,
+    workspaceCommandPublisher,
+  ])
 
+  /**
+   * 배치된 3D 라이브러리 요소의 위치, 회전, 치수, 색상 같은 속성을 갱신한다.
+   * 층 정보가 누락된 과거 데이터는 현재 활성 층 또는 첫 번째 IFC 층으로 보정한다.
+   */
   const handleChangeLibraryElement = useCallback((id: string, patch: Partial<ThreeDLibraryPreset>) => {
+    const target = libraryElements.find((element) => element.id === id)
+    if (!target) return
+    const mergedTarget = { ...target, ...patch }
+    const commandElement = Number.isFinite(mergedTarget.storeyExpressId)
+      ? mergedTarget
+      : {
+          ...mergedTarget,
+          storeyExpressId: activeIfcStoreyExpressId ?? ifcStoreys[0]?.expressId ?? null,
+        }
+    workspaceCommandPublisher.updateLibraryElement(target, commandElement)
+    markLocalFloorPlanSnapshotChanged()
     setLibraryElements((prev) =>
       prev.map((element) => {
         if (element.id !== id) return element
         const merged = { ...element, ...patch }
         if (Number.isFinite(merged.storeyExpressId)) return merged
-        const fallbackStoreyId = activeIfcStoreyExpressId ?? ifcStoreys[0]?.expressId ?? null
-        return { ...merged, storeyExpressId: fallbackStoreyId }
+        return { ...merged, storeyExpressId: activeIfcStoreyExpressId ?? ifcStoreys[0]?.expressId ?? null }
       }),
     )
-  }, [activeIfcStoreyExpressId, ifcStoreys])
+  }, [
+    activeIfcStoreyExpressId,
+    ifcStoreys,
+    libraryElements,
+    markLocalFloorPlanSnapshotChanged,
+    workspaceCommandPublisher,
+  ])
 
+  /**
+   * 배치된 3D 라이브러리 요소를 삭제하고 선택 상태 및 workspace command를 함께 정리한다.
+   */
   const handleDeleteLibraryElement = useCallback((id: string) => {
+    const target = libraryElements.find((element) => element.id === id)
+    if (target) {
+      workspaceCommandPublisher.deleteLibraryElement(target)
+      markLocalFloorPlanSnapshotChanged()
+    }
     setLibraryElements((prev) => prev.filter((element) => element.id !== id))
     setSelectedIfcElement((prev) => (prev?.source === 'library' ? null : prev))
-  }, [])
+  }, [libraryElements, markLocalFloorPlanSnapshotChanged, workspaceCommandPublisher])
 
   const handleSelectLibraryElementById = useCallback((id: string) => {
     const normalizedId = id.trim()
@@ -4237,7 +4330,25 @@ export function useEditorPage() {
 
   const recordIfcElementChange = useCallback((element: IfcElementInfo | null, patch: Omit<IfcElementChange, 'expressId' | 'localId' | 'localIds'>) => {
     if (!element || element.source !== 'ifc' || typeof element.expressId !== 'number') return
+    markLocalFloorPlanSnapshotChanged()
     const expressId = element.expressId
+    const hasRotationPatch =
+      'rotationDegrees' in patch ||
+      'rotation_degrees' in patch ||
+      'rotationX' in patch ||
+      'rotationY' in patch ||
+      'rotationZ' in patch
+    if (import.meta.env.DEV && mode === '3d' && hasRotationPatch) {
+      const patchSnapshot = { ...patch }
+      console.log('[ifc-transform-save][record-change]', {
+        elementId: element.id,
+        expressId,
+        globalId: element.globalId ?? element.properties?.GlobalId ?? null,
+        patch: patchSnapshot,
+        patchKeys: Object.keys(patchSnapshot),
+        patchJson: JSON.stringify(patchSnapshot),
+      })
+    }
     if (shouldPublishIfcElementPatch(element, patch)) {
       const commandPatch: Record<string, unknown> = { ...patch }
       const nextX = typeof patch.positionX === 'number' ? patch.positionX : null
@@ -4299,7 +4410,7 @@ export function useEditorPage() {
         { globalId: element.globalId, ifcClass: element.ifcClass },
       )
     })
-  }, [workspaceCommandPublisher])
+  }, [markLocalFloorPlanSnapshotChanged, mode, workspaceCommandPublisher])
 
   const handleDeleteIfcElement = useCallback((element: IfcElementInfo) => {
     workspaceCommandPublisher.deleteIfcElement(element)
@@ -5361,7 +5472,7 @@ export function useEditorPage() {
     let didLoadIfc = false
 
     try {
-      // private S3 버킷: assetId 또는 s3:// URL → download-url API로 presigned URL 발급
+      // private S3 bucket storage key: refresh the latest IFC source from the project API.
       const refreshIfcSource = async () => {
         let lastError: unknown = null
         for (let attempt = 0; attempt < 5; attempt += 1) {
@@ -5401,14 +5512,14 @@ export function useEditorPage() {
         action === WORKSPACE_SYNC_ACTION.floorPlanUndo ||
         action === WORKSPACE_SYNC_ACTION.floorPlanRedo
 
-      if (!assetId && isIfcObjectStorageKey(normalizedIfcStorageUrl)) {
+      if (!normalizedIfcStorageUrl || isIfcObjectStorageKey(normalizedIfcStorageUrl)) {
         const refreshed = await refreshIfcSource()
         resolvedUrl = refreshed.url
         resolvedStorageUrl = refreshed.storageUrl
         resolvedAssetId = refreshed.assetId
         resolvedRevisionId = refreshed.revisionId
       } else {
-        resolvedUrl = await resolveIfcPresignedUrl(ifcStorageUrl, assetId ?? undefined)
+        resolvedUrl = await resolveIfcPresignedUrl(ifcStorageUrl)
         resolvedStorageUrl = normalizedIfcStorageUrl || resolvedUrl
       }
 
@@ -5473,6 +5584,7 @@ export function useEditorPage() {
       lastLoadedIfcStorageUrlRef.current = dedupeKey
       if (
         action === WORKSPACE_SYNC_ACTION.floorPlanUpdated ||
+        action === WORKSPACE_SYNC_ACTION.floorPlanGenerateCompleted ||
         action === WORKSPACE_SYNC_ACTION.floorPlanUndo ||
         action === WORKSPACE_SYNC_ACTION.floorPlanRedo
       ) {
@@ -5946,8 +6058,6 @@ export function useEditorPage() {
   return {
     // 모드
     mode,
-    isTrueNorthView,
-    setIsTrueNorthView,
     projectId,
     currentProjectName,
     latestFloorPlanJobId,
@@ -5970,6 +6080,10 @@ export function useEditorPage() {
     sitePlanPoints: sharedSitePlanPoints,
     bubbleCanvasViewTransform,
     floorCanvasViewTransform,
+    userViewRotationRadians,
+    setUserViewRotationRadians,
+    projectNorthViewRotationRadians,
+    toggleProjectNorthViewRotation,
     siteAreaM2,
     siteAreaPyeong,
     bubbleFloors,

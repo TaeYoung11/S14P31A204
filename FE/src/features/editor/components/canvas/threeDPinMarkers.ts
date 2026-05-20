@@ -183,3 +183,25 @@ export const getThreeDPinMarkerHit = (object: import('three').Object3D | null | 
   }
   return null
 }
+
+export const resolveThreeDPinMarkerHit = (
+  intersections: Array<import('three').Intersection>,
+): ThreeDPinMarkerHit | null => {
+  const markerHits: ThreeDPinMarkerHit[] = []
+  for (const intersection of intersections) {
+    const markerHit = getThreeDPinMarkerHit(intersection.object)
+    if (markerHit) markerHits.push(markerHit)
+  }
+
+  const firstHit = markerHits[0]
+  if (!firstHit) return null
+  if (firstHit.action === 'delete') return firstHit
+
+  for (let i = 1; i < markerHits.length; i += 1) {
+    const markerHit = markerHits[i]
+    if (markerHit.pinId !== firstHit.pinId) break
+    if (markerHit.action === 'delete') return markerHit
+  }
+
+  return firstHit
+}

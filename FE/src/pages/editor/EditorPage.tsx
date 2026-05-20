@@ -8,6 +8,7 @@ import EditorModalLayer from './components/EditorModalLayer'
 import EditorProjectSwitchSidebar from './components/EditorProjectSwitchSidebar'
 import EditorRightPanelSection from './components/EditorRightPanelSection'
 import { useEditorPageLayout } from './hooks/useEditorPageLayout'
+import { CompassControl } from '@/features/editor/components/canvas/CompassControl'
 import ProjectCommentToast from '@/features/project/components/ProjectCommentToast'
 import {
   buildEditorCanvasContentProps,
@@ -29,9 +30,6 @@ export default function EditorPage() {
   const {
     shouldLiftRightPanel,
     shouldShowLeftToolbar,
-    leftToolbarRef,
-    leftToolbarOffset,
-    startLeftToolbarDrag,
   } = useEditorPageLayout(vm)
 
   return (
@@ -59,50 +57,42 @@ export default function EditorPage() {
         {...headerProps}
         onOpenProjectSwitcher={projectSwitcher.open}
       />
-      <div className="relative z-10 flex min-w-0 flex-1 overflow-hidden">
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <EditorToolbar
-            mode={vm.mode}
-            projectName={vm.currentProjectName}
-            onModeChange={vm.setMode}
-            isTrueNorthView={vm.isTrueNorthView}
-            onToggleTrueNorthView={() => vm.setIsTrueNorthView(!vm.isTrueNorthView)}
-            onUndo={vm.handleUndo}
-            onRedo={vm.handleRedo}
-            canUndo={vm.canUndo}
-            canRedo={vm.canRedo}
-          />
+      <div className="relative z-10 flex min-w-0 flex-1 flex-col overflow-hidden">
+        <EditorToolbar
+          mode={vm.mode}
+          projectName={vm.currentProjectName}
+          onModeChange={vm.setMode}
+          onUndo={vm.handleUndo}
+          onRedo={vm.handleRedo}
+          canUndo={vm.canUndo}
+          canRedo={vm.canRedo}
+        />
 
-          <div className={`relative min-w-0 flex-1 overflow-hidden ${vm.mode === 'view' ? '' : 'px-5 pb-5 pt-3'}`}>
+        <div className={`flex min-w-0 flex-1 overflow-hidden ${vm.mode === 'view' ? '' : 'gap-2 px-5 pb-5 pt-3'}`}>
+          {shouldShowLeftToolbar && (
+            <div className="flex min-h-0 shrink-0">
+              <EditorLeftSidebar {...sidebarProps} />
+            </div>
+          )}
+
+          <div className="relative min-w-0 flex-1 overflow-hidden">
             <EditorCanvasContent {...canvasContentProps} />
 
-            {shouldShowLeftToolbar && (
-              <div
-                ref={leftToolbarRef}
-                className="absolute z-[130] h-[calc(100%-112px)]"
-                style={{ left: leftToolbarOffset.x, top: leftToolbarOffset.y }}
-              >
-                <div
-                  className="absolute left-2 right-2 top-1 z-10 h-6 cursor-grab rounded-xl active:cursor-grabbing"
-                  onMouseDown={startLeftToolbarDrag}
-                  title="툴바 이동"
-                  aria-label="툴바 이동"
+            {(vm.mode === 'bubble' || vm.mode === '2d') && (
+              <div className="absolute right-6 top-6 z-[125]">
+                <CompassControl
+                  rotationRadians={vm.userViewRotationRadians}
+                  projectNorthRotationRadians={vm.projectNorthViewRotationRadians}
+                  onToggleProjectNorth={vm.toggleProjectNorthViewRotation}
                 />
-                <EditorLeftSidebar {...sidebarProps} />
-              </div>
-            )}
-
-            {!shouldLiftRightPanel && (
-              <div className="absolute bottom-24 right-8 top-6 z-[120]">
-                <EditorRightPanelSection mode={vm.mode} rightPanelProps={rightPanelProps} />
               </div>
             )}
           </div>
-        </div>
 
-        {shouldLiftRightPanel && (
-          <EditorRightPanelSection mode={vm.mode} rightPanelProps={rightPanelProps} />
-        )}
+          {shouldLiftRightPanel && (
+            <EditorRightPanelSection mode={vm.mode} rightPanelProps={rightPanelProps} />
+          )}
+        </div>
       </div>
     </div>
   )

@@ -146,12 +146,24 @@ function requireWorkspaceCommand(workspaceCommand?: WorkspaceCommand | null): Wo
 
 const publishJson = async (destination: string, body: unknown): Promise<void> => {
   const client = await ensureStompConnected()
+  const bodyJson = JSON.stringify(body)
+  if (
+    import.meta.env.DEV &&
+    destination.includes('/floor-plan/update') &&
+    bodyJson.includes('"entity":"ifcElement"') &&
+    bodyJson.includes('"rotation_degrees"')
+  ) {
+    console.log('[ifc-rotate-save][stomp-publish-json]', {
+      destination,
+      bodyJson,
+    })
+  }
   client.publish({
     destination,
     headers: {
       'content-type': 'application/json',
     },
-    body: JSON.stringify(body),
+    body: bodyJson,
   })
 }
 

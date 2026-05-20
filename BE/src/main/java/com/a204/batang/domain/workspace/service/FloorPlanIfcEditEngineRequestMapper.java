@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.UUID;
 
@@ -21,7 +22,7 @@ public class FloorPlanIfcEditEngineRequestMapper {
 
     public JsonNode toEngineRequest(String requestId, UUID projectId, UUID baseRevisionId, List<WorkspaceCommandEnvelope> batch) {
         ObjectNode root = objectMapper.createObjectNode();
-        root.put("schema_version", "v1");
+        root.put("schema_version", "v2");
         root.put("request_id", requestId);
         root.put("mode", "apply");
         root.put("project_id", projectId.toString());
@@ -91,37 +92,47 @@ public class FloorPlanIfcEditEngineRequestMapper {
         if (globalId == null || globalId.isBlank()) {
             return null;
         }
-        if ("room".equals(entity) && !isIfcGlobalId(globalId)) {
+        if (!isIfcGlobalId(globalId)) {
             return null;
         }
 
         JsonNode translationMm = firstPoint3d(patch, "translationMm", "translation_mm", "translateMm", "translate_mm");
-        JsonNode rotationDegrees = firstPoint3d(patch, "rotation_degrees", "rotationDegrees", "rotationDeg");
+        JsonNode rotationAxisAngle = firstRotationAxisAngle(patch, "rotation_axis_angle", "rotationAxisAngle");
+        JsonNode rotationDegrees = firstRotation(patch, "rotation_degrees", "rotationDegrees", "rotationDeg");
         if (translationMm != null) {
             // Realtime workspace commands are single-purpose; movement and property edits must be emitted separately.
             ObjectNode params = objectMapper.createObjectNode();
             params.set("translation_mm", translationMm);
-            if (rotationDegrees != null) {
+            if (rotationAxisAngle != null) {
+                params.set("rotation_deg", toIfcRotationAxisAngle(rotationAxisAngle));
+            } else if (rotationDegrees != null) {
                 params.set("rotation_deg", toIfcRotationDeg(rotationDegrees));
             }
-            return operation(envelope.commandId().toString(), "transform_elements", selector(globalId), params);
+            return operation(envelope.commandId().toString(), "transform_elements", selector(globalId, patch), params);
+        }
+        if (rotationAxisAngle != null) {
+            ObjectNode params = objectMapper.createObjectNode();
+            params.set("rotation_deg", toIfcRotationAxisAngle(rotationAxisAngle));
+            return operation(envelope.commandId().toString(), "transform_elements", selector(globalId, patch), params);
         }
         if (rotationDegrees != null) {
             ObjectNode params = objectMapper.createObjectNode();
             params.set("rotation_deg", toIfcRotationDeg(rotationDegrees));
-            return operation(envelope.commandId().toString(), "transform_elements", selector(globalId), params);
-        }
-
-        JsonNode startMm = firstPoint(patch, "startMm", "start_mm");
-        JsonNode endMm = firstPoint(patch, "endMm", "end_mm");
-        if (startMm != null || endMm != null) {
-            ObjectNode params = objectMapper.createObjectNode();
-            putPoint(params, "start_mm", startMm);
-            putPoint(params, "end_mm", endMm);
-            return operation(envelope.commandId().toString(), "transform_elements", selector(globalId), params);
+            return operation(envelope.commandId().toString(), "transform_elements", selector(globalId, patch), params);
         }
 
         ObjectNode params = objectMapper.createObjectNode();
+        JsonNode startMm = firstPoint(patch, "startMm", "start_mm");
+        JsonNode endMm = firstPoint(patch, "endMm", "end_mm");
+        if ("wall".equals(entity) && (startMm != null || endMm != null)) {
+            if (startMm == null || endMm == null) {
+                return null;
+            }
+            ObjectNode segment = params.putObject("segment_mm");
+            putPoint(segment, "start", startMm);
+            putPoint(segment, "end", endMm);
+        }
+
         putDimensions(params, patch, !"room".equals(entity));
         putText(params, "material", text(patch, "material"));
         putText(params, "color", text(patch, "color"));
@@ -129,7 +140,8 @@ public class FloorPlanIfcEditEngineRequestMapper {
             putText(params, "wall_type", firstText(patch, "wall_type", "wallType", "type"));
         }
         putRoomProperties(params, patch, entity);
-        if (!params.has("dimensions_mm")
+        if (!params.has("segment_mm")
+                && !params.has("dimensions_mm")
                 && !params.has("material")
                 && !params.has("color")
                 && !params.has("wall_type")
@@ -168,6 +180,48 @@ public class FloorPlanIfcEditEngineRequestMapper {
         ArrayNode ids = selector.putArray("global_ids");
         ids.add(globalId);
         return selector;
+    }
+
+    private ObjectNode selector(String globalId, JsonNode patch) {
+        LinkedHashSet<String> ids = new LinkedHashSet<>();
+        ids.add(globalId);
+        addSelectorGlobalIds(ids, patch, "affectedElementGlobalIds");
+        addSelectorGlobalIds(ids, patch, "affected_element_global_ids");
+        addSelectorGlobalIds(ids, patch, "affectedGlobalIds");
+        addSelectorGlobalIds(ids, patch, "affected_global_ids");
+        addSelectorGlobalIds(ids, patch, "affectedWallGlobalIds");
+        addSelectorGlobalIds(ids, patch, "affected_wall_global_ids");
+
+        ObjectNode selector = objectMapper.createObjectNode();
+        ArrayNode globalIds = selector.putArray("global_ids");
+        ids.forEach(globalIds::add);
+        return selector;
+    }
+
+    private void addSelectorGlobalIds(LinkedHashSet<String> ids, JsonNode source, String key) {
+        JsonNode value = source == null ? null : source.get(key);
+        if (value == null || value.isNull()) {
+            return;
+        }
+        if (value.isTextual()) {
+            String globalId = value.asText();
+            if (isIfcGlobalId(globalId)) {
+                ids.add(globalId);
+            }
+            return;
+        }
+        if (!value.isArray()) {
+            return;
+        }
+        value.forEach((item) -> {
+            if (!item.isTextual()) {
+                return;
+            }
+            String globalId = item.asText();
+            if (isIfcGlobalId(globalId)) {
+                ids.add(globalId);
+            }
+        });
     }
 
     private void putDimensions(ObjectNode params, JsonNode source, boolean wrapMode) {
@@ -340,6 +394,77 @@ public class FloorPlanIfcEditEngineRequestMapper {
         return null;
     }
 
+    private JsonNode firstRotation(JsonNode node, String... keys) {
+        for (String key : keys) {
+            JsonNode value = node == null ? null : node.get(key);
+            if (value == null || value.isNull()) {
+                continue;
+            }
+            if (value.isNumber()) {
+                return value;
+            }
+            if (value.isArray() && value.size() >= 3
+                    && value.get(0).isNumber()
+                    && value.get(1).isNumber()
+                    && value.get(2).isNumber()) {
+                ObjectNode rotation = objectMapper.createObjectNode();
+                rotation.put("x", value.get(0).asDouble());
+                rotation.put("y", value.get(1).asDouble());
+                rotation.put("z", value.get(2).asDouble());
+                return rotation;
+            }
+            if (value.isObject()
+                    && (hasNumber(value, "x") || hasNumber(value, "y") || hasNumber(value, "z"))) {
+                ObjectNode rotation = objectMapper.createObjectNode();
+                if (hasNumber(value, "x")) {
+                    rotation.put("x", value.get("x").asDouble());
+                }
+                if (hasNumber(value, "y")) {
+                    rotation.put("y", value.get("y").asDouble());
+                }
+                if (hasNumber(value, "z")) {
+                    rotation.put("z", value.get("z").asDouble());
+                }
+                return rotation;
+            }
+        }
+        return null;
+    }
+
+    private JsonNode firstRotationAxisAngle(JsonNode node, String... keys) {
+        for (String key : keys) {
+            JsonNode value = node == null ? null : node.get(key);
+            if (value == null || value.isNull() || !value.isObject()) {
+                continue;
+            }
+            JsonNode axis = value.get("axis");
+            Double angle = firstNumber(value, "angle_degrees", "angleDegrees", "angle");
+            if (axis == null || !axis.isObject() || angle == null || !Double.isFinite(angle)) {
+                continue;
+            }
+            Double x = firstNumber(axis, "x");
+            Double y = firstNumber(axis, "y");
+            Double z = firstNumber(axis, "z");
+            if (x == null || y == null || z == null) {
+                continue;
+            }
+            double axisLength = Math.sqrt(x * x + y * y + z * z);
+            if (!Double.isFinite(axisLength) || axisLength <= 1.0e-8 || Math.abs(angle) <= 1.0e-6) {
+                continue;
+            }
+            ObjectNode rotation = objectMapper.createObjectNode();
+            ObjectNode normalizedAxis = rotation.putObject("axis");
+            normalizedAxis.put("x", x / axisLength);
+            normalizedAxis.put("y", y / axisLength);
+            normalizedAxis.put("z", z / axisLength);
+            rotation.put("angle", angle);
+            String pivot = firstText(value, "pivot");
+            rotation.put("pivot", pivot == null || pivot.isBlank() ? "BBOX_CENTER" : pivot);
+            return rotation;
+        }
+        return null;
+    }
+
     private boolean hasNumber(JsonNode node, String key) {
         return node.get(key) != null && node.get(key).isNumber();
     }
@@ -354,14 +479,47 @@ public class FloorPlanIfcEditEngineRequestMapper {
             return rotation;
         }
         if (rotationDegrees.isObject()) {
-            if (hasNumber(rotationDegrees, "y")) {
+            if (hasNonZeroNumber(rotationDegrees, "z")) {
+                rotation.put("z", rotationDegrees.get("z").asDouble());
+                return rotation;
+            }
+            if (hasNonZeroNumber(rotationDegrees, "y")) {
                 rotation.put("z", rotationDegrees.get("y").asDouble());
+                return rotation;
+            }
+            if (hasNonZeroNumber(rotationDegrees, "x")) {
+                rotation.put("z", rotationDegrees.get("x").asDouble());
                 return rotation;
             }
             if (hasNumber(rotationDegrees, "z")) {
                 rotation.put("z", rotationDegrees.get("z").asDouble());
+                return rotation;
+            }
+            if (hasNumber(rotationDegrees, "y")) {
+                rotation.put("z", rotationDegrees.get("y").asDouble());
+                return rotation;
+            }
+            if (hasNumber(rotationDegrees, "x")) {
+                rotation.put("z", rotationDegrees.get("x").asDouble());
             }
         }
         return rotation;
+    }
+
+    private ObjectNode toIfcRotationAxisAngle(JsonNode rotationAxisAngle) {
+        ObjectNode rotation = objectMapper.createObjectNode();
+        JsonNode axis = rotationAxisAngle.get("axis");
+        ObjectNode axisNode = rotation.putObject("axis");
+        axisNode.put("x", axis.get("x").asDouble());
+        axisNode.put("y", axis.get("y").asDouble());
+        axisNode.put("z", axis.get("z").asDouble());
+        rotation.put("angle", rotationAxisAngle.get("angle").asDouble());
+        JsonNode pivot = rotationAxisAngle.get("pivot");
+        rotation.put("pivot", pivot == null || pivot.isNull() ? "BBOX_CENTER" : pivot.asText("BBOX_CENTER"));
+        return rotation;
+    }
+
+    private boolean hasNonZeroNumber(JsonNode node, String key) {
+        return hasNumber(node, key) && Math.abs(node.get(key).asDouble()) > 1.0e-6;
     }
 }

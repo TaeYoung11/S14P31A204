@@ -1,4 +1,5 @@
 import { editorPinPositionMapper } from '../services/editorPinComment.service'
+import { parseBackendDateAsKst } from '@/shared/utils/format'
 import type { EditorPinCommentResponse, EditorPinResponse } from '../services/editorPinComment.service'
 import type { CollaborationUserType, FloorCommentNotification, FloorCommentPin } from '../types'
 
@@ -104,7 +105,7 @@ export const mapApiPinToFloorCommentPin = (
     createdByName: pinAuthorName,
     createdByType: pinAuthorType,
     messages: [pinMessage, ...commentMessages].sort(
-      (left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime(),
+      (left, right) => parseBackendDateAsKst(left.createdAt).getTime() - parseBackendDateAsKst(right.createdAt).getTime(),
     ),
     hasUnreadCommentByOtherUser: pin.hasUnreadCommentByOtherUser,
   }

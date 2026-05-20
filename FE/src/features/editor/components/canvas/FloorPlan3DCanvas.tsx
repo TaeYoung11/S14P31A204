@@ -32,6 +32,7 @@ import {
 import {
   createPresetMesh,
   findLibraryRoot,
+  formatLibraryPresetDimensions,
   getLibraryElementInfo,
   getLibraryScaleDimensionPatch,
   getLibraryPresetFromObject,
@@ -39,8 +40,8 @@ import {
   type LibraryObject3D,
 } from './thatopen/ifcLibraryMesh'
 import { applyObjectColor, applyObjectMaterial, PROJECT_WORLD_UNITS_PER_MM } from './thatopen/ifcMaterials'
-import { disposeObjectMaterials, positionPresetGroupBesideIfc } from './thatopen/ifcSceneHelpers'
-import { getThreeDPinMarkerHit, syncThreeDPinMarkers } from './threeDPinMarkers'
+import { disposeObjectMaterials, ensureLibraryPresetOutsideIfc, positionPresetGroupBesideIfc } from './thatopen/ifcSceneHelpers'
+import { resolveThreeDPinMarkerHit, syncThreeDPinMarkers } from './threeDPinMarkers'
 
 interface FloorPlan3DCanvasProps {
   data: FloorPlan3DData
@@ -95,13 +96,6 @@ type FloorHitCandidate = {
 }
 
 const PRESET_MOVE_DEBUG = import.meta.env.DEV || import.meta.env.VITE_3D_MOVE_DEBUG === 'true'
-const ALWAYS_TRACE_LOCAL3D_EVENTS = new Set<string>([
-  'pick_candidates',
-  'pick_floor_object',
-  'library_sync_start',
-  'library_sync_rebuild_done',
-  'transform_commit',
-])
 
 const logRoofDebug = (...args: unknown[]) => {
   if (!import.meta.env.DEV) return
@@ -402,7 +396,7 @@ export function FloorPlan3DCanvas({
         return false
       }
     })()
-    const shouldTrace = PRESET_MOVE_DEBUG || runtimeDebugEnabled || ALWAYS_TRACE_LOCAL3D_EVENTS.has(event)
+    const shouldTrace = PRESET_MOVE_DEBUG || runtimeDebugEnabled
     if (!shouldTrace) return
     if (payload) {
       console.log(`[LOCAL3D_PRESET] ${event}`, payload)
@@ -520,6 +514,7 @@ export function FloorPlan3DCanvas({
     let cancelled = false
     // cleanup 클로저가 참조할 수 있도록 외부 스코프에 선언한다 (ThatOpenIfcCanvas와 동일 패턴)
     let handlePointerDown: ((event: PointerEvent) => void) | null = null
+    let handleDoubleClick: ((event: MouseEvent) => void) | null = null
     let handlePointerMove: ((event: PointerEvent) => void) | null = null
     let handlePointerUp: ((event: PointerEvent) => void) | null = null
     let handleHandCursorDown: ((event: PointerEvent) => void) | null = null
@@ -693,6 +688,32 @@ export function FloorPlan3DCanvas({
       }
 
       // 드래그 중 OrbitControls 비활성화 + 다중 선택 그룹 이동
+      const createCommentPinFromPointer = (event: MouseEvent) => {
+        if (!isCollaborationModeRef.current) return
+        const bounds = renderer.domElement.getBoundingClientRect()
+        if (!isPointerInsideBounds(bounds, event.clientX, event.clientY)) return
+
+        const normalizedMouse = toNormalizedMouse(THREE, bounds, event.clientX, event.clientY)
+        const raycaster = new THREE.Raycaster()
+        raycaster.setFromCamera(normalizedMouse, camera)
+        const pinHits = pinMarkerGroupRef.current
+          ? raycaster.intersectObjects(pinMarkerGroupRef.current.children, true)
+          : []
+        if (resolveThreeDPinMarkerHit(pinHits)) return
+
+        const libraryHit = raycaster.intersectObjects(presetGroup.children, true)[0]
+        const floorHit = floorGroupRef.current
+          ? raycaster.intersectObjects(floorGroupRef.current.children, true)[0]
+          : undefined
+        const collaborationHit = [libraryHit, floorHit]
+          .filter((hit): hit is import('three').Intersection => Boolean(hit))
+          .sort((a, b) => a.distance - b.distance)[0]
+        if (!collaborationHit?.point) return
+        event.preventDefault()
+        event.stopPropagation()
+        createCommentPinAtWorldPoint(collaborationHit.point)
+      }
+
       ;(tc as unknown as {
         addEventListener: (type: 'dragging-changed' | 'mouseDown' | 'objectChange', listener: (e?: { value: boolean }) => void) => void
       }).addEventListener('mouseDown', () => {
@@ -799,6 +820,11 @@ export function FloorPlan3DCanvas({
                 rotationX: floorElement.rotationX,
                 rotationY: floorElement.rotationY,
                 rotationZ: floorElement.rotationZ,
+                lengthMm: floorElement.lengthMm,
+                heightMm: floorElement.heightMm,
+                thicknessMm: floorElement.thicknessMm,
+                startMm: floorElement.startMm,
+                endMm: floorElement.endMm,
               })
               entry.element = floorElement
               return
@@ -830,6 +856,11 @@ export function FloorPlan3DCanvas({
               rotationX: floorElement.rotationX,
               rotationY: floorElement.rotationY,
               rotationZ: floorElement.rotationZ,
+              lengthMm: floorElement.lengthMm,
+              heightMm: floorElement.heightMm,
+              thicknessMm: floorElement.thicknessMm,
+              startMm: floorElement.startMm,
+              endMm: floorElement.endMm,
             })
             primary.element = floorElement
             onIfcElementSelectRef.current?.(floorElement)
@@ -910,10 +941,10 @@ export function FloorPlan3DCanvas({
         const normalizedMouse = toNormalizedMouse(THREE, bounds, event.clientX, event.clientY)
         const raycaster = new THREE.Raycaster()
         raycaster.setFromCamera(normalizedMouse, camera)
-        const pinHit = pinMarkerGroupRef.current
-          ? raycaster.intersectObjects(pinMarkerGroupRef.current.children, true)[0]
-          : undefined
-        const pinMarkerHit = getThreeDPinMarkerHit(pinHit?.object)
+        const pinHits = pinMarkerGroupRef.current
+          ? raycaster.intersectObjects(pinMarkerGroupRef.current.children, true)
+          : []
+        const pinMarkerHit = resolveThreeDPinMarkerHit(pinHits)
         if (pinMarkerHit) {
           logSelectionDebug('pointerdown:pin-hit', {
             pinId: pinMarkerHit.pinId,
@@ -922,6 +953,7 @@ export function FloorPlan3DCanvas({
           })
           if (pinMarkerHit.action === 'delete') {
             if (deletingPinIdRef.current === pinMarkerHit.pinId) return
+            syncCanvasCursor()
             onPinDeleteRef.current?.(pinMarkerHit.pinId)
             return
           }
@@ -1104,6 +1136,8 @@ export function FloorPlan3DCanvas({
         window.addEventListener('pointerup', handlePointerUp, true)
       }
       container.addEventListener('pointerdown', handlePointerDown)
+      handleDoubleClick = createCommentPinFromPointer
+      renderer.domElement.addEventListener('dblclick', handleDoubleClick, true)
 
       handleHandCursorDown = (event: PointerEvent) => {
         if (event.button === 1) {
@@ -1172,6 +1206,9 @@ export function FloorPlan3DCanvas({
       resizeObserverRef.current = null
 
       if (handlePointerDown) container.removeEventListener('pointerdown', handlePointerDown)
+      if (handleDoubleClick && rendererRef.current?.domElement) {
+        rendererRef.current.domElement.removeEventListener('dblclick', handleDoubleClick, true)
+      }
       if (handlePointerMove) window.removeEventListener('pointermove', handlePointerMove, true)
       if (handlePointerUp) window.removeEventListener('pointerup', handlePointerUp, true)
       if (handleHandCursorDown && rendererRef.current?.domElement) {
@@ -1323,6 +1360,9 @@ export function FloorPlan3DCanvas({
         mesh.position.set(preset.position.x, preset.position.y, preset.position.z)
       }
       presetGroup.add(mesh)
+      if (!preset.position && floorGroupRef.current) {
+        ensureLibraryPresetOutsideIfc(THREE, floorGroupRef.current, mesh)
+      }
     })
     logPresetMove('library_sync_rebuild_done', {
       scenePresetCount: presetGroup.children.length,
@@ -1559,7 +1599,25 @@ export function FloorPlan3DCanvas({
       const nextScaleX = selectedIfcElement.lengthMm ? (selectedIfcElement.lengthMm * 0.001) / baseWorldSize.x : selected.scale.x
       const nextScaleY = selectedIfcElement.heightMm ? (selectedIfcElement.heightMm * 0.001) / baseWorldSize.y : selected.scale.y
       const nextScaleZ = selectedIfcElement.thicknessMm ? (selectedIfcElement.thicknessMm * 0.001) / baseWorldSize.z : selected.scale.z
+      if (![nextScaleX, nextScaleY, nextScaleZ].every((value) => Number.isFinite(value) && value > 0)) return
       selected.scale.set(nextScaleX, nextScaleY, nextScaleZ)
+      selected.updateMatrixWorld(true)
+      const dimensions = formatLibraryPresetDimensions(
+        selectedIfcElement.lengthMm,
+        selectedIfcElement.heightMm,
+        selectedIfcElement.thicknessMm,
+      )
+      const libraryPatch: Partial<ThreeDLibraryPreset> = {
+        lengthMm: selectedIfcElement.lengthMm,
+        heightMm: selectedIfcElement.heightMm,
+        thicknessMm: selectedIfcElement.thicknessMm,
+        scale: { x: nextScaleX, y: nextScaleY, z: nextScaleZ },
+        ...(dimensions ? { dimensions } : {}),
+      }
+      updateLibraryPresetData(selected, libraryPatch)
+      if (selectedPreset) onLibraryElementChangeRef.current?.(selectedPreset.id, libraryPatch)
+      const nextLibraryElement = getLibraryElementInfo(selected)
+      if (nextLibraryElement) selectedEntry.element = nextLibraryElement
 
       if (
         Number.isFinite(selectedIfcElement.positionX) &&

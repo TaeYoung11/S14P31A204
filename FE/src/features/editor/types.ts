@@ -18,6 +18,8 @@ export interface IfcElementInfo {
   positionX?: number
   positionY?: number
   positionZ?: number
+  startMm?: Point2D
+  endMm?: Point2D
   rotationX?: number
   rotationY?: number
   rotationZ?: number
@@ -110,6 +112,8 @@ export interface IfcElementChange {
     y: number
     z: number
   }
+  startMm?: Point2D
+  endMm?: Point2D
   rotationX?: number
   rotationY?: number
   rotationZ?: number

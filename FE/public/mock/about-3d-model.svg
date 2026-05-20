@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 620" role="img" aria-label="3D house model preview">
+  <rect width="1000" height="620" fill="#fbfaff"/>
+  <g transform="translate(120 20)">
+    <polygon points="360,465 760,350 760,170 360,285" fill="#8b5cf6" stroke="#312e81" stroke-width="5"/>
+    <polygon points="140,350 360,465 360,285 140,175" fill="#6d28d9" stroke="#312e81" stroke-width="5"/>
+    <polygon points="140,175 540,62 760,170 360,285" fill="#ede9fe" stroke="#312e81" stroke-width="5"/>
+
+    <g opacity=".85">
+      <path d="M170 192l370-105 185 90-368 105z" fill="#f5f3ff" stroke="#4c1d95" stroke-width="3"/>
+      <path d="M245 170l125 61m-58-79l126 61m-58-78l126 61m-58-78l126 61" stroke="#c4b5fd" stroke-width="2"/>
+    </g>
+
+    <polygon points="190,190 295,160 295,305 190,338" fill="#f4f1ff" stroke="#312e81" stroke-width="4"/>
+    <polygon points="295,160 470,235 470,377 295,305" fill="#faf7ff" stroke="#312e81" stroke-width="4"/>
+    <polygon points="470,235 650,185 650,323 470,377" fill="#f4f1ff" stroke="#312e81" stroke-width="4"/>
+
+    <polygon points="245,308 365,360 365,438 245,385" fill="#ddd6fe" stroke="#312e81" stroke-width="4"/>
+    <polygon points="365,360 610,290 610,367 365,438" fill="#ede9fe" stroke="#312e81" stroke-width="4"/>
+    <g stroke="#a78bfa" stroke-width="3" opacity=".85">
+      <path d="M255 320l105 45m-108-26l107 46m-106-25l106 46m-104-25l104 45"/>
+      <path d="M382 363l211-60m-211 18l211-60m-211 38l211-60m-211 58l211-60"/>
+    </g>
+
+    <polygon points="610,290 735,254 735,330 610,367" fill="#7c3aed" stroke="#312e81" stroke-width="4"/>
+    <g stroke="#c4b5fd" stroke-width="3" opacity=".8">
+      <path d="M622 300l100-30m-100 18l100-30m-100 36l100-30m-100 54l100-30"/>
+    </g>
+
+    <polygon points="430,120 520,95 520,205 430,232" fill="#f5f3ff" stroke="#312e81" stroke-width="5"/>
+    <polygon points="520,95 616,140 616,247 520,205" fill="#ddd6fe" stroke="#312e81" stroke-width="5"/>
+    <rect x="452" y="145" width="45" height="32" fill="#a78bfa" stroke="#312e81" stroke-width="4" transform="skewY(-15)"/>
+
+    <polygon points="560,175 650,150 650,265 560,292" fill="#f5f3ff" stroke="#312e81" stroke-width="5"/>
+    <polygon points="650,150 724,186 724,296 650,265" fill="#ddd6fe" stroke="#312e81" stroke-width="5"/>
+    <polygon points="590,206 638,193 638,240 590,254" fill="#a78bfa" stroke="#312e81" stroke-width="4"/>
+    <polygon points="656,190 700,210 700,255 656,238" fill="#8b5cf6" stroke="#312e81" stroke-width="4"/>
+
+    <polygon points="320,280 385,260 385,392 320,412" fill="#f5f3ff" stroke="#312e81" stroke-width="4"/>
+    <polygon points="385,260 470,300 470,430 385,392" fill="#ddd6fe" stroke="#312e81" stroke-width="4"/>
+    <polygon points="405,325 455,348 455,410 405,388" fill="#a78bfa" stroke="#312e81" stroke-width="3"/>
+
+    <polygon points="510,260 585,238 585,317 510,340" fill="#ede9fe" stroke="#312e81" stroke-width="3"/>
+    <polygon points="585,238 635,262 635,338 585,317" fill="#c4b5fd" stroke="#312e81" stroke-width="3"/>
+
+    <g stroke="#111" stroke-width="3" fill="#6d6d6d">
+      <polygon points="180,395 240,370 240,410 180,438"/>
+      <polygon points="615,318 682,300 682,342 615,363"/>
+      <polygon points="240,236 292,220 292,255 240,272"/>
+    </g>
+
+    <g stroke="#312e81" stroke-width="3" fill="#a78bfa">
+      <polygon points="198,222 252,207 252,252 198,268"/>
+      <polygon points="646,274 710,255 710,305 646,324"/>
+      <polygon points="515,147 565,133 565,178 515,191"/>
+    </g>
+
+    <g stroke="#7c3aed" stroke-width="2" fill="none" font-family="Arial, sans-serif" font-size="18">
+      <path d="M140 530h285"/>
+      <path d="M420 530h320"/>
+      <path d="M745 170l95 370"/>
+      <path d="M140 530l20-20m265 20l-18-20m13 20l20-20m300 20l-18-20m23-340l20 12m75 358l-25-6"/>
+      <text x="230" y="560" fill="#4c1d95">3600 mm</text>
+      <text x="520" y="560" fill="#4c1d95">7700 mm</text>
+      <text x="850" y="360" fill="#4c1d95" transform="rotate(77 850 360)">11200 mm</text>
+    </g>
+  </g>
+</svg>

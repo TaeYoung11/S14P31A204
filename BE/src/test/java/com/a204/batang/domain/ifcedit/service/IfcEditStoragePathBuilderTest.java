@@ -69,4 +69,21 @@ class IfcEditStoragePathBuilderTest {
 
         assertThat(path).isEqualTo("s3://batang-artifacts/projects/11111111-1111-1111-1111-111111111111/jobs/33333333-3333-3333-3333-333333333333/steps/010/planner/3d-command.v1.json");
     }
+
+    @Test
+    void toWorkerStorageUrl_convertsRelativeStorageKeyToS3Url() {
+        String path = builder.toWorkerStorageUrl(" projects/p/revisions/r/ifc/model.v1.ifc ");
+
+        assertThat(path).isEqualTo("s3://batang-artifacts/projects/p/revisions/r/ifc/model.v1.ifc");
+    }
+
+    @Test
+    void toWorkerStorageUrl_preservesAlreadyAddressableUrl() {
+        assertThat(builder.toWorkerStorageUrl("s3://other-bucket/source.ifc"))
+                .isEqualTo("s3://other-bucket/source.ifc");
+        assertThat(builder.toWorkerStorageUrl("http://localhost:9000/bucket/source.ifc"))
+                .isEqualTo("http://localhost:9000/bucket/source.ifc");
+        assertThat(builder.toWorkerStorageUrl("https://example.com/source.ifc"))
+                .isEqualTo("https://example.com/source.ifc");
+    }
 }

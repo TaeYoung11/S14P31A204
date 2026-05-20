@@ -2,15 +2,9 @@ import type { CanvasViewTransform, Point2D } from '../types'
 import { alignFlatPointsToAxis, getFlatPointsBounds } from './sitePointTransform'
 
 /**
- * 보기 모드(정렬/실북향)에 맞는 캔버스 렌더 전용 변환을 계산한다.
- * - `isTrueNorthView=true`이면 원본(canonical) 방향을 그대로 사용한다.
- * - `false`이면 대지 주축을 화면 축에 맞추는 회전만 적용한다.
+ * 대지 주축을 화면 축에 맞추는 캔버스 렌더 전용 변환을 계산한다.
  */
-export function resolveCanvasViewTransform(
-  points: number[],
-  isTrueNorthView: boolean,
-): CanvasViewTransform | null {
-  if (isTrueNorthView) return null
+export function resolveCanvasViewTransform(points: number[]): CanvasViewTransform | null {
   const bounds = getFlatPointsBounds(points)
   if (!bounds) return null
   const { rotationRadians } = alignFlatPointsToAxis(points)
@@ -19,6 +13,15 @@ export function resolveCanvasViewTransform(
     centerX: bounds.cx,
     centerY: bounds.cy,
     rotationRadians,
+  }
+}
+
+export function resolveCanvasRotationCenter(sitePoints: number[]): { centerX: number; centerY: number } | null {
+  const bounds = getFlatPointsBounds(sitePoints)
+  if (!bounds) return null
+  return {
+    centerX: bounds.cx,
+    centerY: bounds.cy,
   }
 }
 
