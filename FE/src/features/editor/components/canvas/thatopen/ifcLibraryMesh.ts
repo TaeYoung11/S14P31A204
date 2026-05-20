@@ -390,6 +390,7 @@ export const getLibraryElementInfo = (object: LibraryObject3D): IfcElementInfo |
       SourceAssetId: preset.sourceAssetId ?? '-',
       AssetIfcUrl: preset.assetIfcUrl ?? '-',
       StoreyExpressID: preset.storeyExpressId ?? '-',
+      FloorLayerId: preset.floorLayerId ?? '-',
       RoofShape: preset.type === 'roof' ? resolveRoofShape(preset) : '-',
       Length: lengthMm ?? '-',
       Height: heightMm ?? '-',
@@ -614,6 +615,7 @@ export const createIfcAssetPresetPlaceholder = (
   preset: ThreeDLibraryPreset,
   index: number,
   worldUnitsPerMm = PROJECT_WORLD_UNITS_PER_MM,
+  options: { visible?: boolean } = {},
 ) => {
   const group = new THREE.Group()
   const parsedDimensions = parsePresetDimensions(preset)
@@ -668,6 +670,7 @@ export const createIfcAssetPresetPlaceholder = (
     ifcAssetPlaceholder: true,
     ifcAssetLoaded: false,
   }
+  group.visible = options.visible ?? true
   return group
 }
 
@@ -743,6 +746,16 @@ export const refreshIfcAssetPresetMeshLayout = (
 
 /** 라이브러리 오브젝트의 userData에서 ThreeDLibraryPreset을 꺼낸다. */
 export const getLibraryPresetFromObject = (object: LibraryObject3D) => object.userData?.libraryPreset
+
+/** 실제 IFC 에셋이 배치되기 전까지 숨겨야 하는 로딩 placeholder인지 판정한다. */
+export const isPendingIfcAssetPlaceholder = (object: LibraryObject3D) => {
+  const preset = getLibraryPresetFromObject(object)
+  return (
+    object.userData?.ifcAssetPlaceholder === true &&
+    object.userData?.ifcAssetLoaded !== true &&
+    Boolean(preset?.assetIfcUrl || preset?.assetIfc)
+  )
+}
 
 /**
  * 오브젝트 트리 전체를 순회하며 libraryPreset userData를 patch로 업데이트한다.

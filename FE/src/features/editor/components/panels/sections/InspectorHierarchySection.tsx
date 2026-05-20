@@ -1,6 +1,10 @@
-import { Eye } from 'lucide-react'
 import type { HierarchySectionProps } from '../../layout/right-panels/buildRightPanelSectionProps'
 import { buildHierarchyGroups } from '../hierarchyPanelData'
+import { InspectorElementHierarchyTree } from './InspectorElementHierarchyTree'
+import { InspectorFallbackHierarchy } from './InspectorFallbackHierarchy'
+import { InspectorGroupHierarchy } from './InspectorGroupHierarchy'
+import { InspectorRoomHierarchy } from './InspectorRoomHierarchy'
+import { useInspectorHierarchySectionModel } from './useInspectorHierarchySectionModel'
 
 interface InspectorHierarchySectionProps {
   panelProps: HierarchySectionProps | null
@@ -8,10 +12,53 @@ interface InspectorHierarchySectionProps {
 
 /**
  * 인스펙터의 계층 구조 섹션.
+ * 화면 조립만 담당하고, 파생 데이터와 세부 렌더링은 hook/하위 컴포넌트로 위임한다.
  */
 export function InspectorHierarchySection({ panelProps }: InspectorHierarchySectionProps) {
+  const model = useInspectorHierarchySectionModel(panelProps)
+
   if (!panelProps) {
     return <p className="text-[11px] text-[#94A3B8]">계층 정보가 없습니다.</p>
+  }
+
+  if (model.elementHierarchyTree.length > 0) {
+    return (
+      <InspectorElementHierarchyTree
+        panelProps={panelProps}
+        nodes={model.filteredElementHierarchyTree}
+        searchQuery={model.elementSearchQuery}
+        selectedElementId={model.selectedElementId}
+        hiddenElementIdSet={model.hiddenElementIdSet}
+        expandedNodeIds={model.expandedElementNodeIds}
+        collapsedNodeIds={model.collapsedElementNodeIds}
+        onSearchQueryChange={model.setElementSearchQuery}
+        onToggleExpand={model.handleToggleElementNodeExpand}
+      />
+    )
+  }
+
+  if (model.rooms.length > 0) {
+    return (
+      <InspectorRoomHierarchy
+        panelProps={panelProps}
+        selectedRoomId={model.selectedRoomId}
+        selectedFloorWallId={model.selectedFloorWallId}
+        selectedFloorOpeningId={model.selectedFloorOpeningId}
+        expandedRoomIds={model.expandedRoomIds}
+        showSelectedRoomOnly={model.showSelectedRoomOnly}
+        hierarchyRooms={model.hierarchyRooms}
+        roomLabelByBubbleId={model.roomLabelByBubbleId}
+        wallLabelById={model.wallLabelById}
+        roomWallsByRoomKey={model.roomWallsByRoomKey}
+        roomOpeningsByRoomKey={model.roomOpeningsByRoomKey}
+        getRoomKey={model.getRoomKey}
+        onExpandAll={model.handleExpandAll}
+        onCollapseAll={model.handleCollapseAll}
+        onToggleSelectedRoomOnly={() => model.setShowSelectedRoomOnly((prev) => !prev)}
+        onToggleRoomExpand={model.handleToggleRoomExpand}
+        onSelectRoomByAnyId={model.handleSelectRoomByAnyId}
+      />
+    )
   }
 
   const hierarchyGroups = panelProps.groups ?? buildHierarchyGroups({
@@ -27,27 +74,34 @@ export function InspectorHierarchySection({ panelProps }: InspectorHierarchySect
     return <p className="text-[11px] text-[#94A3B8]">계층 정보가 없습니다.</p>
   }
 
+  const roomGroup = hierarchyGroups.find((group) => group.id === 'rooms')
+  const wallGroup = hierarchyGroups.find((group) => group.id === 'walls')
+  const openingGroup = hierarchyGroups.find((group) => group.id === 'openings')
+
+  if (model.rooms.length === 0 && roomGroup) {
+    return (
+      <InspectorFallbackHierarchy
+        panelProps={panelProps}
+        roomGroup={roomGroup}
+        wallGroup={wallGroup}
+        openingGroup={openingGroup}
+        selectedRoomId={model.selectedRoomId}
+        selectedFloorWallId={model.selectedFloorWallId}
+        selectedFloorOpeningId={model.selectedFloorOpeningId}
+        expandedFallbackRoomIds={model.expandedFallbackRoomIds}
+        onToggleFallbackRoomExpand={model.handleToggleFallbackRoomExpand}
+      />
+    )
+  }
+
   return (
-    <div className="space-y-2">
-      {hierarchyGroups.map((group) => (
-        <div key={group.id}>
-          <div className="flex items-center justify-between rounded-md bg-[#F8FAFC] px-2 py-1">
-            <span className="truncate text-[11px] font-extrabold text-[#334155]">{group.name}</span>
-            <Eye size={11} className="text-[#94A3B8]" />
-          </div>
-          <div className="ml-2 mt-1 space-y-1 border-l border-[#E2E8F0] pl-2">
-            {group.children.map((child) => (
-              <div key={`${group.id}-${child.id}`} className="flex items-center justify-between rounded px-1.5 py-0.5 text-[10px] text-[#64748B]">
-                <span className="truncate">{child.label}</span>
-                <Eye size={10} className="text-[#CBD5E1]" />
-              </div>
-            ))}
-            {group.children.length === 0 && (
-              <p className="px-1.5 py-0.5 text-[10px] text-[#94A3B8]">하위 요소 없음</p>
-            )}
-          </div>
-        </div>
-      ))}
-    </div>
+    <InspectorGroupHierarchy
+      panelProps={panelProps}
+      groups={hierarchyGroups}
+      selectedRoomId={model.selectedRoomId}
+      selectedFloorWallId={model.selectedFloorWallId}
+      selectedFloorOpeningId={model.selectedFloorOpeningId}
+      onSelectRoomByAnyId={model.handleSelectRoomByAnyId}
+    />
   )
 }

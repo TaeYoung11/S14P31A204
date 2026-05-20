@@ -25,6 +25,7 @@ export function buildFloorLayerRightPanelProps(
   | 'overlayIfcStoreyExpressIds'
   | 'onSelectIfcStorey'
   | 'onToggleIfcStoreyOverlay'
+  | 'onRenameIfcStorey'
   | 'libraryElements'
 > {
   return {
@@ -49,6 +50,7 @@ export function buildFloorLayerRightPanelProps(
     overlayIfcStoreyExpressIds: vm.overlayIfcStoreyExpressIds,
     onSelectIfcStorey: vm.handleSelectIfcStorey,
     onToggleIfcStoreyOverlay: vm.handleToggleIfcStoreyOverlay,
+    onRenameIfcStorey: vm.handleRenameIfcStorey,
     libraryElements: vm.libraryElements,
   }
 }

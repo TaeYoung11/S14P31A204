@@ -4,7 +4,8 @@
  * 이 파일에는 다음 세 가지가 포함된다.
  *  1. PRESETS            — 라이브러리에 노출되는 건축 요소 프리셋 목록
  *  2. 미리보기 관련 상수   — SVG 도형 마크업·색상 테마 등
- *  3. buildPresetPreviewDataUri — SVG 인라인 data URI 생성 유틸
+ *  3. IFC manifest 연동 유틸 — 실물 IFC 에셋의 bbox/색상/재질 보강
+ *  4. buildPresetPreviewDataUri — SVG 인라인 data URI 생성 유틸
  */
 
 import type { ThreeDLibraryPreset, ThreeDLibraryPresetType } from './threeDLibrary.types'
@@ -127,6 +128,127 @@ const LIBRARY_PRESET_DISPLAY_NAME_BY_ID: Record<string, string> = {
 export const getLibraryPresetDisplayName = (preset: ThreeDLibraryPreset) => (
   LIBRARY_PRESET_DISPLAY_NAME_BY_ID[preset.sourceAssetId ?? preset.id] ?? preset.name
 )
+
+// ─────────────────────────────────────────────
+// IFC manifest 연동 유틸
+// ─────────────────────────────────────────────
+
+export const IFC_LIBRARY_BASE_PATH = '/ifc-library'
+export const IFC_LIBRARY_MANIFEST_URL = `${IFC_LIBRARY_BASE_PATH}/manifest.json`
+
+export interface IfcLibraryManifestColor {
+  name?: string | null
+  r: number
+  g: number
+  b: number
+}
+
+export interface IfcLibraryManifestAsset {
+  id: string
+  label?: string
+  category?: string
+  assetIfc?: string | null
+  materials?: string[]
+  colors?: IfcLibraryManifestColor[]
+  bbox?: {
+    sizeMm?: number[]
+  }
+}
+
+export interface IfcLibraryManifest {
+  assets?: IfcLibraryManifestAsset[]
+}
+
+let ifcLibraryManifestPromise: Promise<IfcLibraryManifest | null> | null = null
+
+const toHexColorPart = (value: number) => (
+  Math.round(Math.max(0, Math.min(1, value)) * 255)
+    .toString(16)
+    .padStart(2, '0')
+    .toUpperCase()
+)
+
+const toHexColor = (color?: IfcLibraryManifestColor) => (
+  color ? `#${toHexColorPart(color.r)}${toHexColorPart(color.g)}${toHexColorPart(color.b)}` : undefined
+)
+
+const normalizeManifestMaterial = (
+  category?: string,
+  materials?: string[],
+) => {
+  const rawMaterial = materials?.find((entry) => entry && entry !== '<Unnamed>')
+  const rawLower = rawMaterial?.toLowerCase()
+  if (rawLower?.includes('glass') || rawMaterial?.includes('유리')) return 'Glass'
+  if (rawLower?.includes('wood') || rawMaterial?.includes('문')) return 'Wood'
+  if (rawLower?.includes('steel') || rawLower?.includes('metal')) return 'Steel'
+  if (rawLower?.includes('tile')) return 'Tile'
+  if (rawLower?.includes('brick')) return 'Brick'
+
+  if (category === 'roof') return 'Tile'
+  if (category === 'door') return 'Wood'
+  if (category === 'window') return 'Glass'
+  if (category === 'stair' || category === 'terrace' || category === 'wall') return 'Concrete'
+  return rawMaterial
+}
+
+export const toIfcLibraryAssetUrl = (assetIfc?: string | null) => {
+  const value = assetIfc?.trim()
+  if (!value) return undefined
+  if (/^(https?:)?\/\//.test(value) || value.startsWith('/')) return value
+  return `${IFC_LIBRARY_BASE_PATH}/${value.replace(/^\/+/, '')}`
+}
+
+export const loadIfcLibraryManifest = () => {
+  if (ifcLibraryManifestPromise) return ifcLibraryManifestPromise
+  ifcLibraryManifestPromise = fetch(IFC_LIBRARY_MANIFEST_URL, { cache: 'force-cache' })
+    .then((response) => (response.ok ? response.json() as Promise<IfcLibraryManifest> : null))
+    .catch(() => null)
+  return ifcLibraryManifestPromise
+}
+
+export const buildIfcLibraryManifestMap = (manifest: IfcLibraryManifest | null) => (
+  new Map((manifest?.assets ?? []).map((asset) => [asset.id, asset]))
+)
+
+export const applyIfcLibraryManifestToPreset = (
+  preset: ThreeDLibraryPreset,
+  manifestAsset?: IfcLibraryManifestAsset | null,
+): ThreeDLibraryPreset => {
+  if (!manifestAsset) return preset
+
+  const [lengthMm, thicknessMm, heightMm] = manifestAsset.bbox?.sizeMm ?? []
+  const assetIfc = manifestAsset.assetIfc ?? preset.assetIfc
+  const assetIfcUrl = toIfcLibraryAssetUrl(assetIfc) ?? preset.assetIfcUrl
+  const color = toHexColor(manifestAsset.colors?.[0]) ?? preset.color
+  const material = normalizeManifestMaterial(manifestAsset.category, manifestAsset.materials) ?? preset.material
+
+  return {
+    ...preset,
+    name: preset.name || manifestAsset.label || preset.id,
+    dimensions: Number.isFinite(lengthMm) && Number.isFinite(heightMm) && Number.isFinite(thicknessMm)
+      ? `${Math.round(lengthMm)} x ${Math.round(heightMm)} x ${Math.round(thicknessMm)}`
+      : preset.dimensions,
+    lengthMm: Number.isFinite(lengthMm) ? Math.round(lengthMm) : preset.lengthMm,
+    heightMm: Number.isFinite(heightMm) ? Math.round(heightMm) : preset.heightMm,
+    thicknessMm: Number.isFinite(thicknessMm) ? Math.round(thicknessMm) : preset.thicknessMm,
+    color,
+    material,
+    assetIfc: assetIfc ?? preset.assetIfc,
+    assetIfcUrl,
+    sourceAssetId: manifestAsset.id,
+  }
+}
+
+export const applyIfcLibraryManifestToPresets = (
+  presets: ThreeDLibraryPreset[],
+  manifest: IfcLibraryManifest | null,
+) => {
+  const manifestMap = buildIfcLibraryManifestMap(manifest)
+  return presets.map((preset) => applyIfcLibraryManifestToPreset(
+    preset,
+    manifestMap.get(preset.sourceAssetId ?? preset.id),
+  ))
+}
 
 // ─────────────────────────────────────────────
 // 프리셋 목록

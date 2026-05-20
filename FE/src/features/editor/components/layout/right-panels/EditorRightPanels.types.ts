@@ -3,6 +3,8 @@ import type {
   CollaborationUserType,
   BubbleFloor,
   BubbleFloorSummary,
+  ElementHierarchyNode,
+  ElementRegistryState,
   EditorMode,
   FloorCommentNotification,
   FloorCommentPin,
@@ -115,17 +117,29 @@ export interface EditorRightPanelsProps {
   overlayIfcStoreyExpressIds?: number[]
   /** IFC 층 겹쳐보기 토글 핸들러 */
   onToggleIfcStoreyOverlay?: (id: string) => void
+  /** IFC 층 이름 수정 핸들러 */
+  onRenameIfcStorey?: (id: string, name: string) => void
   /** 3D 계층구조 요소(localId) 선택 핸들러 */
   onSelectIfcElementByLocalId?: (localId: number) => void
   /** 3D 계층구조 라이브러리 요소 선택 핸들러 */
   onSelectLibraryElementById?: (id: string) => void
   onSelectRoom?: (id: string) => void
+  onSelectWall?: (id: string) => void
+  onSelectOpening?: (id: string) => void
   onToggleLayerOverlayMode?: () => void
   onToggleOverlayLayer?: (layerId: string) => void
   onSelectSingleOverlayLayer?: (layerId: string) => void
   onChangeOverlayLayerOpacity?: (layerId: string, opacity: number) => void
+  selectedFloorWallId?: string | null
+  selectedFloorOpeningId?: string | null
   floorWalls?: FloorWall[]
   ifcElementHierarchy?: unknown
+  elementRegistry?: ElementRegistryState
+  elementHierarchyTree?: ElementHierarchyNode[]
+  selectedElementId?: string | null
+  hiddenElementIds?: string[]
+  onSelectRegistryElement?: (elementId: string) => void
+  onToggleElementVisibility?: (elementId: string) => void
   onOpenZoningModal: () => void
   onOpenEditZoningModal: (zone: ZoneData) => void
   onDeleteZoning: (zoneId: string) => void

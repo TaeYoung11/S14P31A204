@@ -37,26 +37,26 @@ const traceIfcMoveVisibility = (
 /** 씬에서 현재 선택된 3D 오브젝트의 출처와 메타데이터 */
 export type Selected3DTarget =
   | {
-      source: "ifc";
-      modelId: string;
-      localId: number;
-      hitLocalId: number;
-      hitItemId?: number;
-      object?: Object3D;
-      keepModelHiddenAfterCommit?: boolean;
-      visibilityRestoredAtCommit?: boolean;
-      selectedSignature?: string;
-      selectedColorSignature?: string;
-      selectedMaterialSignature?: string;
+      source: 'ifc'
+      modelId: string
+      localId: number
+      hitLocalId: number
+      hitItemId?: number
+      object?: Object3D
+      keepModelHiddenAfterCommit?: boolean
+      visibilityRestoredAtCommit?: boolean
+      selectedSignature?: string
+      selectedColorSignature?: string
+      selectedMaterialSignature?: string
       selectedShapeSignature?: string;
       selectedTransformSignature?: string;
     }
   | {
-      source: "library";
-      object: Object3D;
-      selectedSignature?: string;
-      selectedColorSignature?: string;
-      selectedMaterialSignature?: string;
+      source: 'library'
+      object: Object3D
+      selectedSignature?: string
+      selectedColorSignature?: string
+      selectedMaterialSignature?: string
       selectedShapeSignature?: string;
       selectedTransformSignature?: string
     }
@@ -776,17 +776,15 @@ export const disposeObjectMaterials = (
   object: Object3D,
 ) => {
   object.traverse((child) => {
-    if (!(child instanceof THREE.Mesh)) return;
-    const disposableGeometry = child.geometry as
-      | { dispose?: () => void }
-      | undefined;
-    disposableGeometry?.dispose?.();
+    if (!(child instanceof THREE.Mesh)) return
+    const disposableGeometry = child.geometry as { dispose?: () => void } | undefined
+    disposableGeometry?.dispose?.()
     if (Array.isArray(child.material)) {
       child.material.forEach((material) => {
-        (material as { dispose?: () => void } | undefined)?.dispose?.();
-      });
+        ;(material as { dispose?: () => void } | undefined)?.dispose?.()
+      })
     } else {
-      (child.material as { dispose?: () => void } | undefined)?.dispose?.();
+      ;(child.material as { dispose?: () => void } | undefined)?.dispose?.()
     }
   });
 };
@@ -1611,12 +1609,14 @@ export const attachIfcTransformProxy = async (
   hitItemId: number | undefined,
   element: IfcElementInfo,
   options: {
-    deferVisibility?: boolean;
-    deferTransformAttach?: boolean;
+    deferVisibility?: boolean
+    deferTransformAttach?: boolean
+    allowBoundsFallback?: boolean
   } = {},
 ) => {
-  const deferVisibility = options.deferVisibility === true;
-  const deferTransformAttach = options.deferTransformAttach === true;
+  const deferVisibility = options.deferVisibility === true
+  const deferTransformAttach = options.deferTransformAttach === true
+  const allowBoundsFallback = options.allowBoundsFallback === true
   const orderedLocalIds = Array.from(
     new Set<number>([
       ...(Number.isFinite(visibleLocalId) ? [visibleLocalId] : []),
@@ -1625,12 +1625,9 @@ export const attachIfcTransformProxy = async (
   );
   if (orderedLocalIds.length === 0) return null;
 
-  const editor = (
-    fragments.core as import("@thatopen/fragments").FragmentsModels & {
-      editor?: import("@thatopen/fragments").Editor;
-    }
-  ).editor;
-  if (!editor) return null;
+  const editor = (fragments.core as import('@thatopen/fragments').FragmentsModels & {
+    editor?: import('@thatopen/fragments').Editor
+  }).editor
 
   const boxes = await fragments.getBBoxes({
     [modelId]: new Set(orderedLocalIds),
@@ -1649,24 +1646,11 @@ export const attachIfcTransformProxy = async (
   unionBox.getCenter(center);
   if (size.x <= 0 || size.y <= 0 || size.z <= 0) return null;
 
-  const elements = await editor
-    .getElements(modelId, orderedLocalIds)
-    .catch(() => []);
-  if (elements.length === 0) return null;
-
-  const stableLocalId = Number.isFinite(visibleLocalId)
-    ? visibleLocalId
-    : orderedLocalIds[0];
-  const objectName = `ifc-edit-${modelId}-${stableLocalId}`;
-  const existing = editGroup.children.find(
-    (child) => child.name === objectName,
-  ) as IfcEditableObject3D | undefined;
-  const editable = existing ?? new THREE.Group();
-  const pivotToLocal = new THREE.Matrix4().makeTranslation(
-    -center.x,
-    -center.y,
-    -center.z,
-  );
+  const stableLocalId = Number.isFinite(visibleLocalId) ? visibleLocalId : orderedLocalIds[0]
+  const objectName = `ifc-edit-${modelId}-${stableLocalId}`
+  const existing = editGroup.children.find((child) => child.name === objectName) as IfcEditableObject3D | undefined
+  const editable = existing ?? new THREE.Group()
+  const pivotToLocal = new THREE.Matrix4().makeTranslation(-center.x, -center.y, -center.z)
 
   if (existing) {
     [...editable.children].forEach((child) => {
@@ -1675,16 +1659,41 @@ export const attachIfcTransformProxy = async (
     });
   }
 
-  for (const editableElement of elements) {
-    const meshes = await editableElement.getMeshes().catch(() => null);
-    if (!meshes) continue;
-    const cloned = meshes.clone(true);
-    cloneObjectMaterialsForEditProxy(THREE, cloned);
-    cloned.applyMatrix4(pivotToLocal);
-    editable.add(cloned);
+  const attachBoundsFallback = () => {
+    const geometry = new THREE.BoxGeometry(size.x, size.y, size.z)
+    const material = createElementMaterial(
+      THREE,
+      element.material,
+      element.color ?? '#9CA3AF',
+    )
+    const fallbackMesh = new THREE.Mesh(geometry, material)
+    fallbackMesh.name = `${objectName}-bounds`
+    editable.add(fallbackMesh)
+    editable.userData.ifcEditFallbackProxy = true
   }
 
-  if (editable.children.length === 0) return null;
+  const elements = editor
+    ? await editor.getElements(modelId, orderedLocalIds).catch(() => [])
+    : []
+  if (elements.length === 0 && allowBoundsFallback) {
+    attachBoundsFallback()
+  } else if (elements.length === 0) {
+    return null
+  } else {
+    editable.userData.ifcEditFallbackProxy = false
+    for (const editableElement of elements) {
+      const meshes = await editableElement.getMeshes().catch(() => null)
+      if (!meshes) continue
+      const cloned = meshes.clone(true)
+      cloneObjectMaterialsForEditProxy(THREE, cloned)
+      cloned.applyMatrix4(pivotToLocal)
+      editable.add(cloned)
+    }
+    if (editable.children.length === 0 && allowBoundsFallback) {
+      attachBoundsFallback()
+    }
+  }
+  if (editable.children.length === 0) return null
 
   editable.name = objectName;
   editable.position.copy(center);

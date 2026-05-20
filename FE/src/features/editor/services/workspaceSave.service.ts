@@ -28,6 +28,11 @@ export interface FloorPlanSnapshotPayload {
     hiddenAutoOpeningIds?: WorkspaceSnapshot['hiddenAutoOpeningIds']
     isProjectStructurePreferred?: WorkspaceSnapshot['isProjectStructurePreferred']
     ifcElementChanges?: IfcElementChange[]
+    activeIfcStoreyExpressId?: WorkspaceSnapshot['activeIfcStoreyExpressId']
+    overlayIfcStoreyExpressIds?: WorkspaceSnapshot['overlayIfcStoreyExpressIds']
+    overlayFloorLayerIds?: WorkspaceSnapshot['overlayFloorLayerIds']
+    hiddenElementIds?: WorkspaceSnapshot['hiddenElementIds']
+    ifcStoreyNameOverrides?: WorkspaceSnapshot['ifcStoreyNameOverrides']
   }
 }
 
