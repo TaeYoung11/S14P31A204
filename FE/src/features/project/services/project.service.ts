@@ -483,6 +483,11 @@ export const projectService = {
   },
 
   getIfcSource: async (projectId: string): Promise<ProjectIfcSource> => {
+    const project = await fetchProjectSummary(projectId)
+    if (!project.currentIfcUrl) {
+      return { projectId: project.projectId }
+    }
+
     try {
       const exported = await fetchProjectIfcExport(projectId)
       return {
@@ -491,11 +496,13 @@ export const projectService = {
         currentIfcStorageUrl: exported.ifcStorageUrl,
         currentRevision: exported.revisionId,
       }
-    } catch {
+    } catch (error) {
+      if (readErrorStatus(error) === 404) {
+        return { projectId }
+      }
       // 아직 IFC가 없거나 export 권한이 없으면 기존 프로젝트 상세 기반 조회로 fallback한다.
     }
 
-    const project = await fetchProjectSummary(projectId)
     return {
       projectId: project.projectId,
       currentIfcUrl: project.currentIfcUrl,

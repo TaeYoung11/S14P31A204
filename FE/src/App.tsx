@@ -2,13 +2,14 @@ import { Suspense, lazy } from 'react'
 import { Navigate, Outlet, RouterProvider, createBrowserRouter, useParams } from 'react-router-dom'
 import { ProtectedRoute } from './shared/components/ProtectedRoute'
 import PublicLandingHeader from './shared/components/PublicLandingHeader'
+import RouteErrorFallback from './shared/components/RouteErrorFallback'
 import RouteLoadingFallback from './shared/components/RouteLoadingFallback'
+import EditorPage from './pages/editor/EditorPage'
 
 const IntroPage = lazy(() => import('./pages/intro/IntroPage'))
 const LoginPage = lazy(() => import('./pages/auth/LoginPage'))
 const RegisterPage = lazy(() => import('./pages/auth/RegisterPage'))
 const ProjectListPage = lazy(() => import('./pages/projects/ProjectListPage'))
-const EditorPage = lazy(() => import('./pages/editor/EditorPage'))
 const RendersPage = lazy(() => import('./pages/renders/RendersPage'))
 const ViewerPage = lazy(() => import('./pages/view/ViewerPage'))
 const InviteAcceptPage = lazy(() => import('./pages/invite/InviteAcceptPage'))
@@ -34,6 +35,7 @@ const router = createBrowserRouter(
   [
     {
       element: <AppLayout />,
+      errorElement: <RouteErrorFallback />,
       children: [
         { path: '/', element: <IntroPage /> },
         { path: '/about', element: <Navigate to="/" replace /> },

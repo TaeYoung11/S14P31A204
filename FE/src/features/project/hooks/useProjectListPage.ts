@@ -49,6 +49,7 @@ export function useProjectListPage() {
   const [isSelectionMode, setIsSelectionMode] = useState(false)
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([])
   const [siteProject, setSiteProject] = useState<Project | null>(null)
+  const [shouldShowSiteProjectOnboarding, setShouldShowSiteProjectOnboarding] = useState(false)
   const [isCancellingSiteProject, setIsCancellingSiteProject] = useState(false)
   const [siteCancelErrorMessage, setSiteCancelErrorMessage] = useState('')
   const isCancellingSiteProjectRef = useRef(false)
@@ -202,8 +203,12 @@ export function useProjectListPage() {
       { name, description },
       {
         onSuccess: (project) => {
+          const knownProjectCount = allProjectsForComments.length > 0
+            ? allProjectsForComments.length
+            : filteredProjects.length
           setCreateOpen(false)
           setSiteCancelErrorMessage('')
+          setShouldShowSiteProjectOnboarding(knownProjectCount === 0)
           setSiteProject(project)
         },
       },
@@ -214,9 +219,11 @@ export function useProjectListPage() {
   const handleCompleteSiteModal = () => {
     if (siteProject) {
       setCurrentProject(siteProject)
-      navigate(`/projects/${siteProject.id}/editor`)
+      const onboardingQuery = shouldShowSiteProjectOnboarding ? '?onboarding=project-canvas' : ''
+      navigate(`/projects/${siteProject.id}/editor${onboardingQuery}`)
     }
     setSiteCancelErrorMessage('')
+    setShouldShowSiteProjectOnboarding(false)
     setSiteProject(null)
   }
 
@@ -239,6 +246,7 @@ export function useProjectListPage() {
     try {
       await deleteProject.mutateAsync(siteProject.id)
       setSiteCancelErrorMessage('')
+      setShouldShowSiteProjectOnboarding(false)
       setSiteProject(null)
     } catch (error) {
       if (error instanceof Error && error.message.trim().length > 0) {

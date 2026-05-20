@@ -5,8 +5,9 @@ import { saveProjectWorkspaceThumbnailUrl } from '@/features/project/utils/proje
 type WorkspaceThumbnailMode = Exclude<EditorMode, 'view'>
 
 const SAVE_DEBOUNCE_MS = 800
-const SERVER_THUMBNAIL_MAX_SIDE = 1280
-const SERVER_THUMBNAIL_QUALITY = 0.9
+const SERVER_THUMBNAIL_MAX_SIDE = 640
+const SERVER_THUMBNAIL_QUALITY = 0.72
+const SERVER_THUMBNAIL_MAX_DATA_URL_LENGTH = 900_000
 const pendingTimers = new Map<string, number>()
 const lastSavedByKey = new Map<string, string>()
 
@@ -68,10 +69,12 @@ export function saveProjectWorkspaceThumbnail(
   const timerId = window.setTimeout(() => {
     pendingTimers.delete(saveKey)
     void resizeDataImageForServer(imageUrl).then((thumbnailUrl) =>
-      projectService.updateThumbnail(projectId, {
-        thumbnailUrl,
-        thumbnailMode: mode,
-      }),
+      thumbnailUrl.startsWith('data:image/') || thumbnailUrl.length > SERVER_THUMBNAIL_MAX_DATA_URL_LENGTH
+        ? null
+        : projectService.updateThumbnail(projectId, {
+            thumbnailUrl,
+            thumbnailMode: mode,
+          }),
     ).then(() => {
       lastSavedByKey.set(saveKey, imageUrl)
     }).catch(() => {

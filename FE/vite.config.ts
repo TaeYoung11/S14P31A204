@@ -54,9 +54,21 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
+    force: true,
     // @thatopen/components는 런타임 동적 import를 사용하므로 사전 번들링에서 제외한다.
-    exclude: ['@thatopen/components'],
+    exclude: [
+      '@thatopen/components',
+      'three/examples/jsm/controls/OrbitControls.js',
+      'three/examples/jsm/controls/TransformControls.js',
+    ],
     // three를 명시적으로 포함해 사전 번들링된 단일 인스턴스를 보장한다.
-    include: ['three'],
+    include: [
+      'three',
+      'three/webgpu',
+      'three/tsl',
+      'web-ifc',
+      'konva',
+      'react-konva',
+    ],
   },
 })
