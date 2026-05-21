@@ -133,6 +133,26 @@ def test_completed_event_requires_output_for_json_schema_and_pydantic() -> None:
         raise AssertionError("completed event without output must be rejected by pydantic")
 
 
+def test_completed_event_accepts_floor_plan_project_output_for_json_schema_and_pydantic() -> None:
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    floor_plan_project = {
+        "id": "ifc-result",
+        "unit": "mm",
+        "floors": [],
+        "rooms": [{"id": "room-1"}],
+        "adjacency": [],
+    }
+    payload = _event("completed")
+    assert isinstance(payload["output"], dict)
+    payload["output"]["floor_plan_project"] = floor_plan_project
+
+    validate_json_schema(payload, schema)
+    model = EventMessage.model_validate(payload)
+
+    assert model.output is not None
+    assert model.output.floorPlanProject == floor_plan_project
+
+
 def test_clarification_event_requires_request_id_for_json_schema_and_pydantic() -> None:
     schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
     payload = _event("clarification_required")

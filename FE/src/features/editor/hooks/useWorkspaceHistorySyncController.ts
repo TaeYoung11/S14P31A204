@@ -29,6 +29,7 @@ interface UseWorkspaceHistorySyncControllerInput {
   workspaceEditTransactionDepthRef: MutableRefObject<number>
   pendingWorkspaceSnapshotCommitRef: MutableRefObject<boolean>
   floorPlanHistoryCommandInFlightRef: MutableRefObject<boolean>
+  setFloorPlanHistoryCommandInFlight?: (value: boolean) => void
   setBubbleHistoryCursor: (cursor: { baseIndex: number; redoDepth: number }) => void
   setFloorPlanHistoryCursor: (cursor: { baseIndex: number; redoDepth: number }) => void
   setSaveStatus: (status: SaveStatus) => void
@@ -60,6 +61,7 @@ export function useWorkspaceHistorySyncController({
   workspaceEditTransactionDepthRef,
   pendingWorkspaceSnapshotCommitRef,
   floorPlanHistoryCommandInFlightRef,
+  setFloorPlanHistoryCommandInFlight,
   setBubbleHistoryCursor,
   setFloorPlanHistoryCursor,
   setSaveStatus,
@@ -72,6 +74,11 @@ export function useWorkspaceHistorySyncController({
   onHistorySyncSuccess,
   maxHistoryIndex = 9,
 }: UseWorkspaceHistorySyncControllerInput) {
+  const releaseFloorPlanHistoryCommand = useCallback(() => {
+    floorPlanHistoryCommandInFlightRef.current = false
+    setFloorPlanHistoryCommandInFlight?.(false)
+  }, [floorPlanHistoryCommandInFlightRef, setFloorPlanHistoryCommandInFlight])
+
   const refreshHistoryCursorFromServer = useCallback(async (options?: {
     republishOnFailure?: boolean
     republishWhenStale?: boolean
@@ -179,7 +186,7 @@ export function useWorkspaceHistorySyncController({
   ])
 
   const updateFloorPlanHistoryCursor = useCallback((baseIndex: number, redoDepth: number) => {
-    floorPlanHistoryCommandInFlightRef.current = false
+    releaseFloorPlanHistoryCommand()
     floorPlanHistoryBaseIndexRef.current = baseIndex
     floorPlanHistoryRedoDepthRef.current = redoDepth
     setFloorPlanHistoryCursor({ baseIndex, redoDepth })
@@ -210,11 +217,11 @@ export function useWorkspaceHistorySyncController({
     awaitingServerSyncRef,
     floorPlanHistoryBaseIndexRef,
     floorPlanHistoryRedoDepthRef,
-    floorPlanHistoryCommandInFlightRef,
     pendingServerPublishRef,
     pendingWorkspaceSnapshotCommitRef,
     previousSnapshotRef,
     projectId,
+    releaseFloorPlanHistoryCommand,
     requestRepublishSnapshotCommit,
     setFloorPlanHistoryCursor,
     setSaveStatus,
@@ -226,7 +233,7 @@ export function useWorkspaceHistorySyncController({
     const awaitingSync = awaitingServerSyncRef.current
     if (!awaitingSync || awaitingSync.projectId !== projectId) {
       if (isCursorInvalidCode(error.code)) {
-        floorPlanHistoryCommandInFlightRef.current = false
+        releaseFloorPlanHistoryCommand()
         setSaveStatus('dirty')
         void refreshHistoryCursorFromServer({ republishOnFailure: false, republishWhenStale: false })
       }
@@ -234,7 +241,7 @@ export function useWorkspaceHistorySyncController({
     }
 
     awaitingServerSyncRef.current = null
-    floorPlanHistoryCommandInFlightRef.current = false
+    releaseFloorPlanHistoryCommand()
 
     if (isCursorInvalidCode(error.code)) {
       pendingServerPublishRef.current = null
@@ -261,12 +268,12 @@ export function useWorkspaceHistorySyncController({
   }, [
     awaitingServerSyncRef,
     clearServerPublishRetry,
-    floorPlanHistoryCommandInFlightRef,
     isCursorInvalidCode,
     isNonRetriableServerErrorCode,
     pendingServerPublishRef,
     previousSnapshotRef,
     projectId,
+    releaseFloorPlanHistoryCommand,
     refreshHistoryCursorFromServer,
     scheduleServerPublishRetry,
     setSaveStatus,
@@ -294,7 +301,7 @@ export function useWorkspaceHistorySyncController({
   const handleFloorPlanHistoryCursorInvalid = useCallback(() => {
     const awaitingSync = awaitingServerSyncRef.current
     const hadFloorPlanCommandInFlight = floorPlanHistoryCommandInFlightRef.current
-    floorPlanHistoryCommandInFlightRef.current = false
+    releaseFloorPlanHistoryCommand()
 
     if (!awaitingSync || awaitingSync.projectId !== projectId || awaitingSync.historyDomain !== 'floorPlan') {
       // floor-plan undo/redo requests do not always create an awaiting sync record.
@@ -320,6 +327,7 @@ export function useWorkspaceHistorySyncController({
     pendingServerPublishRef,
     previousSnapshotRef,
     projectId,
+    releaseFloorPlanHistoryCommand,
     refreshHistoryCursorFromServer,
     setSaveStatus,
   ])

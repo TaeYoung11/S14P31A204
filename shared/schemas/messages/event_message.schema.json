@@ -236,6 +236,10 @@
         },
         "has_warnings": {
           "type": "boolean"
+        },
+        "floor_plan_project": {
+          "type": "object",
+          "additionalProperties": true
         }
       }
     },

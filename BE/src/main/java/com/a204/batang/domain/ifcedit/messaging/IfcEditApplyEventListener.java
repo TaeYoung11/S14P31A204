@@ -605,6 +605,10 @@ public class IfcEditApplyEventListener {
             if (isFloorPlanPayload(sourceScene)) {
                 return sourceScene;
             }
+            JsonNode normalizedSourceScene = normalizeLegacyLlmSourceScene(sourceScene);
+            if (isFloorPlanPayload(normalizedSourceScene)) {
+                return normalizedSourceScene;
+            }
 
             log.warn("Floor-plan sync broadcast skipped. source_scene is missing or invalid. projectId={}, jobId={}",
                     job.getProjectId(), job.getJobId());
@@ -631,6 +635,67 @@ public class IfcEditApplyEventListener {
         log.info("IFC_EDIT completed without floor-plan payload. sync broadcast skipped. projectId={}, jobId={}",
                 job.getProjectId(), job.getJobId());
         return null;
+    }
+
+    private JsonNode normalizeLegacyLlmSourceScene(JsonNode sourceScene) {
+        if (sourceScene == null || sourceScene.isNull() || !sourceScene.isObject()) {
+            return null;
+        }
+
+        JsonNode floorPlan = sourceScene.get("floorPlan");
+        if (floorPlan == null || floorPlan.isNull() || !floorPlan.isObject()) {
+            return null;
+        }
+
+        ObjectNode normalized = objectMapper.createObjectNode();
+        int baseIndex = extractBaseIndex(sourceScene, floorPlan);
+        normalized.put("baseIndex", baseIndex);
+        normalized.put("sceneType", extractTextOrDefault(sourceScene, "sceneType", "TWO_D"));
+        normalized.set("bubbles", arrayOrEmpty(sourceScene.get("bubbles")));
+        normalized.set("connections", arrayOrEmpty(sourceScene.get("connections")));
+        normalized.putNull("floorMeta");
+
+        ObjectNode layout = objectMapper.createObjectNode();
+        layout.put("mode", "ifc");
+        layout.put("baseIndex", baseIndex);
+        layout.put("phaseStatus", "IFC_EDIT");
+        layout.set("floorLayers", arrayOrEmpty(floorPlan.get("layers")));
+        layout.set("floorWalls", arrayOrEmpty(floorPlan.get("walls")));
+        layout.set("floorOpenings", arrayOrEmpty(floorPlan.get("openings")));
+        JsonNode activeFloorLayerId = floorPlan.get("activeFloorLayerId");
+        if (activeFloorLayerId != null && activeFloorLayerId.isTextual()) {
+            layout.put("activeFloorLayerId", activeFloorLayerId.asText());
+        } else {
+            layout.putNull("activeFloorLayerId");
+        }
+        layout.put("isFloorPlanGenerated", true);
+        layout.put("floorPlanLayoutSource", "project");
+        normalized.set("layout", layout);
+
+        return normalized;
+    }
+
+    private int extractBaseIndex(JsonNode sourceScene, JsonNode floorPlan) {
+        JsonNode baseIndex = sourceScene.get("baseIndex");
+        if (baseIndex != null && baseIndex.canConvertToInt() && baseIndex.asInt() >= -1) {
+            return baseIndex.asInt();
+        }
+        JsonNode floorPlanBaseIndex = floorPlan.get("baseIndex");
+        if (floorPlanBaseIndex != null && floorPlanBaseIndex.canConvertToInt() && floorPlanBaseIndex.asInt() >= -1) {
+            return floorPlanBaseIndex.asInt();
+        }
+        return -1;
+    }
+
+    private String extractTextOrDefault(JsonNode node, String key, String fallback) {
+        JsonNode value = node.get(key);
+        return value != null && value.isTextual() && !value.asText().isBlank()
+                ? value.asText()
+                : fallback;
+    }
+
+    private JsonNode arrayOrEmpty(JsonNode value) {
+        return value != null && value.isArray() ? value.deepCopy() : objectMapper.createArrayNode();
     }
 
     private boolean isFloorPlanPayload(JsonNode payload) {

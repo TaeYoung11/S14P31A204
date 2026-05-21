@@ -94,6 +94,31 @@ def test_build_completed_event_coerces_dict_output() -> None:
     validate_json_schema(event.model_dump(by_alias=True, exclude_none=True), _schema())
 
 
+def test_build_completed_event_accepts_floor_plan_project_output() -> None:
+    context = _context()
+    floor_plan_project = {
+        "id": "ifc-result",
+        "unit": "mm",
+        "floors": [],
+        "rooms": [{"id": "room-1"}],
+        "adjacency": [],
+    }
+    result = CompletedResult(
+        output={
+            "storage_url": "s3://batang-artifacts/jobs/job-001/steps/1/model.ifc",
+            "floor_plan_project": floor_plan_project,
+        }
+    )
+
+    event = build_completed_event(context, "2d-llm-worker-1", result)
+
+    assert event.output is not None
+    assert event.output.floorPlanProject == floor_plan_project
+    payload = event.model_dump(by_alias=True, exclude_none=True)
+    assert payload["output"]["floor_plan_project"] == floor_plan_project
+    validate_json_schema(payload, _schema())
+
+
 def test_build_failed_event_maps_worker_error_to_event_error() -> None:
     context = _context()
     result = FailedResult(

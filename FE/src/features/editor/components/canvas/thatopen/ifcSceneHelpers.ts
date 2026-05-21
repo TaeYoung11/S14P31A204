@@ -16,6 +16,7 @@
 import type { Object3D } from "three";
 import type { IfcElementInfo } from "../../../types";
 import type { IfcPsetMetricMaps } from "./ifcPropertyParser";
+import { logEditor3dUndoDebug } from "../../../utils/editor3dUndoDebug";
 import {
   PROJECT_WORLD_UNITS_PER_MM,
   createElementMaterial,
@@ -61,6 +62,36 @@ export type Selected3DTarget =
       selectedTransformSignature?: string
     }
   | null;
+
+const summarizeClearSelectedTargetFor3dUndo = (
+  target: Selected3DTarget,
+): Record<string, unknown> | null => {
+  if (!target) return null;
+  const object = target.object as IfcEditableObject3D | undefined;
+  const editTarget = object?.userData?.ifcEditTarget;
+  return {
+    source: target.source,
+    modelId: target.source === "ifc" ? target.modelId : null,
+    localId: target.source === "ifc" ? target.localId : null,
+    hitLocalId: target.source === "ifc" ? target.hitLocalId : null,
+    objectVisible: object?.visible ?? null,
+    keepModelHiddenAfterCommit:
+      target.source === "ifc"
+        ? Boolean(target.keepModelHiddenAfterCommit ?? object?.userData?.ifcKeepModelHiddenAfterCommit)
+        : null,
+    visibilityRestoredAtCommit:
+      target.source === "ifc" ? target.visibilityRestoredAtCommit ?? null : null,
+    editTargetLocalIds: editTarget?.localIds ?? [],
+    element: editTarget?.element
+      ? {
+          id: editTarget.element.id,
+          globalId: editTarget.element.globalId ?? null,
+          expressId: editTarget.element.expressId ?? null,
+          ifcClass: editTarget.element.ifcClass,
+        }
+      : null,
+  };
+};
 
 export type TransformAxisVisibility = {
   showX: boolean
@@ -1205,6 +1236,14 @@ export const clearSelectedTarget = async (
 ) => {
   if (!target) return;
 
+  logEditor3dUndoDebug("thatopen-clear-selected-target", "start", {
+    removeObject,
+    restoreModelVisibility: restoreModelVisibility ?? null,
+    skipVisibilitySync,
+    target: summarizeClearSelectedTargetFor3dUndo(target),
+  });
+
+  try {
   sceneState.transformControls.detach();
   sceneState.transformControls.visible = false;
   sceneState.transformControls.enabled = false;
@@ -1336,6 +1375,14 @@ export const clearSelectedTarget = async (
   if (removeObject) {
     target.object.parent?.remove(target.object);
     disposeObjectMaterials(sceneState.three, target.object);
+  }
+  } finally {
+    logEditor3dUndoDebug("thatopen-clear-selected-target", "done", {
+      removeObject,
+      restoreModelVisibility: restoreModelVisibility ?? null,
+      skipVisibilitySync,
+      target: summarizeClearSelectedTargetFor3dUndo(target),
+    });
   }
 };
 

@@ -128,6 +128,10 @@ import {
   toLibraryAssetModelId,
   translateIfcLibraryAssetPlacements,
 } from './thatopen/ifcLibraryAssetHelpers'
+import {
+  isEditor3dUndoDebugEnabled,
+  logEditor3dUndoDebug,
+} from '../../utils/editor3dUndoDebug'
 
 /** ThatOpenIfcCanvas 컴포넌트 props */
 interface ThatOpenIfcCanvasProps {
@@ -411,6 +415,43 @@ const IFC_SAVE_DEBOUNCE_MS = 1200
 const IFC_SAVE_MAX_POSTPONE_MS = 6000
 const IFC_COMMIT_QUEUE_DELAY_MS = 0
 const IFC_COMMIT_QUIET_WINDOW_MS = 0
+
+const summarizeIfcElementFor3dUndo = (element?: IfcElementInfo | null): Record<string, unknown> | null => {
+  if (!element) return null
+  return {
+    id: element.id,
+    globalId: element.globalId ?? null,
+    expressId: element.expressId ?? null,
+    ifcClass: element.ifcClass,
+    source: element.source ?? null,
+  }
+}
+
+const summarizeSelectedTargetFor3dUndo = (target: Selected3DTarget): Record<string, unknown> | null => {
+  if (!target) return null
+  const object = target.object as IfcEditableObject3D | undefined
+  const editTarget = object?.userData?.ifcEditTarget
+  return {
+    source: target.source,
+    modelId: target.source === 'ifc' ? target.modelId : null,
+    localId: target.source === 'ifc' ? target.localId : null,
+    hitLocalId: target.source === 'ifc' ? target.hitLocalId : null,
+    objectVisible: object?.visible ?? null,
+    keepModelHiddenAfterCommit: target.source === 'ifc'
+      ? Boolean(target.keepModelHiddenAfterCommit ?? object?.userData?.ifcKeepModelHiddenAfterCommit)
+      : null,
+    visibilityRestoredAtCommit: target.source === 'ifc' ? target.visibilityRestoredAtCommit ?? null : null,
+    editTargetLocalIds: editTarget?.localIds ?? [],
+    element: summarizeIfcElementFor3dUndo(editTarget?.element),
+    objectPosition: object
+      ? {
+          x: object.position.x,
+          y: object.position.y,
+          z: object.position.z,
+        }
+      : null,
+  }
+}
 const IFC_COMMIT_INFLIGHT_RETRY_MS = 250
 const IFC_COMMIT_INFLIGHT_STALE_RECOVERY_MS = 1500
 // This timeout protects the local proxy-to-model commit path, not the BE/worker IFC edit ack.
@@ -937,6 +978,7 @@ export default function ThatOpenIfcCanvas({
       const queryFlag = search.get('ifcMoveDebug')
       if (queryFlag === '1' || queryFlag === 'true') return true
       if (window.localStorage?.getItem('ifcMoveDebug') === '1') return true
+      if (isEditor3dUndoDebugEnabled()) return true
       const runtimeFlag = (window as Window & { __IFC_MOVE_DEBUG__?: boolean }).__IFC_MOVE_DEBUG__
       return runtimeFlag === true
     } catch {
@@ -1044,10 +1086,36 @@ export default function ThatOpenIfcCanvas({
         elementId: payload.element.id,
         expressId: payload.element.expressId ?? null,
       })
+      logEditor3dUndoDebug('thatopen', 'ifc_transform_commit_emit_skip_duplicate', {
+        reason,
+        element: summarizeIfcElementFor3dUndo(payload.element),
+        translationMm: payload.patch.translationMm ?? null,
+      })
       return
     }
     lastIfcTransformCommitSignatureRef.current = signature
+    logEditor3dUndoDebug('thatopen', 'ifc_transform_commit_emit_before_callback', {
+      reason,
+      element: summarizeIfcElementFor3dUndo(payload.element),
+      translationMm: payload.patch.translationMm ?? null,
+      position: {
+        x: payload.patch.positionX ?? null,
+        y: payload.patch.positionY ?? null,
+        z: payload.patch.positionZ ?? null,
+      },
+      rotation: {
+        x: payload.patch.rotationX ?? null,
+        y: payload.patch.rotationY ?? null,
+        z: payload.patch.rotationZ ?? null,
+      },
+      registrySize: movedIfcProxyRegistryRef.current.size,
+    })
     onIfcElementTransformCommitRef.current?.(payload.element, payload.patch)
+    logEditor3dUndoDebug('thatopen', 'ifc_transform_commit_emit_after_callback', {
+      reason,
+      element: summarizeIfcElementFor3dUndo(payload.element),
+      registrySize: movedIfcProxyRegistryRef.current.size,
+    })
     logIfcMove('ifc_transform_commit_emit', {
       reason,
       elementId: payload.element.id,
@@ -1055,6 +1123,7 @@ export default function ThatOpenIfcCanvas({
       positionX: payload.patch.positionX,
       positionY: payload.patch.positionY,
       positionZ: payload.patch.positionZ,
+      translationMm: payload.patch.translationMm ?? null,
     })
   }, [logIfcMove])
 
@@ -1292,6 +1361,14 @@ export default function ThatOpenIfcCanvas({
       targetKey: null,
       lastError: null,
     }
+    logEditor3dUndoDebug('thatopen', 'revision_state_reset', {
+      reason,
+      movedProxyCount,
+      pendingColorRootCount,
+      pendingSaveModelId,
+      pendingSaveReason,
+      deferredSaveModelId,
+    })
     logIfcMove('revision_state_reset', {
       reason,
       movedProxyCount,
@@ -1779,6 +1856,15 @@ export default function ThatOpenIfcCanvas({
     params.object.visible = true
     params.object.userData.ifcKeepModelHiddenAfterCommit = true
     movedIfcProxyRegistryRef.current.set(key, record)
+    logEditor3dUndoDebug('thatopen', 'moved_proxy_registry_register', {
+      key,
+      rootModelId,
+      modelId: params.modelId,
+      hideLocalIds,
+      element: summarizeIfcElementFor3dUndo(params.element),
+      keepModelHiddenAfterCommit: params.object.userData.ifcKeepModelHiddenAfterCommit,
+      registrySize: movedIfcProxyRegistryRef.current.size,
+    })
     logIfcMove('moved_proxy_registry_register', {
       key,
       rootModelId,
@@ -1831,6 +1917,13 @@ export default function ThatOpenIfcCanvas({
       }
     })
     if (removed.length > 0) {
+      logEditor3dUndoDebug('thatopen', 'moved_proxy_registry_remove', {
+        reason,
+        removed,
+        localIds: Array.from(localIdSet),
+        disposeObject: options.disposeObject === true,
+        registrySize: movedIfcProxyRegistryRef.current.size,
+      })
       logIfcMove('moved_proxy_registry_remove', {
         reason,
         removed,
@@ -2175,6 +2268,13 @@ export default function ThatOpenIfcCanvas({
       localId: target.localId,
       hitLocalId: target.hitLocalId,
       hitItemId: target.hitItemId,
+    })
+    logEditor3dUndoDebug('thatopen', 'commit_start', {
+      targetKey,
+      requestedSessionId,
+      keepProxyVisibleAfterCommit,
+      target: summarizeSelectedTargetFor3dUndo(target),
+      registrySize: movedIfcProxyRegistryRef.current.size,
     })
     logCommitTiming('start')
     const isFallbackProxy = Boolean((target.object as IfcEditableObject3D).userData.ifcEditFallbackProxy)
@@ -2892,6 +2992,16 @@ export default function ThatOpenIfcCanvas({
       editableLocalIds: editability.editableLocalIds,
       affectedLocalIds: Array.from(affectedLocalIds),
       keepProxyVisibleAfterCommit,
+    })
+    logEditor3dUndoDebug('thatopen', 'commit_success', {
+      targetKey,
+      editableModelId,
+      editableLocalIds: editability.editableLocalIds,
+      affectedLocalIds: Array.from(affectedLocalIds),
+      keepProxyVisibleAfterCommit,
+      keepModelHiddenAfterCommit: (target.object as IfcEditableObject3D).userData.ifcKeepModelHiddenAfterCommit,
+      registrySize: movedIfcProxyRegistryRef.current.size,
+      target: summarizeSelectedTargetFor3dUndo(target),
     })
     logCommitTiming('success')
     ifcMoveLifecycleRef.current = nextIfcMoveLifecycleState(ifcMoveLifecycleRef.current, { type: 'cleanup_done' })

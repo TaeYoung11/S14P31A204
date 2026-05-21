@@ -28,7 +28,13 @@ import {
   parseStompErrorMessage,
   type BubbleSnapshotPayload,
   type FloorPlanSnapshotPayload,
+  type ProjectSyncMessage,
 } from '../utils/workspaceSyncMessage'
+import {
+  logEditor3dUndoDebug,
+  summarizeFloorPlanSnapshotFor3dUndo,
+  summarizeWorkspaceCommandFor3dUndo,
+} from '../utils/editor3dUndoDebug'
 
 type HistoryCursor = { baseIndex: number; redoDepth: number }
 
@@ -43,7 +49,13 @@ interface UseBubbleSnapshotRealtimeParams {
   ) => void
   onRemoteFloorPlanSnapshot?: (
     snapshot: FloorPlanSnapshotPayload,
-    meta?: { action?: string | null; layoutOnly?: boolean; payloadBaseIndex?: number | null; revisionId?: string | null },
+    meta?: {
+      action?: string | null
+      layoutOnly?: boolean
+      payloadBaseIndex?: number | null
+      hasIfcStorageUrl?: boolean
+      revisionId?: string | null
+    },
   ) => void
   onPhaseStatusChanged?: (status: PhaseStatus) => void
   onIfcStorageUrlReceived?: (
@@ -65,6 +77,39 @@ interface UseBubbleSnapshotRealtimeParams {
 const IFC_EVENT_DEDUP_TTL_MS = 2000
 const IFC_URL_DEBUG = getRuntimeEnvBoolean('VITE_IFC_URL_DEBUG')
 const WORKSPACE_HISTORY_MAX_INDEX = 9
+
+const hasLibraryElementsLayout = (snapshot: FloorPlanSnapshotPayload | null | undefined): boolean =>
+  Array.isArray(snapshot?.layout?.libraryElements) && snapshot.layout.libraryElements.length > 0
+
+const getWorkspaceCommandRecord = (message: ProjectSyncMessage): Record<string, unknown> | null => {
+  const messageRecord = message as Record<string, unknown>
+  if (isObjectRecord(messageRecord.workspaceCommand)) return messageRecord.workspaceCommand
+  if (isObjectRecord(message.payload) && isObjectRecord(message.payload.workspaceCommand)) {
+    return message.payload.workspaceCommand
+  }
+  if (isObjectRecord(message.floorPlanPayloadJson) && isObjectRecord(message.floorPlanPayloadJson.workspaceCommand)) {
+    return message.floorPlanPayloadJson.workspaceCommand
+  }
+  return null
+}
+
+const isLocalLibraryLayoutCommand = (
+  message: ProjectSyncMessage,
+  snapshot: FloorPlanSnapshotPayload | null | undefined,
+): boolean => {
+  const command = getWorkspaceCommandRecord(message)
+  const commandId = typeof command?.id === 'string' ? command.id : null
+  if (!commandId || !Array.isArray(snapshot?.layout?.libraryElements)) return false
+  return snapshot.layout.libraryElements.some((element) =>
+    element.id === commandId &&
+    (Boolean(element.sourceAssetId) || Boolean(element.assetIfc) || Boolean(element.assetIfcUrl)),
+  )
+}
+
+const isFloorPlanLayoutOnlyAction = (action: string | null): boolean =>
+  action === WORKSPACE_SYNC_ACTION.floorPlanUpdated ||
+  action === WORKSPACE_SYNC_ACTION.floorPlanUndo ||
+  action === WORKSPACE_SYNC_ACTION.floorPlanRedo
 
 /**
  * 버블 스냅샷 실시간 동기화 훅
@@ -218,7 +263,13 @@ export function useBubbleSnapshotRealtime({
 
     const applyFloorPlanSnapshot = (
       snapshot: FloorPlanSnapshotPayload,
-      meta?: { action?: string | null; layoutOnly?: boolean; payloadBaseIndex?: number | null; revisionId?: string | null },
+      meta?: {
+        action?: string | null
+        layoutOnly?: boolean
+        payloadBaseIndex?: number | null
+        hasIfcStorageUrl?: boolean
+        revisionId?: string | null
+      },
     ) => {
       if (floorPlanSnapshotHandlerRef.current) {
         floorPlanSnapshotHandlerRef.current(snapshot, meta)
@@ -232,6 +283,9 @@ export function useBubbleSnapshotRealtime({
       if (!parsed) return
       const action = normalizeAction(parsed)
       const floorPlanSnapshot = extractFloorPlanSnapshot(parsed)
+      const ifcStorageUrl = extractIfcStorageUrl(parsed)
+      const revisionId = extractRevisionId(parsed)
+      const payloadBaseIndex = extractFloorPlanBaseIndex(parsed)
       const shouldSyncFloorPlanHistoryCursor =
         action === WORKSPACE_SYNC_ACTION.floorPlanUpdated ||
         action === WORKSPACE_SYNC_ACTION.floorPlanGenerateCompleted ||
@@ -241,9 +295,30 @@ export function useBubbleSnapshotRealtime({
         action === WORKSPACE_SYNC_ACTION.floorPlanUpdated ||
         action === WORKSPACE_SYNC_ACTION.floorPlanUndo ||
         action === WORKSPACE_SYNC_ACTION.floorPlanRedo
+      const isLocalLibraryLayoutEvent =
+        isFloorPlanLayoutOnlyAction(action) &&
+        hasLibraryElementsLayout(floorPlanSnapshot)
+      const shouldTraceFloorPlanRealtime =
+        action === WORKSPACE_SYNC_ACTION.floorPlanProcessing ||
+        action === WORKSPACE_SYNC_ACTION.floorPlanUpdated ||
+        action === WORKSPACE_SYNC_ACTION.floorPlanUndo ||
+        action === WORKSPACE_SYNC_ACTION.floorPlanRedo
+
+      if (shouldTraceFloorPlanRealtime) {
+        logEditor3dUndoDebug('realtime', 'floor_plan_event_received', {
+          action,
+          revisionId,
+          hasS3Url: ifcStorageUrl !== null,
+          payloadBaseIndex,
+          status: parsed.status ?? null,
+          workspaceCommand: summarizeWorkspaceCommandFor3dUndo(getWorkspaceCommandRecord(parsed)),
+          snapshot: summarizeFloorPlanSnapshotFor3dUndo(floorPlanSnapshot),
+        })
+      }
 
       const status = shouldSyncFloorPlanHistoryCursor
-        ? normalizePhaseStatus(floorPlanSnapshot?.layout?.phaseStatus)
+        ? (isLocalLibraryLayoutEvent ? ('IFC_EDIT' as PhaseStatus) : null)
+          ?? normalizePhaseStatus(floorPlanSnapshot?.layout?.phaseStatus)
           ?? normalizePhaseStatus(parsed.status)
           ?? (isObjectRecord(parsed.payload) ? normalizePhaseStatus(parsed.payload.status) : null)
         : normalizePhaseStatus(parsed.status)
@@ -255,36 +330,95 @@ export function useBubbleSnapshotRealtime({
       }
 
       if (action && IFC_COMPLETED_ACTION_SET.has(action)) {
-        const ifcStorageUrl = extractIfcStorageUrl(parsed)
         const assetId = extractIfcAssetId(parsed)
-        const revisionId = extractRevisionId(parsed)
-        const floorPlanSnapshot = extractFloorPlanSnapshot(parsed)
-        const dedupRaw = assetId
-          ?? (revisionId ? `revision:${revisionId}` : null)
-          ?? (ifcStorageUrl ? normalizeIfcSourceDedupeKey(ifcStorageUrl) : null)
-        if (dedupRaw) {
-          const dedupKey = `${action}:${dedupRaw}`
-          const now = Date.now()
-          const previous = recentIfcEventRef.current.get(dedupKey)
-          if (typeof previous === 'number' && now - previous < IFC_EVENT_DEDUP_TTL_MS) {
-            if (revisionId) {
-              ifcStorageUrlHandlerRef.current?.(ifcStorageUrl ?? '', action, assetId, revisionId, floorPlanSnapshot)
+        const isLocalLibraryLayoutOnlyUpdate =
+          action === WORKSPACE_SYNC_ACTION.floorPlanUpdated &&
+          hasLibraryElementsLayout(floorPlanSnapshot) &&
+          (
+            ifcStorageUrl === null ||
+            isLocalLibraryLayoutCommand(parsed, floorPlanSnapshot)
+          )
+        if (isLocalLibraryLayoutOnlyUpdate) {
+          console.log('[library-asset-debug][realtime] skip IFC reload for local library layout update', {
+            revisionId,
+            hasIfcStorageUrl: ifcStorageUrl !== null,
+            libraryElementCount: floorPlanSnapshot?.layout?.libraryElements?.length ?? 0,
+          })
+          logEditor3dUndoDebug('realtime', 'ifc_reload_skip', {
+            reason: 'local_library_layout_only',
+            action,
+            revisionId,
+            hasS3Url: ifcStorageUrl !== null,
+            snapshot: summarizeFloorPlanSnapshotFor3dUndo(floorPlanSnapshot),
+          })
+        } else {
+          const dedupRaw = assetId
+            ?? (revisionId ? `revision:${revisionId}` : null)
+            ?? (ifcStorageUrl ? normalizeIfcSourceDedupeKey(ifcStorageUrl) : null)
+          if (dedupRaw) {
+            const dedupKey = `${action}:${dedupRaw}`
+            const now = Date.now()
+            const previous = recentIfcEventRef.current.get(dedupKey)
+            if (typeof previous === 'number' && now - previous < IFC_EVENT_DEDUP_TTL_MS) {
+              console.log('[ifc-realtime] skip duplicate IFC completion event', {
+                action,
+                dedupKey,
+                revisionId,
+                hasIfcStorageUrl: ifcStorageUrl !== null,
+              })
+              logEditor3dUndoDebug('realtime', 'ifc_reload_skip', {
+                reason: 'duplicate_completion_event',
+                action,
+                dedupKey,
+                revisionId,
+                hasS3Url: ifcStorageUrl !== null,
+              })
+              return
             }
-            return
-          }
-          recentIfcEventRef.current.set(dedupKey, now)
-          for (const [key, timestamp] of recentIfcEventRef.current.entries()) {
-            if (now - timestamp >= IFC_EVENT_DEDUP_TTL_MS) {
-              recentIfcEventRef.current.delete(key)
+            recentIfcEventRef.current.set(dedupKey, now)
+            for (const [key, timestamp] of recentIfcEventRef.current.entries()) {
+              if (now - timestamp >= IFC_EVENT_DEDUP_TTL_MS) {
+                recentIfcEventRef.current.delete(key)
+              }
             }
-          }
 
-          if (IFC_URL_DEBUG && typeof window !== 'undefined') {
-            window.localStorage.setItem('ifc-last-ws-url', ifcStorageUrl ?? '')
+            if (IFC_URL_DEBUG && typeof window !== 'undefined') {
+              window.localStorage.setItem('ifc-last-ws-url', ifcStorageUrl ?? '')
+            }
+            logEditor3dUndoDebug('realtime', 'ifc_reload_handler_call', {
+              action,
+              assetId,
+              revisionId,
+              hasS3Url: ifcStorageUrl !== null,
+              dedupKey,
+              snapshot: summarizeFloorPlanSnapshotFor3dUndo(floorPlanSnapshot),
+            })
+            ifcStorageUrlHandlerRef.current?.(ifcStorageUrl ?? '', action, assetId, revisionId, floorPlanSnapshot)
+          } else if (revisionId) {
+            logEditor3dUndoDebug('realtime', 'ifc_reload_handler_call', {
+              action,
+              assetId: null,
+              revisionId,
+              hasS3Url: false,
+              dedupKey: null,
+              reason: 'revision_id_without_url',
+              snapshot: summarizeFloorPlanSnapshotFor3dUndo(floorPlanSnapshot),
+            })
+            ifcStorageUrlHandlerRef.current?.('', action, null, revisionId, floorPlanSnapshot)
+          } else {
+            logEditor3dUndoDebug('realtime', 'ifc_reload_skip', {
+              reason: 'missing_url_asset_and_revision',
+              action,
+              hasS3Url: ifcStorageUrl !== null,
+              snapshot: summarizeFloorPlanSnapshotFor3dUndo(floorPlanSnapshot),
+            })
+            if (
+              action === WORKSPACE_SYNC_ACTION.floorPlanUndo ||
+              action === WORKSPACE_SYNC_ACTION.floorPlanRedo
+            ) {
+              ifcStorageUrlHandlerRef.current?.('', action, null, null, floorPlanSnapshot)
+            }
           }
-          ifcStorageUrlHandlerRef.current?.(ifcStorageUrl ?? '', action, assetId, revisionId, floorPlanSnapshot)
-        } else if (revisionId) {
-          ifcStorageUrlHandlerRef.current?.('', action, null, revisionId, floorPlanSnapshot)
         }
       }
 
@@ -293,7 +427,11 @@ export function useBubbleSnapshotRealtime({
       }
 
       const shouldApplyFloorPlanLayoutOnly =
-        action === WORKSPACE_SYNC_ACTION.floorPlanUpdated && extractIfcStorageUrl(parsed) !== null
+        isFloorPlanLayoutOnlyAction(action) &&
+        (
+          ifcStorageUrl !== null ||
+          hasLibraryElementsLayout(floorPlanSnapshot)
+        )
 
       // 평면도 저장 완료가 곧 발행(publish) 응답(echo)은 아닙니다. 백엔드는 먼저
       // FLOOR_PLAN_PROCESSING을 발생시키며, 이후 워커 웹훅이 IFC S3 URL을 포함한
@@ -310,8 +448,9 @@ export function useBubbleSnapshotRealtime({
           applyFloorPlanSnapshot(floorPlanSnapshot, {
             action,
             layoutOnly: shouldApplyFloorPlanLayoutOnly,
-            payloadBaseIndex: extractFloorPlanBaseIndex(parsed),
-            revisionId: extractRevisionId(parsed),
+            payloadBaseIndex,
+            hasIfcStorageUrl: ifcStorageUrl !== null,
+            revisionId,
           })
         }
       }
