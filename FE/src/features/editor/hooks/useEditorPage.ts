@@ -5599,6 +5599,7 @@ export function useEditorPage() {
   // 이 윈도우에서 사용자가 버튼을 누르면 기존 IFC가 새 revision으로 덮일 수 있다.
   const isIfcSourceHydrationPending =
     Boolean(projectId)
+    && hasIfcUploadedInCurrentProject
     && !currentIfcUrl
     && (mode === '2d' || mode === '3d')
     && !ifcSourceHydrationAttemptedProjectIds.includes(projectId ?? '')
@@ -6852,6 +6853,16 @@ export function useEditorPage() {
           assetId: source?.currentIfcAssetId ?? null,
           revisionId: sourceRevision ?? resolvedRevision,
         })
+      }
+
+      if (mode === '2d' && resolvedIfcUrl && !floorPlanSnapshot?.layout) {
+        await handleIfcSyncMessageRef.current(
+          resolvedIfcUrl,
+          null,
+          floorPlanIfcUrl ? undefined : source?.currentIfcAssetId,
+          resolvedRevision,
+        )
+        return
       }
 
       if (mode !== '3d' || !resolvedIfcUrl) return
