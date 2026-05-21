@@ -20,7 +20,7 @@ export default function UnsavedChangesModal({
   const isError = saveStatus === 'error'
   const message = isSyncing
     ? '변경사항을 저장하는 중입니다. 지금 나가면 저장이 완료되지 않을 수 있습니다.'
-    : 'DB에 저장되지 않은 변경사항이 있습니다. 저장하지 않고 나가면 최근 수정 내용이 사라질 수 있습니다.'
+    : '저장되지 않은 변경사항이 있습니다. 저장하지 않고 나가면 최근 수정 내용이 사라질 수 있습니다.'
   const description = isError
     ? '마지막 저장이 실패했습니다. 네트워크 상태를 확인한 뒤 다시 저장해 주세요.'
     : '저장을 눌러 현재 화면에 머물며 저장을 다시 시도하거나, 나가기를 눌러 이동을 계속할 수 있습니다.'

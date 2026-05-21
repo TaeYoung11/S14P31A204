@@ -1,5 +1,6 @@
-import { lazy, useMemo } from 'react'
+import { lazy, useCallback, useMemo } from 'react'
 import { useFreshIfcUrl } from '@/features/editor/hooks/useFreshIfcUrl'
+import { saveProjectWorkspaceThumbnail } from '@/features/project/services/projectWorkspaceThumbnail.service'
 import { DEFAULT_MOCK_IFC_URL } from '@/features/editor/components/canvas/threeDCanvas.utils'
 import type { EditorCanvasRenderProps } from '../../types/editorCanvasContentProps'
 import type { ThreeDCameraViewPresetCommand, ThreeDCoordinates } from '../canvas-content/buildCanvasSectionProps'
@@ -100,6 +101,9 @@ export default function ThreeDModeCanvas({
     })
     return Object.fromEntries(entries) as Record<number, number>
   }, [editorProps.overlayIfcStoreyExpressIds, editorProps.overlayOpacityByLayerId])
+  const handlePreviewCapture = useCallback((imageUrl: string) => {
+    saveProjectWorkspaceThumbnail(editorProps.projectId, '3d', imageUrl)
+  }, [editorProps.projectId])
 
   return (
     <ThreeDCanvas
@@ -154,6 +158,7 @@ export default function ThreeDModeCanvas({
       isTransformSnapEnabled={editorProps.isGridSnapEnabled}
       transformSnapIntervalMm={editorProps.gridSnapIntervalMm}
       isEditingLocked={editorProps.isThreeDEditingLocked}
+      onPreviewCapture={handlePreviewCapture}
     />
   )
 }

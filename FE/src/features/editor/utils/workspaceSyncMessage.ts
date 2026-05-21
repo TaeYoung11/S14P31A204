@@ -10,6 +10,7 @@ import type {
   ZoneData,
 } from '../types'
 import type { ThreeDLibraryPreset } from '../components/canvas/threeDLibrary.types'
+import type { FloorProject } from '../types/floorProject.types'
 
 export interface BubbleSnapshotPayload {
   bubbles: BubbleData[]
@@ -24,6 +25,7 @@ export interface BubbleSnapshotPayload {
 export interface FloorPlanSnapshotPayload extends BubbleSnapshotPayload {
   baseIndex?: number
   revisionId?: string | null
+  floorProject?: FloorProject | null
   layout?: {
     phaseStatus?: PhaseStatus
     floorLayers?: FloorLayer[]
@@ -330,6 +332,85 @@ export function isFloorPlanSnapshotPayload(value: unknown): value is FloorPlanSn
   if (!isBubbleSnapshotPayload(value)) return false
   const layout = (value as unknown as Record<string, unknown>).layout
   return layout == null || isObjectRecord(layout)
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value)
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0
+}
+
+function isPoint2D(value: unknown): value is { x: number; y: number } {
+  return isObjectRecord(value) && isFiniteNumber(value.x) && isFiniteNumber(value.y)
+}
+
+function hasUsableRoomPolygon(value: unknown): boolean {
+  if (!isObjectRecord(value)) return false
+  return isNonEmptyString(value.id) &&
+    isNonEmptyString(value.name) &&
+    isNonEmptyString(value.type) &&
+    isNonEmptyString(value.floor) &&
+    Array.isArray(value.polygon) &&
+    value.polygon.length >= 3 &&
+    value.polygon.every(isPoint2D)
+}
+
+function isFloorProjectFloor(value: unknown): boolean {
+  return isObjectRecord(value) &&
+    isNonEmptyString(value.id) &&
+    Number.isInteger(value.number) &&
+    isNonEmptyString(value.name) &&
+    isFiniteNumber(value.elevation) &&
+    isFiniteNumber(value.ceiling_height)
+}
+
+function isFloorProjectAdjacency(value: unknown): boolean {
+  return isObjectRecord(value) &&
+    isNonEmptyString(value.id) &&
+    isNonEmptyString(value.from_room_id) &&
+    isNonEmptyString(value.to_room_id) &&
+    isFiniteNumber(value.strength)
+}
+
+function isFloorProjectWall(value: unknown): boolean {
+  if (!isObjectRecord(value)) return false
+  if (!isNonEmptyString(value.id) || !isNonEmptyString(value.floor)) return false
+  if (!isPoint2D(value.start) || !isPoint2D(value.end)) return false
+  if (value.thickness !== undefined && !isFiniteNumber(value.thickness)) return false
+  if (value.height !== undefined && !isFiniteNumber(value.height)) return false
+  return true
+}
+
+function isFloorProjectOpening(value: unknown): boolean {
+  if (!isObjectRecord(value)) return false
+  if (!isNonEmptyString(value.id) || !isNonEmptyString(value.floor) || !isNonEmptyString(value.wall_id)) return false
+  if (value.type !== 'door' && value.type !== 'window') return false
+  if (!isFiniteNumber(value.wall_position) || !isFiniteNumber(value.width)) return false
+  if (value.height !== undefined && !isFiniteNumber(value.height)) return false
+  if (value.sill_height !== undefined && !isFiniteNumber(value.sill_height)) return false
+  return true
+}
+
+export function isFloorProjectPayload(value: unknown): value is FloorProject {
+  if (!isObjectRecord(value)) return false
+  const walls = value.walls
+  const openings = value.openings
+  return isNonEmptyString(value.id) &&
+    isNonEmptyString(value.name) &&
+    isNonEmptyString(value.created_at) &&
+    isNonEmptyString(value.updated_at) &&
+    value.unit === 'mm' &&
+    Array.isArray(value.floors) &&
+    value.floors.every(isFloorProjectFloor) &&
+    Array.isArray(value.rooms) &&
+    value.rooms.length > 0 &&
+    value.rooms.every(hasUsableRoomPolygon) &&
+    Array.isArray(value.adjacency) &&
+    value.adjacency.every(isFloorProjectAdjacency) &&
+    (walls === undefined || (Array.isArray(walls) && walls.every(isFloorProjectWall))) &&
+    (openings === undefined || (Array.isArray(openings) && openings.every(isFloorProjectOpening)))
 }
 
 /** FLOOR_PLAN_UPDATED 이벤트에서 동봉된 버블 스냅샷을 추출한다. */

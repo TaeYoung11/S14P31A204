@@ -5,6 +5,8 @@ import { FLOOR_MM_PER_PX } from '../../constants'
 import type { FloorPlan3DData } from '../../utils/floorPlanTo3D'
 import type { ThreeDCameraViewPresetCommand } from '@/pages/editor/components/canvas-content/buildCanvasSectionProps'
 import { buildFloorPlan3DGroup } from '../../utils/floorPlanTo3D'
+import { captureCanvasWithBackground } from '../../utils/canvasPreviewCapture'
+import { captureFocusedThreePreview } from '../../utils/threePreviewCapture'
 import type { ThreeDLibraryDropRequest, ThreeDLibraryPreset } from './threeDLibrary.types'
 import { getFloorPlanElementInfo, isSelectableThreeDComponent } from './threeDSelection.utils'
 import {
@@ -84,6 +86,7 @@ interface FloorPlan3DCanvasProps {
   transformSnapEnabled?: boolean
   transformSnapIntervalMm?: number
   isEditingLocked?: boolean
+  onPreviewCapture?: (imageUrl: string) => void
 }
 
 type ThreeModule = typeof import('three')
@@ -135,6 +138,7 @@ export function FloorPlan3DCanvas({
   transformSnapEnabled = true,
   transformSnapIntervalMm = 100,
   isEditingLocked = false,
+  onPreviewCapture,
 }: FloorPlan3DCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   // 렌더 루프/비동기 초기화에서 최신 data를 참조하기 위한 ref 캐시
@@ -191,6 +195,7 @@ export function FloorPlan3DCanvas({
   const onPinClickRef = useRef(onPinClick)
   const onPinCreateRef = useRef(onPinCreate)
   const onPinDeleteRef = useRef(onPinDelete)
+  const onPreviewCaptureRef = useRef(onPreviewCapture)
 
   useEffect(() => { onLibraryElementChangeRef.current = onLibraryElementChange }, [onLibraryElementChange])
   useEffect(() => { onLibraryElementDeleteRef.current = onLibraryElementDelete }, [onLibraryElementDelete])
@@ -199,6 +204,7 @@ export function FloorPlan3DCanvas({
   useEffect(() => { onPinClickRef.current = onPinClick }, [onPinClick])
   useEffect(() => { onPinCreateRef.current = onPinCreate }, [onPinCreate])
   useEffect(() => { onPinDeleteRef.current = onPinDelete }, [onPinDelete])
+  useEffect(() => { onPreviewCaptureRef.current = onPreviewCapture }, [onPreviewCapture])
   useEffect(() => { rotationLockedRef.current = isRotationLocked }, [isRotationLocked])
   useEffect(() => { transformModeRef.current = transformMode }, [transformMode])
   useEffect(() => { selectedToolRef.current = selectedTool }, [selectedTool])
@@ -256,6 +262,27 @@ export function FloorPlan3DCanvas({
       snapIntervalMm: transformSnapIntervalMmRef.current,
       isShiftSnap: isShiftSnapRef.current,
       worldUnitsPerMm: PROJECT_WORLD_UNITS_PER_MM,
+    })
+  }, [])
+
+  const captureFocusedPreview = useCallback((): string | null => {
+    const THREE = threeRef.current
+    const scene = sceneRef.current
+    const camera = cameraRef.current
+    const renderer = rendererRef.current
+    const controls = controlsRef.current
+    if (!THREE || !scene || !camera || !renderer || !controls) return null
+
+    const focusObjects: import('three').Object3D[] = []
+    if (floorGroupRef.current?.children.length) focusObjects.push(floorGroupRef.current)
+    if (presetGroupRef.current?.children.length) focusObjects.push(presetGroupRef.current)
+    return captureFocusedThreePreview({
+      THREE,
+      scene,
+      camera,
+      renderer,
+      controls,
+      focusObjects,
     })
   }, [])
 
@@ -610,7 +637,8 @@ export function FloorPlan3DCanvas({
       )
       cameraRef.current = camera
 
-      const renderer = new THREE.WebGLRenderer({ antialias: true })
+      const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true })
+      renderer.setClearColor('#f0f2f9', 1)
       renderer.setPixelRatio(window.devicePixelRatio)
       renderer.setSize(container.clientWidth, container.clientHeight)
       container.appendChild(renderer.domElement)
@@ -1890,6 +1918,39 @@ export function FloorPlan3DCanvas({
   useEffect(() => {
     syncTransformSnap()
   }, [transformSnapEnabled, transformSnapIntervalMm, syncTransformSnap])
+
+  useEffect(() => {
+    if (!onPreviewCapture || !rendererRef.current || !sceneRef.current || !cameraRef.current) return
+
+    const timerId = window.setTimeout(() => {
+      const renderer = rendererRef.current
+      const scene = sceneRef.current
+      const camera = cameraRef.current
+      if (!renderer || !scene || !camera) return
+
+      try {
+        const focusedPreview = captureFocusedPreview()
+        if (focusedPreview) {
+          onPreviewCaptureRef.current?.(focusedPreview)
+          return
+        }
+        renderer.render(scene, camera)
+        onPreviewCaptureRef.current?.(captureCanvasWithBackground(renderer.domElement, {
+          backgroundColor: '#f0f2f9',
+          quality: 0.92,
+        }))
+      } catch {
+        // 캔버스 캡처 실패는 카드 썸네일 fallback으로 처리한다.
+      }
+    }, 450)
+
+    return () => window.clearTimeout(timerId)
+  }, [
+    cameraViewPresetCommand,
+    data,
+    captureFocusedPreview,
+    onPreviewCapture,
+  ])
 
   useEffect(() => {
     rotationLockedRef.current = isRotationLocked

@@ -13,6 +13,8 @@ import com.a204.batang.domain.project.dto.ProjectSiteResponse;
 import com.a204.batang.domain.project.dto.RegisterProjectSiteRequest;
 import com.a204.batang.domain.project.dto.UpdateProjectRequest;
 import com.a204.batang.domain.project.dto.UpdateProjectResponse;
+import com.a204.batang.domain.project.dto.UpdateProjectThumbnailRequest;
+import com.a204.batang.domain.project.dto.UpdateProjectThumbnailResponse;
 import com.a204.batang.domain.project.service.ProjectInvitationService;
 import com.a204.batang.domain.project.service.ProjectMemberService;
 import com.a204.batang.domain.project.service.ProjectQueryService;
@@ -80,6 +82,22 @@ public class ProjectController {
     ) {
         UpdateProjectResponse response = projectService.updateProject(projectId, request);
         return ApiResponse.success("프로젝트 수정 완료", response);
+    }
+
+    /**
+     * 프로젝트 카드 썸네일을 수정한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param request 썸네일 수정 요청
+     * @return 수정 결과
+     */
+    @PatchMapping("/{projectId}/thumbnail")
+    public ApiResponse<UpdateProjectThumbnailResponse> updateProjectThumbnail(
+            @PathVariable UUID projectId,
+            @Valid @RequestBody UpdateProjectThumbnailRequest request
+    ) {
+        UpdateProjectThumbnailResponse response = projectService.updateProjectThumbnail(projectId, request);
+        return ApiResponse.success("프로젝트 썸네일 수정 완료", response);
     }
 
     /**

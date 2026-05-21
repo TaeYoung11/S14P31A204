@@ -64,12 +64,14 @@ source = { editable = "packages/ai-authoring" }
 dependencies = [
     { name = "ai-common" },
     { name = "ai-domain" },
+    { name = "ai-planning-2d" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "ai-common", editable = "packages/ai-common" },
     { name = "ai-domain", editable = "packages/ai-domain" },
+    { name = "ai-planning-2d", editable = "packages/ai-planning-2d" },
 ]
 
 [[package]]

@@ -348,7 +348,7 @@ public class IfcEditApplyEventListener {
 
         project.updateLatestRevisionId(revision.getRevisionId());
         workspace.updateIfcOutput(ifcUrl, revision.getRevisionId());
-        publishFloorPlanSyncOnIfcCompletedIfNeeded(job, revision, ifcUrl);
+        publishFloorPlanSyncOnIfcCompletedIfNeeded(job, revision, ifcUrl, event.output());
 
         log.info("IFC Edit completed 이벤트를 반영했습니다. targetRevisionId={}, outputArtifactId={}",
                 revision.getRevisionId(), event.outputArtifactId());
@@ -503,10 +503,26 @@ public class IfcEditApplyEventListener {
         return payload;
     }
 
-    private void publishFloorPlanSyncOnIfcCompletedIfNeeded(IfcEditJob job, Revision revision, String ifcUrl) {
+    private void publishFloorPlanSyncOnIfcCompletedIfNeeded(
+            IfcEditJob job,
+            Revision revision,
+            String ifcUrl,
+            Map<String, Object> eventOutput
+    ) {
         JsonNode sourceScenePayload = resolveFloorPlanSourcePayload(job);
         try {
+            JsonNode workerFloorProject = extractWorkerFloorProject(eventOutput);
             if (sourceScenePayload == null) {
+                if (isFloorProjectPayload(workerFloorProject)) {
+                    workspaceFloorPlanRealtimeService.publishFloorPlanUpdatedFromIfcEdit(
+                            job.getProjectId(),
+                            revision.getRevisionId(),
+                            job.getSourceRevisionId(),
+                            ifcUrl,
+                            buildWorkerFloorProjectPayload(workerFloorProject)
+                    );
+                    return;
+                }
                 workspaceFloorPlanRealtimeService.publishFloorPlanUpdatedFromGenerate(
                         job.getProjectId(),
                         revision.getRevisionId(),
@@ -516,17 +532,65 @@ public class IfcEditApplyEventListener {
                 return;
             }
 
+            JsonNode syncPayload = mergeWorkerFloorProject(sourceScenePayload, workerFloorProject);
             workspaceFloorPlanRealtimeService.publishFloorPlanUpdatedFromIfcEdit(
                     job.getProjectId(),
                     revision.getRevisionId(),
                     job.getSourceRevisionId(),
                     ifcUrl,
-                    sourceScenePayload
+                    syncPayload
             );
         } catch (Exception exception) {
             log.warn("Floor-plan sync broadcast from IFC completion failed. projectId={}, jobId={}",
                     job.getProjectId(), job.getJobId(), exception);
         }
+    }
+
+    private JsonNode extractWorkerFloorProject(Map<String, Object> eventOutput) {
+        if (eventOutput == null || eventOutput.isEmpty()) {
+            return null;
+        }
+
+        Object floorProject = eventOutput.get("floor_plan_project");
+        if (floorProject == null) {
+            floorProject = eventOutput.get("floorPlanProject");
+        }
+        if (floorProject == null) {
+            floorProject = eventOutput.get("floorProject");
+        }
+        if (floorProject == null) {
+            return null;
+        }
+        return objectMapper.valueToTree(floorProject);
+    }
+
+    private JsonNode mergeWorkerFloorProject(JsonNode sourceScenePayload, JsonNode floorProject) {
+        if (!isFloorProjectPayload(floorProject)) {
+            return sourceScenePayload;
+        }
+        ObjectNode payload = sourceScenePayload.deepCopy();
+        payload.set("floorProject", floorProject);
+        return payload;
+    }
+
+    private JsonNode buildWorkerFloorProjectPayload(JsonNode floorProject) {
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("baseIndex", -1);
+        payload.set("bubbles", objectMapper.createArrayNode());
+        payload.set("connections", objectMapper.createArrayNode());
+        payload.putNull("floorMeta");
+        payload.putNull("layout");
+        payload.set("floorProject", floorProject);
+        return payload;
+    }
+
+    private boolean isFloorProjectPayload(JsonNode floorProject) {
+        return floorProject != null
+                && floorProject.isObject()
+                && "mm".equals(floorProject.path("unit").asText())
+                && floorProject.path("floors").isArray()
+                && floorProject.path("rooms").isArray()
+                && floorProject.path("adjacency").isArray();
     }
 
     private JsonNode resolveFloorPlanSourcePayload(IfcEditJob job) {

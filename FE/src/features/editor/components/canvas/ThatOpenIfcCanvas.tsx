@@ -22,6 +22,8 @@ import type {
 } from '../../types'
 import { FLOOR_MM_PER_PX } from '../../constants'
 import { patchIfcTextForMaterialDefaults } from '../../services/ifcChange.service'
+import { captureCanvasWithBackground } from '../../utils/canvasPreviewCapture'
+import { captureFocusedThreePreview } from '../../utils/threePreviewCapture'
 import type { ThreeDLibraryDropRequest, ThreeDLibraryPreset } from './threeDLibrary.types'
 import {
   PRESETS,
@@ -204,6 +206,7 @@ interface ThatOpenIfcCanvasProps {
   transformSnapEnabled?: boolean
   transformSnapIntervalMm?: number
   isEditingLocked?: boolean
+  onPreviewCapture?: (imageUrl: string) => void
 }
 
 type PreservedCameraState = {
@@ -683,11 +686,15 @@ const buildIfcTransformCommitPayload = (
       positionY: worldPosition.y,
       positionZ: worldPosition.z,
       translationMm,
-      rotationX,
-      rotationY,
-      rotationZ,
-      rotationDegrees: persistedRotationDegrees,
-      rotationAxisAngle: persistedRotationAxisAngle ?? undefined,
+      ...(currentTransformMode === 'translate'
+        ? {}
+        : {
+            rotationX,
+            rotationY,
+            rotationZ,
+            rotationDegrees: persistedRotationDegrees,
+            rotationAxisAngle: persistedRotationAxisAngle ?? undefined,
+          }),
     },
   }
 }
@@ -708,6 +715,37 @@ const updateTransformControlsIfSupported = (transformControls: unknown) => {
   if (typeof controls?.updateMatrixWorld === 'function') {
     controls.updateMatrixWorld(true)
   }
+}
+
+const captureFocusedIfcPreview = (sceneState: ThatOpenSceneState, focusObjects: Object3D[]): string | null => {
+  const { three: THREE, camera, renderer, scene } = sceneState
+  return captureFocusedThreePreview({
+    THREE,
+    scene,
+    camera: camera as import('three').PerspectiveCamera,
+    renderer,
+    focusObjects,
+  })
+}
+
+const canUpdateLibraryPresetInPlace = (
+  current: ThreeDLibraryPreset | undefined,
+  next: ThreeDLibraryPreset,
+): current is ThreeDLibraryPreset => {
+  if (!current) return false
+  return (
+    current.id === next.id &&
+    current.type === next.type &&
+    current.material === next.material &&
+    current.color === next.color &&
+    current.lengthMm === next.lengthMm &&
+    current.heightMm === next.heightMm &&
+    current.thicknessMm === next.thicknessMm &&
+    current.roofShape === next.roofShape &&
+    current.assetIfc === next.assetIfc &&
+    current.assetIfcUrl === next.assetIfcUrl &&
+    current.sourceAssetId === next.sourceAssetId
+  )
 }
 
 export default function ThatOpenIfcCanvas({
@@ -752,6 +790,7 @@ export default function ThatOpenIfcCanvas({
   onResolveLibraryDrop,
   cameraViewPresetCommand,
   isEditingLocked = false,
+  onPreviewCapture,
 }: ThatOpenIfcCanvasProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const currentSceneIdentity = `${projectId ?? ''}|${ifcUrl}`
@@ -3468,8 +3507,8 @@ export default function ThatOpenIfcCanvas({
         let transformPointerActiveSince = 0
         let lastTransformAxis: string | null = null
         let lastDragStartPosition: { x: number; y: number; z: number } | null = null
-        let lastDragStartRotation: { x: number; y: number; z: number } | null = null
         let lastDragStartWorldPosition: { x: number; y: number; z: number } | null = null
+        let lastDragStartRotation: { x: number; y: number; z: number } | null = null
         let lastDragStartWorldRotation: { x: number; y: number; z: number } | null = null
         let lastDragStartWorldQuaternion: { x: number; y: number; z: number; w: number } | null = null
         let activeDragSessionId: string | null = null
@@ -3828,6 +3867,7 @@ export default function ThatOpenIfcCanvas({
           } finally {
             ifcCommitInFlightRef.current = false
             lastDragStartPosition = null
+            lastDragStartWorldPosition = null
             lastDragStartRotation = null
             lastDragStartWorldPosition = null
             lastDragStartWorldRotation = null
@@ -3984,10 +4024,10 @@ export default function ThatOpenIfcCanvas({
                   dragStartWorldRotation: lastDragStartWorldRotation,
                   dragStartWorldQuaternion: lastDragStartWorldQuaternion,
                 })
-                const transformCommitTargetKey =
-                  transformCommit && selectedTarget.source === 'ifc'
-                    ? getIfcMoveTargetKey(selectedTarget.modelId, selectedTarget.localId)
-                    : null
+                  const transformCommitTargetKey =
+                    transformCommit && selectedTarget.source === 'ifc'
+                      ? getIfcMoveTargetKey(selectedTarget.modelId, selectedTarget.localId)
+                      : null
                 let didEmitTransformCommit = Boolean(
                   queuedSessionId &&
                   emittedTransformSessionIds.has(queuedSessionId),
@@ -4165,6 +4205,7 @@ export default function ThatOpenIfcCanvas({
             } finally {
               ifcCommitInFlightRef.current = false
               lastDragStartPosition = null
+              lastDragStartWorldPosition = null
               lastDragStartRotation = null
               lastDragStartWorldPosition = null
               lastDragStartWorldRotation = null
@@ -4568,6 +4609,7 @@ export default function ThatOpenIfcCanvas({
                   Array.from(dragObject.matrixWorld.elements)
               } else {
                 lastDragStartPosition = null
+                lastDragStartWorldPosition = null
                 lastDragStartRotation = null
                 lastDragStartWorldPosition = null
                 lastDragStartWorldRotation = null
@@ -8509,6 +8551,28 @@ export default function ThatOpenIfcCanvas({
       const preset = getLibraryPresetFromObject(child)
       if (preset?.id) existingChildByPresetId.set(preset.id, child)
     })
+
+    const canUpdateInPlace =
+      existingChildren.length === manifestLibraryElements.length &&
+      manifestLibraryElements.length > 0 &&
+      manifestLibraryElements.every((preset, index) => (
+        canUpdateLibraryPresetInPlace(getLibraryPresetFromObject(existingChildren[index]), preset)
+      ))
+
+    if (canUpdateInPlace) {
+      manifestLibraryElements.forEach((preset, index) => {
+        const object = existingChildren[index]
+        if (preset.position) object.position.set(preset.position.x, preset.position.y, preset.position.z)
+        if (preset.rotation) object.rotation.set(preset.rotation.x, preset.rotation.y, preset.rotation.z)
+        if (preset.scale) object.scale.set(preset.scale.x, preset.scale.y, preset.scale.z)
+        object.updateMatrixWorld(true)
+        updateLibraryPresetData(object, preset)
+      })
+      applyLibraryVisibilityByStorey()
+      sceneState.renderer.render(sceneState.scene, sceneState.camera as import('three').PerspectiveCamera)
+      return
+    }
+
     const preservedChildren = new Set<Object3D>()
     presetGroup.clear()
 
@@ -8795,6 +8859,48 @@ export default function ThatOpenIfcCanvas({
     loadLibraryAssetInstance,
     logIfcMove,
     syncTransformSelectionState,
+  ])
+
+  useEffect(() => {
+    if (!onPreviewCapture || status !== 'ready') return
+
+    const timerId = window.setTimeout(() => {
+      const sceneState = sceneRef.current
+      if (!sceneState) return
+
+      const previousGridVisible = floorGridRef.current?.visible
+      try {
+        if (floorGridRef.current) floorGridRef.current.visible = false
+        const focusObjects = [
+          sceneState.ifcObject,
+          presetGroupRef.current?.children.length ? presetGroupRef.current : null,
+        ].filter((object): object is Object3D => Boolean(object))
+        const focusedPreview = captureFocusedIfcPreview(sceneState, focusObjects)
+        if (focusedPreview) {
+          onPreviewCapture(focusedPreview)
+          return
+        }
+        sceneState.renderer.render(sceneState.scene, sceneState.camera as import('three').PerspectiveCamera)
+        onPreviewCapture(captureCanvasWithBackground(sceneState.renderer.domElement, {
+          backgroundColor: '#f0f2f9',
+          quality: 0.92,
+        }))
+      } catch {
+        // 캔버스 캡처 실패는 카드 썸네일 fallback으로 처리한다.
+      } finally {
+        if (typeof previousGridVisible === 'boolean' && floorGridRef.current) {
+          floorGridRef.current.visible = previousGridVisible
+        }
+      }
+    }, 650)
+
+    return () => window.clearTimeout(timerId)
+  }, [
+    activeStoreyExpressId,
+    onPreviewCapture,
+    overlayIfcStoreyExpressIds,
+    overlayIfcStoreyOpacityByExpressId,
+    status,
   ])
 
   return (

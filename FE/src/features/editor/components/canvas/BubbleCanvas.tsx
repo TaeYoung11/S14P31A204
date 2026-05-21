@@ -6,6 +6,7 @@ import type { BubbleData, CanvasViewTransform, ConnectionData, FloorLayerOverlay
 import { useSpacePanning } from '../../hooks/useSpacePanning'
 import { hexToRgba } from '../../utils/bubbleCalc'
 import { rotatePointAround } from '../../utils/canvasViewTransform'
+import { captureKonvaStagePreview } from '../../utils/canvasPreviewCapture'
 import { validateBubblesInSiteBoundary } from '../../utils/siteBoundaryValidation'
 import BubbleZoneLayer from './BubbleZoneLayer'
 import CanvasViewTransformGroup from './CanvasViewTransformGroup'
@@ -109,6 +110,7 @@ interface BubbleCanvasProps {
   /** 버블 편집 잠금(보기 전용) */
   isReadOnly?: boolean
   scale?: number
+  onPreviewCapture?: (imageUrl: string) => void
 }
 
 const createSharedPanStorageKey = (projectId?: string) => (
@@ -184,6 +186,7 @@ export function BubbleCanvas({
   onBubbleResize,
   isReadOnly = false,
   scale = 1,
+  onPreviewCapture,
 }: BubbleCanvasProps) {
   /** id → BubbleData 빠른 조회 맵 */
   const bubbleMap = useMemo(() => new Map(bubbles.map((b) => [b.id, b])), [bubbles])
@@ -463,6 +466,38 @@ export function BubbleCanvas({
     }
     container.style.cursor = 'default'
   }, [isPanMode, isMiddlePanning, selectedTool])
+
+  useEffect(() => {
+    if (!onPreviewCapture || bubbles.length === 0 || stageSize.width <= 0 || stageSize.height <= 0) return
+
+    const timerId = window.setTimeout(() => {
+      const stage = stageRef.current
+      if (!stage) return
+
+      try {
+        const imageUrl = captureKonvaStagePreview(stage)
+        onPreviewCapture(imageUrl)
+      } catch {
+        // 캔버스 캡처 실패는 카드 썸네일 fallback으로 처리한다.
+      }
+    }, 250)
+
+    return () => window.clearTimeout(timerId)
+  }, [
+    autoZones,
+    bubbles,
+    connections,
+    manualZones,
+    onPreviewCapture,
+    overlayLayers,
+    panOffset.x,
+    panOffset.y,
+    scale,
+    sitePoints,
+    stageSize.height,
+    stageSize.width,
+    viewTransform,
+  ])
 
   /** 마우스가 버블 위에 올라갔을 때 도구에 맞는 커서로 변경 */
   const handleMouseEnter = (e: KonvaEventObject<MouseEvent>) => {

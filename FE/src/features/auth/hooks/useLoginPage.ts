@@ -1,6 +1,6 @@
 // 로그인 페이지의 이메일 조합, 기억하기, 제출 상태를 관리합니다.
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useSearchParams } from 'react-router-dom'
 import {
   buildEmail,
   EMAIL_DOMAIN_OPTIONS,
@@ -27,6 +27,7 @@ const readRememberedEmail = () => {
 export const useLoginPage = () => {
   const { login, isLoggingIn, loginError } = useAuth()
   const location = useLocation()
+  const [searchParams] = useSearchParams()
   const locationState = location.state as LoginLocationState | null
   const stateEmail = locationState?.email?.trim() ?? ''
   const initialEmail = stateEmail || readRememberedEmail()
@@ -86,7 +87,7 @@ export const useLoginPage = () => {
       }
     }
 
-    login({ email: normalizedEmail, password })
+    login({ email: normalizedEmail, password }, { redirectTo: searchParams.get('redirect') ?? undefined })
   }
 
   return {

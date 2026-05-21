@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { FilePlus2, PencilLine } from 'lucide-react'
-import Modal from '@/shared/components/Modal'
+import ActionModal from '@/shared/components/ActionModal'
 import Spinner from '@/shared/components/Spinner'
 import type { Project } from '@/shared/types'
 
@@ -30,22 +30,12 @@ export default function ProjectCreateModal({
   }
 
   return (
-    <Modal
+    <ActionModal
       isOpen={isOpen}
       onClose={onClose}
-      title={(
-        <span className="project-create-title">
-          {editProject ? <PencilLine className="h-5 w-5" /> : <FilePlus2 className="h-5 w-5" />}
-          <span className="min-w-0">
-            <span className="block text-xs font-black text-[#64748b]">
-              {editProject ? '프로젝트 정보 수정' : '프로젝트 설정'}
-            </span>
-            <span className="block truncate text-[26px] font-black tracking-tight text-[#111827]">
-              {editProject ? '프로젝트 수정' : '새 프로젝트'}
-            </span>
-          </span>
-        </span>
-      )}
+      group="productive"
+      title={editProject ? '프로젝트 수정' : '새 프로젝트'}
+      icon={editProject ? <PencilLine className="h-5 w-5" /> : <FilePlus2 className="h-5 w-5" />}
     >
       <form onSubmit={handleSubmit} className="project-form space-y-5" noValidate>
         <div>
@@ -100,6 +90,6 @@ export default function ProjectCreateModal({
           </button>
         </div>
       </form>
-    </Modal>
+    </ActionModal>
   )
 }

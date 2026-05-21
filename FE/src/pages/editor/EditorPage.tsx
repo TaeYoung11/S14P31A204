@@ -6,6 +6,7 @@ import { useEditorProjectSwitcher } from '../../features/editor/hooks/useEditorP
 import EditorCanvasContent from './components/EditorCanvasContent'
 import EditorModalLayer from './components/EditorModalLayer'
 import EditorProjectSwitchSidebar from './components/EditorProjectSwitchSidebar'
+import ProjectCanvasOnboarding from './components/ProjectCanvasOnboarding'
 import EditorRightPanelSection from './components/EditorRightPanelSection'
 import UnsavedChangesModal from './components/UnsavedChangesModal'
 import { useEditorPageLayout } from './hooks/useEditorPageLayout'
@@ -45,6 +46,7 @@ export default function EditorPage() {
       <div className="pointer-events-none absolute bottom-[-120px] right-[-80px] h-80 w-80 rounded-full bg-[#5A69DD]/12 blur-3xl" />
       <EditorModalLayer {...modalLayerProps} />
       <UnsavedChangesModal {...unsavedChangesGuard.unsavedChangesModalProps} />
+      <ProjectCanvasOnboarding userId={vm.currentCollaborationUserId} />
       <ProjectCommentToast
         toast={vm.projectCommentToast}
         onClose={vm.onCloseProjectCommentToast}

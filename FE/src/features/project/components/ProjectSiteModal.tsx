@@ -90,10 +90,10 @@ export default function ProjectSiteModal({
       title={(
         <span className="project-site-title">
           <MapPinned className="h-5 w-5" />
-          <span className="min-w-0">
-            <span className="block text-xs font-black text-[#4f46e5]">대지 입력 모달</span>
-            <span className="block truncate text-[26px] font-black tracking-tight text-[#111827]">
-              {projectName ?? '새 프로젝트'}
+          <span className="flex min-w-0 items-baseline gap-3">
+            <span className="shrink-0 text-[22px] font-black leading-7 tracking-tight text-[#111827]">대지 입력</span>
+            <span className="min-w-0 truncate text-sm font-semibold text-[#8E95A3]">
+              {projectName ? `${projectName} 프로젝트` : '프로젝트 생성 단계'}
             </span>
           </span>
         </span>

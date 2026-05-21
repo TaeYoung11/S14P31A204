@@ -3,6 +3,7 @@ import { useCallback, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useAllProjects } from '@/features/project/hooks/useProjects'
 import { useProjectStore } from '@/features/project/stores/projectStore'
+import { buildProjectEditorPath } from '@/features/project/utils/projectEditorModeCache'
 import type { Project } from '@/shared/types'
 
 export function useEditorProjectSwitcher() {
@@ -28,8 +29,8 @@ export function useEditorProjectSwitcher() {
   const selectProject = useCallback((project: Project) => {
     setCurrentProject(project)
     setIsOpen(false)
-    const queryString = searchParams.toString()
-    navigate(`/projects/${project.id}/editor${queryString ? `?${queryString}` : ''}`)
+    const pinId = searchParams.get('pinId')
+    navigate(pinId ? `/projects/${project.id}/editor?mode=2d&pinId=${encodeURIComponent(pinId)}` : buildProjectEditorPath(project.id))
   }, [navigate, searchParams, setCurrentProject])
 
   return {

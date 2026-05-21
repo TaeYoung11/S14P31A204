@@ -1,5 +1,6 @@
-import { lazy, useMemo } from 'react'
+import { lazy, useCallback, useMemo } from 'react'
 import type { EditorCanvasRenderProps } from '../../types/editorCanvasContentProps'
+import { saveProjectWorkspaceThumbnail } from '@/features/project/services/projectWorkspaceThumbnail.service'
 import { resolveVisibleCommentPinsInTwoD } from '../../utils/twoDVisibleCommentPins'
 
 const TwoDCanvas = lazy(() =>
@@ -24,6 +25,9 @@ export default function TwoDModeCanvas({ editorProps, scale, onSelectWallForChat
     ),
     [editorProps.activeFloorLayerId, editorProps.commentPins, editorProps.floorLayers],
   )
+  const handlePreviewCapture = useCallback((imageUrl: string) => {
+    saveProjectWorkspaceThumbnail(editorProps.projectId, '2d', imageUrl)
+  }, [editorProps.projectId])
 
   return (
     <TwoDCanvas
@@ -82,6 +86,7 @@ export default function TwoDModeCanvas({ editorProps, scale, onSelectWallForChat
       gridSnapIntervalMm={editorProps.gridSnapIntervalMm}
       scale={scale}
       onWheelZoom={editorProps.handleWheelZoom}
+      onPreviewCapture={handlePreviewCapture}
     />
   )
 }

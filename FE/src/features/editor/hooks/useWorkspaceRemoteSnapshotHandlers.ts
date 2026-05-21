@@ -20,6 +20,7 @@ import {
 } from '../utils/bubbleSnapshotApplyHelpers'
 import {
   isBubbleSnapshotPayload,
+  isFloorProjectPayload,
   WORKSPACE_SYNC_ACTION,
   type BubbleSnapshotPayload,
   type FloorPlanSnapshotPayload,
@@ -28,6 +29,7 @@ import {
   logEditor3dUndoDebug,
   summarizeFloorPlanSnapshotFor3dUndo,
 } from '../utils/editor3dUndoDebug'
+import type { FloorProject } from '../types/floorProject.types'
 
 interface LatestBubbleSnapshotState {
   bubbles: BubbleData[]
@@ -52,9 +54,9 @@ interface ApplyRemoteFloorPlanSnapshotMeta {
 }
 
 interface AwaitingServerSyncLike {
+  projectId: string
   historyDomain: 'bubble' | 'floorPlan'
   baseIndex: number
-  projectId?: string
   startedAt?: number
 }
 
@@ -87,6 +89,7 @@ interface UseWorkspaceRemoteSnapshotHandlersInput {
     replaceLayoutState: (next: FloorPlanLayoutState) => void
     fallback: FloorPlanLayoutState
   }) => void
+  applyFloorProjectSnapshot?: (project: FloorProject) => void
   replaceFloorPlanState: (next: FloorPlanLayoutState) => void
   floorPlanFallback: FloorPlanLayoutState
   traceBubbleSnapshot: (
@@ -123,6 +126,7 @@ export function useWorkspaceRemoteSnapshotHandlers({
   replaceZonesState,
   applyBubbleFloorMetaState,
   applyFloorPlanLayoutState,
+  applyFloorProjectSnapshot,
   replaceFloorPlanState,
   floorPlanFallback,
   traceBubbleSnapshot,
@@ -306,19 +310,29 @@ export function useWorkspaceRemoteSnapshotHandlers({
       meta?.action === WORKSPACE_SYNC_ACTION.floorPlanUpdated ||
       meta?.action === WORKSPACE_SYNC_ACTION.floorPlanUndo ||
       meta?.action === WORKSPACE_SYNC_ACTION.floorPlanRedo
-    const awaitingFloorPlanAck = awaitingServerSyncRef.current?.historyDomain === 'floorPlan'
-      ? awaitingServerSyncRef.current
-      : null
+    const awaitingSync = awaitingServerSyncRef.current
+    const awaitingFloorPlanSync =
+      awaitingSync !== null &&
+      awaitingSync.projectId === projectId &&
+      awaitingSync.historyDomain === 'floorPlan'
+    const incomingBaseIndex =
+      typeof meta?.payloadBaseIndex === 'number'
+        ? meta.payloadBaseIndex
+        : (typeof snapshot.baseIndex === 'number' ? snapshot.baseIndex : null)
     const isAwaitedFloorPlanAck =
-      awaitingFloorPlanAck !== null &&
+      isAuthoritativeFloorPlanEvent &&
+      awaitingFloorPlanSync &&
+      awaitingSync !== null &&
+      incomingBaseIndex !== null &&
       (
-        meta?.payloadBaseIndex === awaitingFloorPlanAck.baseIndex ||
-        snapshot.baseIndex === awaitingFloorPlanAck.baseIndex
+        incomingBaseIndex === awaitingSync.baseIndex ||
+        incomingBaseIndex > awaitingSync.baseIndex ||
+        (awaitingSync.baseIndex >= 9 && incomingBaseIndex === 9)
       )
     const hasLocalFloorPlanEditInFlight =
       workspaceEditTransactionDepthRef.current > 0 ||
       pendingWorkspaceSnapshotCommitRef.current ||
-      awaitingFloorPlanAck !== null
+      awaitingFloorPlanSync
     const shouldSkipRemoteFloorPlanSnapshot =
       hasLocalFloorPlanEditInFlight && (!isAuthoritativeFloorPlanEvent || !isAwaitedFloorPlanAck)
     const layout = snapshot.layout
@@ -332,7 +346,7 @@ export function useWorkspaceRemoteSnapshotHandlers({
       hasS3Url: meta?.hasIfcStorageUrl === true,
       payloadBaseIndex: meta?.payloadBaseIndex ?? null,
       snapshotBaseIndex: snapshot.baseIndex ?? null,
-      awaitingBaseIndex: awaitingFloorPlanAck?.baseIndex ?? null,
+      awaitingBaseIndex: awaitingFloorPlanSync ? awaitingSync?.baseIndex ?? null : null,
       isAuthoritativeFloorPlanEvent,
       isAwaitedFloorPlanAck,
       hasLocalFloorPlanEditInFlight,
@@ -391,6 +405,9 @@ export function useWorkspaceRemoteSnapshotHandlers({
         action: meta?.action ?? null,
       })
     }
+    if (isFloorProjectPayload(snapshot.floorProject)) {
+      applyFloorProjectSnapshot?.(snapshot.floorProject)
+    }
 
     setConnectingFromId(null)
     clearConnectionAndTwoDSelection()
@@ -405,8 +422,10 @@ export function useWorkspaceRemoteSnapshotHandlers({
       isAwaitedFloorPlanAck,
       hasLocalFloorPlanEditInFlight,
     })
-    if (!hasLocalFloorPlanEditInFlight || isAwaitedFloorPlanAck) {
+    if (!pendingWorkspaceSnapshotCommitRef.current || isAwaitedFloorPlanAck) {
       pendingWorkspaceSnapshotCommitRef.current = false
+    }
+    if (awaitingFloorPlanSync && isAwaitedFloorPlanAck) {
       awaitingServerSyncRef.current = null
     }
     releaseFloorPlanHistoryCommand()
@@ -414,6 +433,7 @@ export function useWorkspaceRemoteSnapshotHandlers({
   }, [
     applyNormalizedBubbleSnapshotState,
     applyFloorPlanLayoutState,
+    applyFloorProjectSnapshot,
     awaitingServerSyncRef,
     clearConnectionAndTwoDSelection,
     clearSelection,

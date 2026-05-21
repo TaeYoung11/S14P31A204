@@ -1,5 +1,5 @@
 import { X } from 'lucide-react'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 interface ModalProps {
   isOpen: boolean
@@ -9,11 +9,43 @@ interface ModalProps {
   maxWidth?: string
 }
 
+let nextModalId = 0
+const modalStack: number[] = []
+
+const removeModalFromStack = (modalId: number) => {
+  const index = modalStack.lastIndexOf(modalId)
+  if (index >= 0) {
+    modalStack.splice(index, 1)
+  }
+}
+
 export default function Modal({ isOpen, onClose, title, children, maxWidth = 'max-w-[480px]' }: ModalProps) {
+  const modalIdRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (!isOpen) return undefined
+
+    if (modalIdRef.current === null) {
+      nextModalId += 1
+      modalIdRef.current = nextModalId
+    }
+
+    const modalId = modalIdRef.current
+    modalStack.push(modalId)
+
+    return () => {
+      removeModalFromStack(modalId)
+    }
+  }, [isOpen])
+
   // ESC 키로 닫기
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key !== 'Escape') return
+      const modalId = modalIdRef.current
+      if (modalId === null) return
+      if (modalStack[modalStack.length - 1] !== modalId) return
+      onClose()
     }
     if (isOpen) document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)

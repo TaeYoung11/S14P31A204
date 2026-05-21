@@ -6,6 +6,8 @@ import com.a204.batang.domain.project.dto.DeleteProjectsRequest;
 import com.a204.batang.domain.project.dto.DeleteProjectsResponse;
 import com.a204.batang.domain.project.dto.UpdateProjectRequest;
 import com.a204.batang.domain.project.dto.UpdateProjectResponse;
+import com.a204.batang.domain.project.dto.UpdateProjectThumbnailRequest;
+import com.a204.batang.domain.project.dto.UpdateProjectThumbnailResponse;
 import com.a204.batang.domain.project.entity.Project;
 import com.a204.batang.domain.project.repository.ProjectRepository;
 import com.a204.batang.domain.workspace.entity.ProjectWorkspace;
@@ -32,6 +34,9 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class ProjectService {
+
+    private static final int MAX_THUMBNAIL_URL_LENGTH = 1_000_000;
+    private static final Set<String> SUPPORTED_THUMBNAIL_MODES = Set.of("bubble", "2d", "3d");
 
     private final ProjectRepository projectRepository;
     private final ProjectWorkspaceRepository projectWorkspaceRepository;
@@ -88,6 +93,35 @@ public class ProjectService {
     }
 
     /**
+     * 프로젝트 카드 썸네일을 갱신한다.
+     *
+     * @param projectId 프로젝트 ID
+     * @param request 썸네일 갱신 요청
+     * @return 갱신된 썸네일 정보
+     */
+    @Transactional
+    public UpdateProjectThumbnailResponse updateProjectThumbnail(UUID projectId, UpdateProjectThumbnailRequest request) {
+        UUID currentUserId = resolveCurrentUserIdOrThrow();
+
+        Project project = projectRepository.findByProjectIdAndDeletedAtIsNull(projectId)
+                .orElseThrow(() -> new CustomException(ErrorCode.PROJECT_NOT_FOUND));
+        projectAccessService.validateProjectPinWriterOrThrow(project, currentUserId);
+
+        String thumbnailUrl = normalizeThumbnailUrlOrThrow(request.thumbnailUrl());
+        String thumbnailMode = normalizeThumbnailModeOrThrow(request.thumbnailMode());
+
+        projectRepository.updateThumbnailByProjectId(projectId, thumbnailUrl, thumbnailMode);
+
+        log.info("프로젝트 썸네일 갱신 완료. projectId={}, mode={}", project.getProjectId(), thumbnailMode);
+        return new UpdateProjectThumbnailResponse(
+                project.getProjectId(),
+                thumbnailUrl,
+                thumbnailMode,
+                project.getUpdatedAt()
+        );
+    }
+
+    /**
      * 여러 프로젝트를 소프트 삭제한다.
      *
      * @param request 삭제 대상 프로젝트 ID 목록
@@ -140,6 +174,35 @@ public class ProjectService {
             throw new CustomException(ErrorCode.INVALID_REQUEST, "name은 필수 입력값입니다.");
         }
         return name.trim();
+    }
+
+    private String normalizeThumbnailUrlOrThrow(String thumbnailUrl) {
+        if (!StringUtils.hasText(thumbnailUrl)) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST, "thumbnailUrl은 필수 입력값입니다.");
+        }
+        String normalized = thumbnailUrl.trim();
+        if (normalized.length() > MAX_THUMBNAIL_URL_LENGTH) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST, "thumbnailUrl이 너무 큽니다.");
+        }
+        if (
+                !normalized.startsWith("data:image/") &&
+                !normalized.startsWith("http://") &&
+                !normalized.startsWith("https://")
+        ) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST, "thumbnailUrl은 표시 가능한 이미지 URL이어야 합니다.");
+        }
+        return normalized;
+    }
+
+    private String normalizeThumbnailModeOrThrow(String thumbnailMode) {
+        if (!StringUtils.hasText(thumbnailMode)) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST, "thumbnailMode는 필수 입력값입니다.");
+        }
+        String normalized = thumbnailMode.trim();
+        if (!SUPPORTED_THUMBNAIL_MODES.contains(normalized)) {
+            throw new CustomException(ErrorCode.INVALID_REQUEST, "지원하지 않는 thumbnailMode입니다.");
+        }
+        return normalized;
     }
 
     /**
