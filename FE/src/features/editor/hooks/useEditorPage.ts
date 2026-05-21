@@ -192,6 +192,10 @@ import { extractOuterRingFromCoordinates } from '@/features/project/utils/sitePo
 import { getRuntimeEnvString } from '@/shared/lib/runtimeEnv'
 import type { WorkspaceCommand } from '../types/workspaceCommand.types'
 import { useWorkspaceCoordinateFramePolicy } from './useWorkspaceCoordinateFramePolicy'
+import {
+  logEditor3dUndoDebug,
+  summarizeWorkspaceCommandFor3dUndo,
+} from '../utils/editor3dUndoDebug'
 
 interface PendingServerPublishRecord {
   projectId: string
@@ -211,6 +215,34 @@ interface AwaitingServerSyncRecord {
   baseIndex: number
   startedAt: number
   unsavedDbChangeVersion?: number
+}
+
+const summarizeAwaitingServerSyncFor3dUndo = (
+  record: AwaitingServerSyncRecord | null,
+): Record<string, unknown> | null => {
+  if (!record) return null
+  return {
+    projectId: record.projectId,
+    historyDomain: record.historyDomain,
+    baseIndex: record.baseIndex,
+    ageMs: Date.now() - record.startedAt,
+    hasUnsavedDbChangeVersion: record.unsavedDbChangeVersion !== undefined,
+  }
+}
+
+const summarizePendingServerPublishFor3dUndo = (
+  record: PendingServerPublishRecord | null,
+): Record<string, unknown> | null => {
+  if (!record) return null
+  return {
+    projectId: record.projectId,
+    baseIndex: record.baseIndex,
+    revisionId: record.revisionId ?? null,
+    sceneType: record.sceneType ?? null,
+    hasWorkspaceCommand: Boolean(record.workspaceCommand),
+    workspaceCommand: summarizeWorkspaceCommandFor3dUndo(record.workspaceCommand),
+    hasUnsavedDbChangeVersion: record.unsavedDbChangeVersion !== undefined,
+  }
 }
 
 interface WorkspaceSiteBoundaryState {
@@ -593,6 +625,52 @@ function extractBubbleFloorMetaFromWorkspaceSnapshot(snapshot: WorkspaceSnapshot
  * EditorPage 전체 비즈니스 로직 훅
  * 버블·연결선·조닝·패널·평면도·UI 상태를 하위 훅에서 합성해 관리
  */
+interface EditorHistoryCursor {
+  baseIndex: number
+  redoDepth: number
+}
+
+export interface EditorHistoryControlsInput {
+  mode: EditorMode
+  canEditBubble: boolean
+  canEditFloorPlan: boolean
+  saveStatus: SaveStatus
+  bubbleHistoryCursor: EditorHistoryCursor
+  floorPlanHistoryCursor: EditorHistoryCursor
+  floorPlanHistoryCommandInFlight: boolean
+}
+
+export const resolveEditorHistoryControls = ({
+  mode,
+  canEditBubble,
+  canEditFloorPlan,
+  saveStatus,
+  bubbleHistoryCursor,
+  floorPlanHistoryCursor,
+  floorPlanHistoryCommandInFlight,
+}: EditorHistoryControlsInput): { canUndo: boolean; canRedo: boolean } => {
+  if (mode === 'bubble') {
+    return {
+      canUndo: canEditBubble && (saveStatus === 'dirty' || bubbleHistoryCursor.baseIndex > 0),
+      canRedo: canEditBubble && bubbleHistoryCursor.redoDepth > 0,
+    }
+  }
+
+  const isFloorPlanHistoryMode = mode === '2d' || mode === '3d'
+  return {
+    canUndo:
+      isFloorPlanHistoryMode &&
+      canEditFloorPlan &&
+      floorPlanHistoryCursor.baseIndex > 0 &&
+      !floorPlanHistoryCommandInFlight,
+    canRedo:
+      isFloorPlanHistoryMode &&
+      canEditFloorPlan &&
+      floorPlanHistoryCursor.redoDepth > 0 &&
+      !floorPlanHistoryCommandInFlight,
+  }
+}
+
 export function useEditorPage() {
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
@@ -1165,7 +1243,12 @@ export function useEditorPage() {
   const pendingServerPublishRef = useRef<PendingServerPublishRecord | null>(null)
   const awaitingServerSyncRef = useRef<AwaitingServerSyncRecord | null>(null)
   const suppressGeneratedFloorPlanAutosaveRef = useRef(false)
+  const [isFloorPlanHistoryCommandInFlight, setIsFloorPlanHistoryCommandInFlight] = useState(false)
   const floorPlanHistoryCommandInFlightRef = useRef(false)
+  const setFloorPlanHistoryCommandInFlight = useCallback((value: boolean) => {
+    floorPlanHistoryCommandInFlightRef.current = value
+    setIsFloorPlanHistoryCommandInFlight(value)
+  }, [])
   const draftLoadTokenRef = useRef(0)
   const draftLoadedProjectIdRef = useRef<string | null>(null)
   const draftLoadBaselineRef = useRef<string | null>(null)
@@ -1653,15 +1736,15 @@ export function useEditorPage() {
   }, [baseDeleteFloorLayer, canEditFloorPlan])
   const isFloorPlanHistoryMode = mode === '2d' || mode === '3d'
   const hasBubbleUndoHistory = bubbleHistoryCursor.baseIndex > 0
-  const hasFloorPlanUndoHistory = floorPlanHistoryCursor.baseIndex > 0
-  const hasBubbleRedoHistory = bubbleHistoryCursor.redoDepth > 0
-  const hasFloorPlanRedoHistory = floorPlanHistoryCursor.redoDepth > 0
-  const canUndo = mode === 'bubble'
-    ? canEditBubble && (saveStatus === 'dirty' || hasBubbleUndoHistory)
-    : isFloorPlanHistoryMode && canEditFloorPlan && (hasFloorPlanUndoHistory || saveStatus !== 'synced')
-  const canRedo = mode === 'bubble'
-    ? canEditBubble && hasBubbleRedoHistory
-    : isFloorPlanHistoryMode && canEditFloorPlan && hasFloorPlanRedoHistory
+  const { canUndo, canRedo } = resolveEditorHistoryControls({
+    mode,
+    canEditBubble,
+    canEditFloorPlan,
+    saveStatus,
+    bubbleHistoryCursor,
+    floorPlanHistoryCursor,
+    floorPlanHistoryCommandInFlight: isFloorPlanHistoryCommandInFlight,
+  })
 
   /**
    * CONVERTING 상태가 장시간 유지되면 편집 가능한 상태로 되돌리고 안내 문구를 노출한다.
@@ -2592,6 +2675,11 @@ export function useEditorPage() {
     if (!projectId || autosaveReadyProjectId !== projectId) return
     const pendingServerPublish = pendingServerPublishRef.current
     if (!pendingServerPublish || pendingServerPublish.projectId !== projectId) return
+    logEditor3dUndoDebug('publish', 'retry_effect_evaluate', {
+      projectId,
+      pendingServerPublish: summarizePendingServerPublishFor3dUndo(pendingServerPublish),
+      awaitingServerSync: summarizeAwaitingServerSyncFor3dUndo(awaitingServerSyncRef.current),
+    })
     if (
       awaitingServerSyncRef.current?.projectId === projectId &&
       awaitingServerSyncRef.current.serializedSnapshot === pendingServerPublish.serializedSnapshot
@@ -2607,6 +2695,11 @@ export function useEditorPage() {
       startedAt: Date.now(),
       unsavedDbChangeVersion: pendingServerPublish.unsavedDbChangeVersion,
     }
+    logEditor3dUndoDebug('publish', 'retry_begin', {
+      projectId,
+      pendingServerPublish: summarizePendingServerPublishFor3dUndo(pendingServerPublish),
+      awaitingServerSync: summarizeAwaitingServerSyncFor3dUndo(awaitingServerSyncRef.current),
+    })
     logBubbleDebug('publish:retry-begin', {
       projectId,
       baseIndex: pendingServerPublish.baseIndex,
@@ -2677,6 +2770,26 @@ export function useEditorPage() {
     const serializedSnapshot = JSON.stringify(publishSnapshot)
     const historyDomain = resolveServerHistoryDomain(publishSnapshot)
     const hasPendingFloorPlanCommand = historyDomain === 'floorPlan' && workspaceCommandPublisher.hasPendingCommand()
+    const serverHistoryBaseIndex = resolveServerHistoryBaseIndex(publishSnapshot)
+
+    logEditor3dUndoDebug('publish', 'autosave_effect_evaluate', {
+      projectId,
+      mode,
+      saveStatus,
+      historyDomain,
+      baseIndex: serverHistoryBaseIndex,
+      phaseStatus: publishSnapshot.phaseStatus,
+      hasUserEdited: hasUserEditedRef.current,
+      hasPendingFloorPlanCommand,
+      previousSnapshotMatches: previousSnapshotRef.current === serializedSnapshot,
+      awaitingSnapshotMatches:
+        awaitingServerSyncRef.current?.projectId === projectId &&
+        awaitingServerSyncRef.current.serializedSnapshot === serializedSnapshot,
+      workspaceEditTransactionDepth: workspaceEditTransactionDepthRef.current,
+      pendingWorkspaceSnapshotCommit: pendingWorkspaceSnapshotCommitRef.current,
+      awaitingServerSync: summarizeAwaitingServerSyncFor3dUndo(awaitingServerSyncRef.current),
+      pendingServerPublish: summarizePendingServerPublishFor3dUndo(pendingServerPublishRef.current),
+    })
 
     if (
       suppressGeneratedFloorPlanAutosaveRef.current &&
@@ -2735,19 +2848,43 @@ export function useEditorPage() {
       ? workspaceCommandPublisher.consumePendingCommand()
       : null
 
+    if (historyDomain === 'floorPlan') {
+      logEditor3dUndoDebug('publish', 'floor_plan_command_consume', {
+        projectId,
+        mode,
+        baseIndex: serverHistoryBaseIndex,
+        hadPendingBeforeConsume: hasPendingFloorPlanCommand,
+        hasCommand: Boolean(workspaceCommand),
+        workspaceCommand: summarizeWorkspaceCommandFor3dUndo(workspaceCommand),
+      })
+    }
+
     if (historyDomain === 'floorPlan' && !workspaceCommand) {
+      logEditor3dUndoDebug('publish', 'skip_floor_plan_publish_no_workspace_command', {
+        projectId,
+        mode,
+        saveStatus,
+        baseIndex: serverHistoryBaseIndex,
+        phaseStatus: publishSnapshot.phaseStatus,
+        awaitingServerSyncBeforeClear: summarizeAwaitingServerSyncFor3dUndo(awaitingServerSyncRef.current),
+        pendingServerPublishBeforeClear: summarizePendingServerPublishFor3dUndo(pendingServerPublishRef.current),
+      })
       pendingServerPublishRef.current = null
       awaitingServerSyncRef.current = null
       previousSnapshotRef.current = serializedSnapshot
       hasUserEditedRef.current = false
       clearServerPublishRetry()
+      logEditor3dUndoDebug('publish', 'skip_floor_plan_publish_no_workspace_command_state_cleared', {
+        projectId,
+        baseIndex: serverHistoryBaseIndex,
+      })
       window.setTimeout(() => setSaveStatus('synced'), 0)
       return
     }
 
     const serverPublishRecord: PendingServerPublishRecord = {
       projectId,
-      baseIndex: resolveServerHistoryBaseIndex(publishSnapshot),
+      baseIndex: serverHistoryBaseIndex,
       snapshot: publishSnapshot,
       serializedSnapshot,
       revisionId: historyDomain === 'floorPlan' ? currentIfcRevisionId : undefined,
@@ -2770,6 +2907,13 @@ export function useEditorPage() {
       startedAt: Date.now(),
       unsavedDbChangeVersion: serverPublishRecord.unsavedDbChangeVersion,
     }
+    logEditor3dUndoDebug('publish', 'server_publish_record_created', {
+      projectId,
+      mode,
+      historyDomain,
+      publishRecord: summarizePendingServerPublishFor3dUndo(serverPublishRecord),
+      awaitingServerSync: summarizeAwaitingServerSyncFor3dUndo(awaitingServerSyncRef.current),
+    })
     // STOMP 자동저장 publish 직전의 층 분포를 기록한다.
     const publishDebugSummary = summarizeBubbleSnapshotForDebug(
       toBubbleSnapshotPayloadFromWorkspaceSnapshot(publishSnapshot),
@@ -2820,6 +2964,7 @@ export function useEditorPage() {
     resolveFloorPlanSceneType,
     resolveSnapshotSyncStatus,
     scheduleServerPublishRetry,
+    saveStatus,
     workspaceCommandPublisher,
     workspacePhaseStatus,
     workspaceSnapshotCommitVersion,
@@ -2853,6 +2998,7 @@ export function useEditorPage() {
     workspaceEditTransactionDepthRef,
     pendingWorkspaceSnapshotCommitRef,
     floorPlanHistoryCommandInFlightRef,
+    setFloorPlanHistoryCommandInFlight,
     setBubbleHistoryCursor,
     setFloorPlanHistoryCursor,
     setSaveStatus,
@@ -2892,6 +3038,7 @@ export function useEditorPage() {
       pendingWorkspaceSnapshotCommitRef,
       awaitingServerSyncRef,
       floorPlanHistoryCommandInFlightRef,
+      setFloorPlanHistoryCommandInFlight,
       suppressNextAutosaveRef,
       setSelectedConnectionPair,
       setConnectingFromId,
@@ -6202,12 +6349,12 @@ export function useEditorPage() {
     if (floorPlanHistoryBaseIndexRef.current <= 0) return
     const unsavedMark = markUnsavedDbChanges()
     try {
-      floorPlanHistoryCommandInFlightRef.current = true
+      setFloorPlanHistoryCommandInFlight(true)
       setSaveStatus('syncing')
       publishFloorPlanUndoRequest(projectId, { baseIndex: floorPlanHistoryBaseIndexRef.current })
       pendingFloorPlanHistoryActionUnsavedVersionRef.current = unsavedMark.version
     } catch (error: unknown) {
-      floorPlanHistoryCommandInFlightRef.current = false
+      setFloorPlanHistoryCommandInFlight(false)
       pendingFloorPlanHistoryActionUnsavedVersionRef.current = null
       restoreUnsavedDbChangesIfUnchanged(unsavedMark.version, unsavedMark.hadUnsavedDbChanges)
       setSaveStatus('synced')
@@ -6224,6 +6371,7 @@ export function useEditorPage() {
     refreshHistoryCursorFromServer,
     restoreUnsavedDbChangesIfUnchanged,
     saveStatus,
+    setFloorPlanHistoryCommandInFlight,
     undoUnsyncedLocalBubbleChange,
   ])
 
@@ -6249,12 +6397,12 @@ export function useEditorPage() {
     if (floorPlanHistoryRedoDepthRef.current <= 0) return
     const unsavedMark = markUnsavedDbChanges()
     try {
-      floorPlanHistoryCommandInFlightRef.current = true
+      setFloorPlanHistoryCommandInFlight(true)
       setSaveStatus('syncing')
       publishFloorPlanRedoRequest(projectId, { baseIndex: floorPlanHistoryBaseIndexRef.current })
       pendingFloorPlanHistoryActionUnsavedVersionRef.current = unsavedMark.version
     } catch (error: unknown) {
-      floorPlanHistoryCommandInFlightRef.current = false
+      setFloorPlanHistoryCommandInFlight(false)
       pendingFloorPlanHistoryActionUnsavedVersionRef.current = null
       restoreUnsavedDbChangesIfUnchanged(unsavedMark.version, unsavedMark.hadUnsavedDbChanges)
       setSaveStatus('synced')
@@ -6267,6 +6415,7 @@ export function useEditorPage() {
     mode,
     projectId,
     restoreUnsavedDbChangesIfUnchanged,
+    setFloorPlanHistoryCommandInFlight,
   ])
 
   /** 표준 FloorProject를 버블/2D/3D 공통 상태로 반영
@@ -6358,6 +6507,34 @@ export function useEditorPage() {
       ? normalizeIfcSourceDedupeKey(ifcStorageUrl)
       : ''
     const normalizedSourceKey = assetId?.trim() || normalizedStorageSourceKey
+    if (
+      !normalizedSourceKey &&
+      !revisionId &&
+      (
+        action === WORKSPACE_SYNC_ACTION.floorPlanUndo ||
+        action === WORKSPACE_SYNC_ACTION.floorPlanRedo
+      )
+    ) {
+      setIfcSourceByProjectId((prev) => {
+        const { [projectId]: _removed, ...rest } = prev
+        return rest
+      })
+      setIfcRevisionByProjectId((prev) => ({
+        ...prev,
+        [projectId]: null,
+      }))
+      lastLoadedIfcStorageUrlRef.current = null
+      ifcLoadInFlightStorageUrlRef.current = null
+      pendingServerPublishRef.current = null
+      awaitingServerSyncRef.current = null
+      pendingWorkspaceSnapshotCommitRef.current = false
+      clearServerPublishRetry()
+      hasUserEditedRef.current = false
+      suppressNextAutosaveRef.current = true
+      setWorkspacePhaseStatus('BUBBLE_DRAFT')
+      setSaveStatus('synced')
+      return true
+    }
     if (!normalizedSourceKey && revisionId) {
       if (currentIfcUrl && currentIfcRevisionId === revisionId) {
         setWorkspacePhaseStatus('IFC_EDIT')
@@ -6430,9 +6607,7 @@ export function useEditorPage() {
       let resolvedAssetId = assetId ?? null
       let resolvedRevisionId = revisionId ?? null
       const shouldSkipFloorProjectImport =
-        action === WORKSPACE_SYNC_ACTION.floorPlanUpdated ||
-        action === WORKSPACE_SYNC_ACTION.floorPlanUndo ||
-        action === WORKSPACE_SYNC_ACTION.floorPlanRedo
+        action === WORKSPACE_SYNC_ACTION.floorPlanUpdated
       const shouldUseEventIfcStorageUrl =
         action === WORKSPACE_SYNC_ACTION.floorPlanUndo ||
         action === WORKSPACE_SYNC_ACTION.floorPlanRedo
@@ -6817,6 +6992,8 @@ export function useEditorPage() {
   }, [clearImportMessage])
 
   /** AI 어시스턴트 편집 상태 */
+  const getFloorPlanHistoryBaseIndex = useCallback(() => floorPlanHistoryBaseIndexRef.current, [])
+
   const llmEdit = useLlmEdit({
     projectId: projectId ?? null,
     mode,
@@ -6828,6 +7005,7 @@ export function useEditorPage() {
     activeFloorLayerId,
     floorWalls: floorWalls.length > 0 ? floorWalls : autoFloorWalls,
     floorOpenings: mergedFloorOpenings,
+    getFloorPlanHistoryBaseIndex,
     onIfcResult: handleLlmIfcResult,
     onToggleAssistantPanel: openAssistantPanel,
   })

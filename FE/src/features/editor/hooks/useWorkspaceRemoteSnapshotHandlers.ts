@@ -24,6 +24,10 @@ import {
   type BubbleSnapshotPayload,
   type FloorPlanSnapshotPayload,
 } from '../utils/workspaceSyncMessage'
+import {
+  logEditor3dUndoDebug,
+  summarizeFloorPlanSnapshotFor3dUndo,
+} from '../utils/editor3dUndoDebug'
 
 interface LatestBubbleSnapshotState {
   bubbles: BubbleData[]
@@ -42,6 +46,16 @@ interface FloorPlanLayoutState {
 interface ApplyRemoteFloorPlanSnapshotMeta {
   action?: string | null
   layoutOnly?: boolean
+  payloadBaseIndex?: number | null
+  hasIfcStorageUrl?: boolean
+  revisionId?: string | null
+}
+
+interface AwaitingServerSyncLike {
+  historyDomain: 'bubble' | 'floorPlan'
+  baseIndex: number
+  projectId?: string
+  startedAt?: number
 }
 
 interface UseWorkspaceRemoteSnapshotHandlersInput {
@@ -50,8 +64,9 @@ interface UseWorkspaceRemoteSnapshotHandlersInput {
   isBubbleDragTransactionActiveRef: MutableRefObject<boolean>
   workspaceEditTransactionDepthRef: MutableRefObject<number>
   pendingWorkspaceSnapshotCommitRef: MutableRefObject<boolean>
-  awaitingServerSyncRef: MutableRefObject<unknown | null>
+  awaitingServerSyncRef: MutableRefObject<AwaitingServerSyncLike | null>
   floorPlanHistoryCommandInFlightRef: MutableRefObject<boolean>
+  setFloorPlanHistoryCommandInFlight?: (value: boolean) => void
   suppressNextAutosaveRef: MutableRefObject<boolean>
   setSelectedConnectionPair: (pair: { from: string; to: string } | null) => void
   setConnectingFromId: (id: string | null) => void
@@ -94,6 +109,7 @@ export function useWorkspaceRemoteSnapshotHandlers({
   pendingWorkspaceSnapshotCommitRef,
   awaitingServerSyncRef,
   floorPlanHistoryCommandInFlightRef,
+  setFloorPlanHistoryCommandInFlight,
   suppressNextAutosaveRef,
   setSelectedConnectionPair,
   setConnectingFromId,
@@ -112,6 +128,11 @@ export function useWorkspaceRemoteSnapshotHandlers({
   traceBubbleSnapshot,
 }: UseWorkspaceRemoteSnapshotHandlersInput) {
   const traceProjectId = projectId ?? undefined
+  const releaseFloorPlanHistoryCommand = useCallback(() => {
+    floorPlanHistoryCommandInFlightRef.current = false
+    setFloorPlanHistoryCommandInFlight?.(false)
+  }, [floorPlanHistoryCommandInFlightRef, setFloorPlanHistoryCommandInFlight])
+
   const buildPreviousBubbleMap = useCallback(
     () => new Map(latestBubbleSnapshotRef.current.bubbles.map((bubble) => [bubble.id, bubble] as const)),
     [latestBubbleSnapshotRef],
@@ -285,12 +306,52 @@ export function useWorkspaceRemoteSnapshotHandlers({
       meta?.action === WORKSPACE_SYNC_ACTION.floorPlanUpdated ||
       meta?.action === WORKSPACE_SYNC_ACTION.floorPlanUndo ||
       meta?.action === WORKSPACE_SYNC_ACTION.floorPlanRedo
+    const awaitingFloorPlanAck = awaitingServerSyncRef.current?.historyDomain === 'floorPlan'
+      ? awaitingServerSyncRef.current
+      : null
+    const isAwaitedFloorPlanAck =
+      awaitingFloorPlanAck !== null &&
+      (
+        meta?.payloadBaseIndex === awaitingFloorPlanAck.baseIndex ||
+        snapshot.baseIndex === awaitingFloorPlanAck.baseIndex
+      )
     const hasLocalFloorPlanEditInFlight =
       workspaceEditTransactionDepthRef.current > 0 ||
-      (pendingWorkspaceSnapshotCommitRef.current && !isAuthoritativeFloorPlanEvent)
+      pendingWorkspaceSnapshotCommitRef.current ||
+      awaitingFloorPlanAck !== null
+    const shouldSkipRemoteFloorPlanSnapshot =
+      hasLocalFloorPlanEditInFlight && (!isAuthoritativeFloorPlanEvent || !isAwaitedFloorPlanAck)
+    const layout = snapshot.layout
+    const willApplyLayout = Boolean(layout) && !shouldSkipRemoteFloorPlanSnapshot
+    const willClearSelection = !shouldSkipRemoteFloorPlanSnapshot
 
-    if (hasLocalFloorPlanEditInFlight) {
-      floorPlanHistoryCommandInFlightRef.current = false
+    logEditor3dUndoDebug('remote-snapshot', 'apply_floor_plan_snapshot_decision', {
+      projectId: projectId ?? null,
+      action: meta?.action ?? null,
+      revisionId: meta?.revisionId ?? snapshot.revisionId ?? null,
+      hasS3Url: meta?.hasIfcStorageUrl === true,
+      payloadBaseIndex: meta?.payloadBaseIndex ?? null,
+      snapshotBaseIndex: snapshot.baseIndex ?? null,
+      awaitingBaseIndex: awaitingFloorPlanAck?.baseIndex ?? null,
+      isAuthoritativeFloorPlanEvent,
+      isAwaitedFloorPlanAck,
+      hasLocalFloorPlanEditInFlight,
+      workspaceEditTransactionDepth: workspaceEditTransactionDepthRef.current,
+      pendingWorkspaceSnapshotCommit: pendingWorkspaceSnapshotCommitRef.current,
+      layoutOnly: meta?.layoutOnly === true,
+      willApplyLayout,
+      willClearSelection,
+      snapshot: summarizeFloorPlanSnapshotFor3dUndo(snapshot),
+    })
+
+    if (shouldSkipRemoteFloorPlanSnapshot) {
+      logEditor3dUndoDebug('remote-snapshot', 'apply_floor_plan_snapshot_skip', {
+        reason: 'local_floor_plan_edit_in_flight',
+        action: meta?.action ?? null,
+        isAuthoritativeFloorPlanEvent,
+        isAwaitedFloorPlanAck,
+      })
+      releaseFloorPlanHistoryCommand()
       setSaveStatus('dirty')
       return
     }
@@ -315,21 +376,40 @@ export function useWorkspaceRemoteSnapshotHandlers({
       })
     }
 
-    const layout = snapshot.layout
     if (layout) {
+      logEditor3dUndoDebug('remote-snapshot', 'apply_floor_plan_layout_start', {
+        action: meta?.action ?? null,
+        layoutOnly: meta?.layoutOnly === true,
+        snapshot: summarizeFloorPlanSnapshotFor3dUndo(snapshot),
+      })
       applyFloorPlanLayoutState({
         layout,
         replaceLayoutState: replaceFloorPlanState,
         fallback: floorPlanFallback,
       })
+      logEditor3dUndoDebug('remote-snapshot', 'apply_floor_plan_layout_done', {
+        action: meta?.action ?? null,
+      })
     }
 
     setConnectingFromId(null)
     clearConnectionAndTwoDSelection()
+    logEditor3dUndoDebug('remote-snapshot', 'clear_selection_start', {
+      action: meta?.action ?? null,
+      isAwaitedFloorPlanAck,
+      hasLocalFloorPlanEditInFlight,
+    })
     clearSelection()
-    pendingWorkspaceSnapshotCommitRef.current = false
-    floorPlanHistoryCommandInFlightRef.current = false
-    awaitingServerSyncRef.current = null
+    logEditor3dUndoDebug('remote-snapshot', 'clear_selection_done', {
+      action: meta?.action ?? null,
+      isAwaitedFloorPlanAck,
+      hasLocalFloorPlanEditInFlight,
+    })
+    if (!hasLocalFloorPlanEditInFlight || isAwaitedFloorPlanAck) {
+      pendingWorkspaceSnapshotCommitRef.current = false
+      awaitingServerSyncRef.current = null
+    }
+    releaseFloorPlanHistoryCommand()
     setSaveStatus(resolveSnapshotSyncStatus())
   }, [
     applyNormalizedBubbleSnapshotState,
@@ -338,11 +418,11 @@ export function useWorkspaceRemoteSnapshotHandlers({
     clearConnectionAndTwoDSelection,
     clearSelection,
     floorPlanFallback,
-    floorPlanHistoryCommandInFlightRef,
     latestBubbleSnapshotRef,
     pendingWorkspaceSnapshotCommitRef,
     projectId,
     replaceFloorPlanState,
+    releaseFloorPlanHistoryCommand,
     resolveNormalizedBubbleSnapshotState,
     resolveSnapshotSyncStatus,
     setConnectingFromId,

@@ -41,12 +41,14 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -246,6 +248,92 @@ class WorkspaceFloorPlanRealtimeServiceTest {
                 any(DirectIfcEditRequest.class),
                 any(JsonNode.class)
         );
+    }
+
+    @Test
+    void relayFloorPlanDraft_savesThreeDSnapshotOnlyCommandWithoutIfcEditQueue() throws Exception {
+        FloorPlanRealtimeUpdateRequest request = new FloorPlanRealtimeUpdateRequest(
+                List.of(new BubbleUpdateRequest.BubbleData(
+                        "bubble-1",
+                        10.0,
+                        20.0,
+                        30.0,
+                        40.0,
+                        3000.0,
+                        4000.0,
+                        "living-room",
+                        "LIVING",
+                        84.5,
+                        "#ffffff",
+                        null
+                )),
+                List.of(),
+                List.of(),
+                3,
+                null,
+                FloorPlanSceneType.THREE_D,
+                new WorkspaceCommand(
+                        "update",
+                        "floorPlanSnapshot",
+                        "ifc-element-change",
+                        null,
+                        objectMapper.createObjectNode().put("reason", "ifc-element-change"),
+                        System.currentTimeMillis()
+                ),
+                objectMapper.readTree("""
+                        {
+                          "floorProject": {
+                            "id": "ifc-result",
+                            "unit": "mm",
+                            "floors": [],
+                            "rooms": [{"id": "room-1"}],
+                            "adjacency": []
+                          },
+                          "libraryElements": []
+                        }
+                        """),
+                null
+        );
+
+        given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId))
+                .willReturn(Optional.of(workspace));
+        given(workspaceBubbleSnapshotRedisRepository.saveFloorPlanSnapshotAndReturnGarbage(
+                eq(projectId),
+                any(JsonNode.class),
+                eq(3)
+        )).willReturn(List.of());
+
+        workspaceFloorPlanRealtimeService.relayFloorPlanDraft(projectId, currentUserId, request);
+
+        verifyNoInteractions(directIfcEditCommandService);
+
+        ArgumentCaptor<JsonNode> snapshotCaptor = ArgumentCaptor.forClass(JsonNode.class);
+        verify(workspaceBubbleSnapshotRedisRepository).saveFloorPlanSnapshotAndReturnGarbage(
+                eq(projectId),
+                snapshotCaptor.capture(),
+                eq(3)
+        );
+        JsonNode historySnapshot = snapshotCaptor.getValue();
+        assertThat(historySnapshot.get("s3Url").isNull()).isTrue();
+        JsonNode historyPayload = historySnapshot.get("floorPlanPayloadJson");
+        assertThat(historyPayload.get("baseIndex").asInt()).isEqualTo(3);
+        assertThat(historyPayload.get("revisionId").asText()).isEqualTo(workspace.getCurrentRevision());
+        assertThat(historyPayload.get("sceneType").asText()).isEqualTo("THREE_D");
+        assertThat(historyPayload.get("layout").get("floorProject").get("id").asText()).isEqualTo("ifc-result");
+
+        ArgumentCaptor<FloorPlanProjectSyncResponse> responseCaptor = ArgumentCaptor.forClass(FloorPlanProjectSyncResponse.class);
+        verify(simpMessagingTemplate).convertAndSend(
+                eq("/topic/project/%s/floor-plan/sync".formatted(projectId)),
+                responseCaptor.capture()
+        );
+
+        FloorPlanProjectSyncResponse response = responseCaptor.getValue();
+        assertThat(response.action()).isEqualTo("FLOOR_PLAN_UPDATED");
+        assertThat(response.projectId()).isEqualTo(projectId);
+        assertThat(response.revisionId()).isEqualTo(workspace.getCurrentRevision());
+        assertThat(response.s3Url()).isNull();
+        assertThat(response.floorPlanPayloadJson().get("baseIndex").asInt()).isEqualTo(3);
+        assertThat(response.floorPlanPayloadJson().get("sceneType").asText()).isEqualTo("THREE_D");
     }
 
     @Test
@@ -458,13 +546,25 @@ class WorkspaceFloorPlanRealtimeServiceTest {
     }
 
     @Test
-    void publishFloorPlanUpdatedFromGenerate_broadcastsWebSocketMessageWithS3Url() {
+    void publishFloorPlanUpdatedFromGenerate_savesUndoBaselineAndBroadcastsWebSocketMessageWithS3Url() throws Exception {
         UUID revisionId = UUID.randomUUID();
         UUID parentRevisionId = UUID.randomUUID();
         String s3Url = "s3://bucket/projects/%s/revisions/%s/ifc/model.v1.ifc".formatted(projectId, revisionId);
 
         given(projectWorkspaceRepository.findByProjectIdAndProject_DeletedAtIsNull(projectId))
                 .willReturn(Optional.of(workspace));
+        given(workspaceBubbleSnapshotRedisRepository.getFloorPlanSnapshotHistorySize(projectId))
+                .willReturn(0);
+        given(workspaceBubbleSnapshotRedisRepository.saveFloorPlanSnapshotAndReturnGarbage(
+                eq(projectId),
+                any(JsonNode.class),
+                eq(-1)
+        )).willReturn(List.of());
+        given(workspaceBubbleSnapshotRedisRepository.saveFloorPlanSnapshotAndReturnGarbage(
+                eq(projectId),
+                any(JsonNode.class),
+                eq(0)
+        )).willReturn(List.of());
 
         workspaceFloorPlanRealtimeService.publishFloorPlanUpdatedFromGenerate(
                 projectId,
@@ -484,12 +584,29 @@ class WorkspaceFloorPlanRealtimeServiceTest {
         assertThat(response.projectId()).isEqualTo(projectId);
         assertThat(response.revisionId()).isEqualTo(revisionId.toString());
         assertThat(response.s3Url()).isEqualTo(s3Url);
-        assertThat(response.floorPlanPayloadJson().get("baseIndex").asInt()).isEqualTo(-1);
+        assertThat(response.floorPlanPayloadJson().get("baseIndex").asInt()).isEqualTo(0);
         assertThat(response.floorPlanPayloadJson().get("revisionId").asText()).isEqualTo(revisionId.toString());
         assertThat(response.floorPlanPayloadJson().get("parentRevisionId").asText()).isEqualTo(parentRevisionId.toString());
         assertThat(response.floorPlanPayloadJson().get("bubbles").isArray()).isTrue();
         assertThat(response.floorPlanPayloadJson().get("connections").isArray()).isTrue();
         assertThat(response.floorPlanPayloadJson().get("floorMeta").isNull()).isTrue();
+
+        ArgumentCaptor<JsonNode> snapshotCaptor = ArgumentCaptor.forClass(JsonNode.class);
+        verify(workspaceBubbleSnapshotRedisRepository, times(2)).saveFloorPlanSnapshotAndReturnGarbage(
+                eq(projectId),
+                snapshotCaptor.capture(),
+                anyInt()
+        );
+
+        JsonNode baselineSnapshot = snapshotCaptor.getAllValues().get(0);
+        assertThat(baselineSnapshot.get("s3Url").isNull()).isTrue();
+        assertThat(baselineSnapshot.get("floorPlanPayloadJson").get("baseIndex").asInt()).isEqualTo(-1);
+        assertThat(baselineSnapshot.get("floorPlanPayloadJson").get("revisionId").isNull()).isTrue();
+
+        JsonNode generatedSnapshot = snapshotCaptor.getAllValues().get(1);
+        assertThat(generatedSnapshot.get("s3Url").asText()).isEqualTo(s3Url);
+        assertThat(generatedSnapshot.get("floorPlanPayloadJson").get("baseIndex").asInt()).isEqualTo(0);
+        assertThat(generatedSnapshot.get("floorPlanPayloadJson").get("revisionId").asText()).isEqualTo(revisionId.toString());
     }
 
     @Test

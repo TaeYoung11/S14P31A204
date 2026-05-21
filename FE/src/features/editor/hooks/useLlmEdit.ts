@@ -32,6 +32,7 @@ interface UseLlmEditParams {
   activeFloorLayerId: string | null
   floorWalls: FloorWall[]
   floorOpenings: FloorOpening[]
+  getFloorPlanHistoryBaseIndex: () => number
   onIfcResult: (ifcStorageUrl: string, assetId: string | null, revisionId: string | null) => void
   onToggleAssistantPanel?: () => void
 }
@@ -73,10 +74,25 @@ const buildSourceScene = (
   activeFloorLayerId: string | null,
   floorWalls: FloorWall[],
   floorOpenings: FloorOpening[],
+  baseIndex: number,
 ) => ({
   mode,
+  sceneType: mode === '3d' ? 'THREE_D' : 'TWO_D',
+  baseIndex,
   bubbles,
   connections,
+  floorMeta: null,
+  layout: {
+    mode: 'ifc',
+    baseIndex,
+    phaseStatus: 'IFC_EDIT',
+    floorLayers,
+    activeFloorLayerId,
+    floorWalls,
+    floorOpenings,
+    isFloorPlanGenerated: floorLayers.length > 0 || floorWalls.length > 0 || floorOpenings.length > 0,
+    floorPlanLayoutSource: 'project',
+  },
   floorPlan: {
     activeFloorLayerId,
     layers: floorLayers,
@@ -96,6 +112,7 @@ export function useLlmEdit({
   activeFloorLayerId,
   floorWalls,
   floorOpenings,
+  getFloorPlanHistoryBaseIndex,
   onIfcResult,
   onToggleAssistantPanel,
 }: UseLlmEditParams) {
@@ -204,7 +221,16 @@ export function useLlmEdit({
       const sceneType = resolveSceneType(mode)
       const sourceScenePayload = {
         ...(currentIfcUrl ? { sourceSceneStorageUrl: currentIfcUrl } : {}),
-        sourceScene: buildSourceScene(mode, bubbles, connections, floorLayers, activeFloorLayerId, floorWalls, floorOpenings),
+        sourceScene: buildSourceScene(
+          mode,
+          bubbles,
+          connections,
+          floorLayers,
+          activeFloorLayerId,
+          floorWalls,
+          floorOpenings,
+          getFloorPlanHistoryBaseIndex(),
+        ),
       }
       const history = clarificationHistoryRef.current
       const wallPlannerOptions = selectedWallForChat
@@ -323,6 +349,7 @@ export function useLlmEdit({
     currentIfcUrl,
     floorLayers,
     floorOpenings,
+    getFloorPlanHistoryBaseIndex,
     floorWalls,
     isLoading,
     mode,

@@ -15,7 +15,7 @@ from ai_authoring.engine_3d import create_wall, create_window_with_opening
 from ai_authoring.operations.registry import get as get_op_handler
 from ai_common.errors import NonRetryableWorkerError
 from ai_common.worker_sdk.context import WorkerContext
-from ai_common.worker_sdk.event_factory import CompletedResult
+from ai_common.worker_sdk.event_factory import CompletedResult, build_completed_event
 from ai_domain.worker_messages.command import CommandMessage
 
 
@@ -188,6 +188,38 @@ def test_authoring_worker_returns_completed_result():
     assert manifest["validation_report"]["passed"] is True
     assert manifest["validation_report"]["checked_element_count"] == 1
     print("[OK] CompletedResult 반환 및 S3 업로드 확인")
+
+
+def test_authoring_worker_includes_floor_plan_project_when_extracted():
+    root_dir = Path(__file__).resolve().parents[3]
+    message_path = root_dir / "sample_messages" / "command_ifc_edit.json"
+    ifc_path = root_dir / "tests" / "sample_batang.ifc"
+    floor_plan_project = {
+        "id": "floor-project-1",
+        "name": "Floor Project",
+        "created_at": "2026-05-20T00:00:00Z",
+        "updated_at": "2026-05-20T00:00:00Z",
+        "unit": "mm",
+        "floors": [],
+        "rooms": [{"id": "room-1"}],
+        "adjacency": [],
+    }
+
+    with open(message_path, encoding="utf-8") as f:
+        command = CommandMessage.model_validate(json.load(f))
+
+    worker, _ = _make_worker(ifc_path.read_bytes())
+    with (
+        patch.object(worker, "_run_operations", return_value=_APPLIED_OP_RESULTS),
+        patch.object(worker_module, "build_floor_plan_project", return_value=floor_plan_project),
+    ):
+        result = worker.process(command)
+
+    assert isinstance(result, CompletedResult)
+    assert result.output["floor_plan_project"] == floor_plan_project
+    event = build_completed_event(WorkerContext.from_command(command), worker.worker_id, result)
+    assert event.output is not None
+    assert event.output.floorPlanProject == floor_plan_project
 
 
 def test_authoring_worker_accepts_inline_engine_request_v1():

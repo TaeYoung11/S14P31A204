@@ -61,6 +61,21 @@ public class WorkspaceFloorPlanRealtimeService {
     private static final String EMPTY_IFC_EDIT_OPERATIONS_MESSAGE =
             "IFC에 반영할 수 없는 편집 요청입니다. 요소 ID 또는 편집 타입을 확인해 주세요.";
     private static final int UNKNOWN_FLOOR_PLAN_BASE_INDEX = -1;
+    private static final Set<String> THREE_D_SNAPSHOT_ONLY_COMMAND_ENTITIES = Set.of(
+            "floorPlanSnapshot",
+            "floor_plan_layout"
+    );
+    private static final Set<String> LOCAL_IFC_LIBRARY_ASSET_IDS = Set.of(
+            "door-152970",
+            "roof-178223",
+            "roof-180558",
+            "roof-181099",
+            "roof-187335",
+            "stair-145090",
+            "terrace",
+            "wall-139029",
+            "window-189252"
+    );
 
     private final ProjectWorkspaceRepository projectWorkspaceRepository;
     private final ProjectAccessService projectAccessService;
@@ -93,6 +108,48 @@ public class WorkspaceFloorPlanRealtimeService {
 
         String resolvedRevisionId = resolveRevisionId(request.revisionId(), workspace.getCurrentRevision());
         JsonNode syncPayload = buildSyncPayload(request, resolvedRevisionId);
+        if (isThreeDSnapshotOnlyCommand(request)) {
+            JsonNode floorPlanHistorySnapshot = buildFloorPlanHistorySnapshot(syncPayload, null);
+            saveFloorPlanSnapshotToRedisOrThrow(projectId, floorPlanHistorySnapshot, request.baseIndex());
+            broadcastFloorPlanSync(
+                    projectId,
+                    workspace,
+                    ACTION_FLOOR_PLAN_UPDATED,
+                    resolvedRevisionId,
+                    syncPayload,
+                    null
+            );
+            log.info(
+                    "Floor-plan realtime 3D snapshot-only sync bypassed IFC engine. projectId={}, revisionId={}, op={}, entity={}, commandId={}",
+                    projectId,
+                    resolvedRevisionId,
+                    request.workspaceCommand().op(),
+                    request.workspaceCommand().entity(),
+                    request.workspaceCommand().id()
+            );
+            return;
+        }
+        if (isLocalIfcLibraryAssetCommand(request.workspaceCommand())) {
+            JsonNode floorPlanHistorySnapshot = buildFloorPlanHistorySnapshot(syncPayload, null);
+            saveFloorPlanSnapshotToRedisOrThrow(projectId, floorPlanHistorySnapshot, request.baseIndex());
+            broadcastFloorPlanSync(
+                    projectId,
+                    workspace,
+                    ACTION_FLOOR_PLAN_UPDATED,
+                    resolvedRevisionId,
+                    syncPayload,
+                    null
+            );
+            log.info(
+                    "Floor-plan realtime local IFC library asset sync bypassed IFC engine. projectId={}, revisionId={}, op={}, entity={}, commandId={}",
+                    projectId,
+                    resolvedRevisionId,
+                    request.workspaceCommand().op(),
+                    request.workspaceCommand().entity(),
+                    request.workspaceCommand().id()
+            );
+            return;
+        }
         FloorPlanIfcEditQueueResult queueResult = requestPythonRenderAsync(
                 projectId,
                 currentUserId,
@@ -131,6 +188,75 @@ public class WorkspaceFloorPlanRealtimeService {
 
         log.info("Floor-plan realtime event relayed. projectId={}, revisionId={}, queueResult={}",
                 projectId, resolvedRevisionId, queueResult);
+    }
+
+    private boolean isThreeDSnapshotOnlyCommand(FloorPlanRealtimeUpdateRequest request) {
+        if (request == null || request.sceneType() != FloorPlanSceneType.THREE_D) {
+            return false;
+        }
+        WorkspaceCommand workspaceCommand = request.workspaceCommand();
+        return workspaceCommand != null
+                && THREE_D_SNAPSHOT_ONLY_COMMAND_ENTITIES.contains(workspaceCommand.entity());
+    }
+
+    private boolean isLocalIfcLibraryAssetCommand(WorkspaceCommand workspaceCommand) {
+        if (workspaceCommand == null || workspaceCommand.id() == null || workspaceCommand.id().isBlank()) {
+            return false;
+        }
+        if (isIfcGlobalId(workspaceCommand.id())) {
+            return false;
+        }
+        String sourceAssetId = resolveLocalIfcLibrarySourceAssetId(workspaceCommand);
+        return sourceAssetId != null && LOCAL_IFC_LIBRARY_ASSET_IDS.contains(sourceAssetId);
+    }
+
+    private String resolveLocalIfcLibrarySourceAssetId(WorkspaceCommand workspaceCommand) {
+        JsonNode payload = "create".equals(workspaceCommand.op()) ? workspaceCommand.data() : workspaceCommand.patch();
+        String fromPayload = firstText(payload, "sourceAssetId", "source_asset_id");
+        if (fromPayload != null && LOCAL_IFC_LIBRARY_ASSET_IDS.contains(fromPayload)) {
+            return fromPayload;
+        }
+        String assetPath = firstText(payload, "assetIfcUrl", "assetIfc", "asset_ifc_url", "asset_ifc");
+        String fromAssetPath = sourceAssetIdFromAssetPath(assetPath);
+        if (fromAssetPath != null) {
+            return fromAssetPath;
+        }
+        return LOCAL_IFC_LIBRARY_ASSET_IDS.stream()
+                .filter((assetId) -> workspaceCommand.id().startsWith(assetId + "-"))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private String sourceAssetIdFromAssetPath(String assetPath) {
+        if (assetPath == null || assetPath.isBlank()) {
+            return null;
+        }
+        String normalized = assetPath.replace('\\', '/');
+        if (!normalized.contains("/ifc-library/assets/") && !normalized.startsWith("assets/")) {
+            return null;
+        }
+        String filename = normalized.substring(normalized.lastIndexOf('/') + 1);
+        if (filename.endsWith(".ifc")) {
+            filename = filename.substring(0, filename.length() - 4);
+        }
+        return LOCAL_IFC_LIBRARY_ASSET_IDS.contains(filename) ? filename : null;
+    }
+
+    private String firstText(JsonNode node, String... keys) {
+        if (node == null || !node.isObject()) {
+            return null;
+        }
+        for (String key : keys) {
+            JsonNode value = node.get(key);
+            if (value != null && value.isTextual() && !value.asText().isBlank()) {
+                return value.asText();
+            }
+        }
+        return null;
+    }
+
+    private boolean isIfcGlobalId(String value) {
+        return value != null && value.matches("^[0-9A-Za-z_$]{22}$");
     }
 
     /**
@@ -192,12 +318,24 @@ public class WorkspaceFloorPlanRealtimeService {
             String s3Url,
             JsonNode sourceScenePayload
     ) {
+        publishFloorPlanUpdatedFromIfcEdit(projectId, revisionId, parentRevisionId, s3Url, sourceScenePayload, null);
+    }
+
+    public void publishFloorPlanUpdatedFromIfcEdit(
+            UUID projectId,
+            UUID revisionId,
+            UUID parentRevisionId,
+            String s3Url,
+            JsonNode sourceScenePayload,
+            JsonNode floorProject
+    ) {
         ProjectWorkspace workspace = resolveWorkspaceOrThrow(projectId);
         JsonNode payloadWithRevision = enrichFloorPlanPayloadWithRevision(
                 sanitizeFloorPlanPayload(sourceScenePayload),
                 revisionId,
                 parentRevisionId
         );
+        payloadWithRevision = mergeFloorProjectPayload(payloadWithRevision, floorProject);
 
         Integer baseIndex = extractOptionalBaseIndex(payloadWithRevision);
         if (baseIndex != null) {
@@ -237,10 +375,24 @@ public class WorkspaceFloorPlanRealtimeService {
             UUID parentRevisionId,
             String s3Url
     ) {
+        publishFloorPlanUpdatedFromGenerate(projectId, revisionId, parentRevisionId, s3Url, null);
+    }
+
+    public void publishFloorPlanUpdatedFromGenerate(
+            UUID projectId,
+            UUID revisionId,
+            UUID parentRevisionId,
+            String s3Url,
+            JsonNode floorProject
+    ) {
         ProjectWorkspace workspace = resolveWorkspaceOrThrow(projectId);
-        JsonNode payload = buildGenerateCompletionPayload(revisionId, parentRevisionId);
+        int baseIndex = resolveGenerateCompletionBaseIndex(projectId, parentRevisionId);
+        JsonNode payload = mergeFloorProjectPayload(
+                buildGenerateCompletionPayload(revisionId, parentRevisionId, baseIndex),
+                floorProject
+        );
         JsonNode floorPlanHistorySnapshot = buildFloorPlanHistorySnapshot(payload, normalizeS3Url(s3Url));
-        saveFloorPlanSnapshotToRedisOrThrow(projectId, floorPlanHistorySnapshot, UNKNOWN_FLOOR_PLAN_BASE_INDEX);
+        saveFloorPlanSnapshotToRedisOrThrow(projectId, floorPlanHistorySnapshot, baseIndex);
 
         broadcastFloorPlanSync(
                 projectId,
@@ -754,6 +906,18 @@ public class WorkspaceFloorPlanRealtimeService {
         return payload;
     }
 
+    private JsonNode mergeFloorProjectPayload(JsonNode floorPlanPayloadJson, JsonNode floorProject) {
+        if (floorProject == null || floorProject.isNull() || !floorProject.isObject()) {
+            return floorPlanPayloadJson;
+        }
+        if (floorPlanPayloadJson == null || floorPlanPayloadJson.isNull() || !floorPlanPayloadJson.isObject()) {
+            return floorPlanPayloadJson;
+        }
+        ObjectNode payload = floorPlanPayloadJson.deepCopy();
+        payload.set("floorProject", floorProject.deepCopy());
+        return payload;
+    }
+
     private JsonNode sanitizeFloorPlanPayload(JsonNode payload) {
         if (payload != null && payload.isObject()) {
             return payload;
@@ -844,8 +1008,12 @@ public class WorkspaceFloorPlanRealtimeService {
      * @return 클라이언트 sync 응답에 포함할 최소 floor-plan payload
      */
     private JsonNode buildGenerateCompletionPayload(UUID revisionId, UUID parentRevisionId) {
+        return buildGenerateCompletionPayload(revisionId, parentRevisionId, UNKNOWN_FLOOR_PLAN_BASE_INDEX);
+    }
+
+    private JsonNode buildGenerateCompletionPayload(UUID revisionId, UUID parentRevisionId, int baseIndex) {
         ObjectNode payload = objectMapper.createObjectNode();
-        payload.put("baseIndex", -1);
+        payload.put("baseIndex", baseIndex);
         payload.put("revisionId", revisionId.toString());
         if (parentRevisionId != null) {
             payload.put("parentRevisionId", parentRevisionId.toString());
@@ -858,6 +1026,37 @@ public class WorkspaceFloorPlanRealtimeService {
         payload.putNull("floorMeta");
         payload.putNull("layout");
         return payload;
+    }
+
+    private JsonNode buildGenerateUndoBaselinePayload(UUID parentRevisionId) {
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("baseIndex", UNKNOWN_FLOOR_PLAN_BASE_INDEX);
+        if (parentRevisionId != null) {
+            payload.put("parentRevisionId", parentRevisionId.toString());
+        } else {
+            payload.putNull("parentRevisionId");
+        }
+        payload.putNull("revisionId");
+        payload.put("sceneType", "THREE_D");
+        payload.set("bubbles", objectMapper.createArrayNode());
+        payload.set("connections", objectMapper.createArrayNode());
+        payload.putNull("floorMeta");
+        payload.putNull("layout");
+        return payload;
+    }
+
+    private int resolveGenerateCompletionBaseIndex(UUID projectId, UUID parentRevisionId) {
+        int historySize = getFloorPlanSnapshotHistorySizeOrThrow(projectId);
+        if (historySize > 0) {
+            return historySize - 1;
+        }
+
+        JsonNode baselineSnapshot = buildFloorPlanHistorySnapshot(
+                buildGenerateUndoBaselinePayload(parentRevisionId),
+                null
+        );
+        saveFloorPlanSnapshotToRedisOrThrow(projectId, baselineSnapshot, UNKNOWN_FLOOR_PLAN_BASE_INDEX);
+        return 0;
     }
 
     private Integer extractOptionalBaseIndex(JsonNode floorPlanPayloadJson) {

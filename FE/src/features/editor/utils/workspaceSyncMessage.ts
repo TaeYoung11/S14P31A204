@@ -9,6 +9,7 @@ import type {
   PhaseStatus,
   ZoneData,
 } from '../types'
+import type { ThreeDLibraryPreset } from '../components/canvas/threeDLibrary.types'
 
 export interface BubbleSnapshotPayload {
   bubbles: BubbleData[]
@@ -40,6 +41,7 @@ export interface FloorPlanSnapshotPayload extends BubbleSnapshotPayload {
     overlayFloorLayerIds?: string[]
     hiddenElementIds?: string[]
     ifcStoreyNameOverrides?: Record<string, string>
+    libraryElements?: ThreeDLibraryPreset[]
     mode?: 'ifc' | string
     baseIndex?: number
   } | null
