@@ -54,6 +54,10 @@ _logger = get_logger(__name__)
 _MAX_LOG_IDS = 20
 
 
+def build_floor_plan_project(ifc_path: str | Path, project_id: str) -> dict[str, Any]:
+    return floor_project_from_ifc_path(ifc_path, project_id)
+
+
 def _pad_step(step_no: int) -> str:
     """MinIO 경로용 3자리 zero-padding 변환."""
     return f"{step_no:03d}"
@@ -252,7 +256,7 @@ class AuthoringWorker(BaseWorker):
         command: CommandMessage,
     ) -> dict[str, Any] | None:
         try:
-            return floor_project_from_ifc_path(ifc_path, command.projectId)
+            return build_floor_plan_project(ifc_path, command.projectId)
         except Exception as exc:
             _logger.warning(
                 "floor_plan_project_extract_failed",
