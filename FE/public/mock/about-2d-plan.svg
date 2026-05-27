@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 620" role="img" aria-label="2D architectural floor plan">
+  <rect width="900" height="620" fill="#fbfaff"/>
+  <g stroke="#4f46e5" stroke-width="2.2" fill="none" stroke-linecap="square" stroke-linejoin="miter">
+    <path d="M72 72h705l-22 372H557v92H78z"/>
+    <path d="M72 72v464h266V372h219V72"/>
+    <path d="M338 372V241h219v131"/>
+    <path d="M557 72v176h198"/>
+    <path d="M557 248h198"/>
+    <path d="M338 536h219"/>
+    <path d="M557 444h198"/>
+    <path d="M78 358h260"/>
+    <path d="M192 358v178"/>
+    <path d="M72 258h266"/>
+    <path d="M338 241h80v-92h139"/>
+    <path d="M418 149v92"/>
+    <path d="M116 112h164"/>
+    <path d="M116 170h164"/>
+    <path d="M116 228h164"/>
+  </g>
+  <g stroke="#312e81" stroke-width="5" fill="none">
+    <path d="M72 72h705l-22 372H557v92H78z"/>
+    <path d="M338 372h219"/>
+    <path d="M338 241h219"/>
+    <path d="M557 72v176"/>
+  </g>
+  <g stroke="#7c3aed" stroke-width="1.4" fill="none" opacity=".72">
+    <path d="M92 556h760"/>
+    <path d="M92 48h705"/>
+    <path d="M48 92v444"/>
+    <path d="M800 92v352"/>
+    <path d="M92 48v-18m705 18v-18m-705 526v24m260-24v24m205-24v24m198-136h80m-80-372h80"/>
+    <path d="M92 30h705M92 580h663M48 92H24m24 444H24m811-444h30m-110 352h92"/>
+  </g>
+  <g font-family="Arial, sans-serif" font-size="16" fill="#4c1d95" font-weight="700">
+    <text x="405" y="34">12,535</text>
+    <text x="165" y="574">5,945</text>
+    <text x="410" y="574">10,040</text>
+    <text x="16" y="320" transform="rotate(-90 16 320)">11,120</text>
+    <text x="797" y="266" transform="rotate(-88 797 266)">5,500</text>
+  </g>
+  <g stroke="#5b46e8" stroke-width="1.2" fill="none" stroke-dasharray="7 5" opacity=".82">
+    <rect x="116" y="108" width="58" height="34" rx="16"/>
+    <rect x="194" y="108" width="58" height="34" rx="16"/>
+    <rect x="116" y="166" width="58" height="34" rx="16"/>
+    <rect x="194" y="166" width="58" height="34" rx="16"/>
+    <rect x="116" y="224" width="58" height="34" rx="16"/>
+    <rect x="272" y="282" width="62" height="42"/>
+    <rect x="355" y="282" width="62" height="42"/>
+    <rect x="604" y="108" width="58" height="34" rx="16"/>
+    <rect x="683" y="108" width="58" height="34" rx="16"/>
+    <rect x="604" y="198" width="58" height="34" rx="16"/>
+    <rect x="682" y="282" width="70" height="42"/>
+    <rect x="118" y="403" width="76" height="98"/>
+    <rect x="116" y="360" width="62" height="36" transform="rotate(-25 147 378)"/>
+  </g>
+  <g stroke="#8b5cf6" stroke-width="1" opacity=".65">
+    <path d="M380 258h120m-120 18h120m-120 18h120m-120 18h120m-120 18h120"/>
+    <path d="M386 252v92m18-92v92m18-92v92m18-92v92m18-92v92m18-92v92"/>
+    <path d="M570 462h160m-160 18h160m-160 18h160m-160 18h160"/>
+    <path d="M570 462l160 72M570 480l122 54M570 498l82 36"/>
+  </g>
+  <g fill="#4c1d95" font-family="Arial, sans-serif" font-size="13" opacity=".86">
+    <text x="394" y="306">DN</text>
+    <text x="213" y="514">주방</text>
+    <text x="602" y="304">홀</text>
+    <text x="124" y="90">OPEN OFFICE</text>
+    <text x="608" y="90">LOUNGE</text>
+  </g>
+  <g stroke="#4f46e5" stroke-width="1.5" fill="none">
+    <circle cx="320" cy="48" r="18"/>
+    <text x="311" y="53" font-family="Arial, sans-serif" font-size="12" fill="#4c1d95">A-A'</text>
+    <circle cx="810" cy="170" r="18"/>
+    <text x="801" y="175" font-family="Arial, sans-serif" font-size="12" fill="#4c1d95">B-B'</text>
+  </g>
+  <g stroke="#7c3aed" stroke-width="1.1" opacity=".7">
+    <path d="M92 590h120v-24H92zM212 590h310v-24H212zM522 590h160v-24H522zM682 590h116v-24H682z" fill="none"/>
+  </g>
+</svg>

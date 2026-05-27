@@ -1,0 +1,1067 @@
+"""Planning 3D worker for natural language interpretation."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import tempfile
+import uuid
+from datetime import datetime, UTC
+from pathlib import Path
+from typing import Any, cast
+
+from ai_common.adapters.storage.s3_client import S3Client, parse_s3_url
+from ai_common.errors import (
+    ClarificationRequiredError,
+    NonRetryableWorkerError,
+    RetryableWorkerError,
+)
+from ai_common.logging import get_logger
+from ai_common.worker_sdk.base_worker import BaseWorker, EventPublisher
+from ai_common.worker_sdk.event_factory import (
+    ClarificationResult,
+    CompletedResult,
+    FailedResult,
+    WorkerResult,
+)
+from ai_common.worker_sdk.context import WorkerContext
+from ai_domain.worker_messages.command import CommandMessage
+from ai_domain.worker_messages.event import EventOutputRef
+
+from ai_planning_3d.pipeline import LLM3DPipeline
+
+_logger = get_logger(__name__)
+
+_PIPELINE_TO_SCHEMA_STATUS: dict[str, str] = {
+    "preview_ready": "ready",
+    "needs_clarification": "clarification_required",
+}
+
+
+def _bind_logger(log_context: dict[str, Any]) -> Any:
+    if hasattr(_logger, "bind"):
+        return _logger.bind(**log_context)
+    return _logger
+
+
+def _planning_log_context(command: CommandMessage, worker_id: str) -> dict[str, Any]:
+    ctx = WorkerContext.from_command(command)
+    return {
+        **ctx.to_log_fields(),
+        "workerId": worker_id,
+        "commandId": ctx.job_step_id,
+    }
+
+
+def _operation_summary(operations: list[dict[str, Any]] | None) -> dict[str, Any]:
+    ops = operations or []
+    return {
+        "operationCount": len(ops),
+        "operationTypes": [str(op.get("type") or "") for op in ops],
+    }
+
+
+def _result_summary(result: dict[str, Any]) -> dict[str, Any]:
+    split_results = result.get("split_results") or []
+    return {
+        "pipelineStatus": result.get("status"),
+        "sessionId": result.get("session_id"),
+        "splitResultCount": len(split_results),
+        "collisionWarningCount": len(result.get("collision_warnings") or []),
+        "structuralWarningCount": len(result.get("structural_warnings") or []),
+        "clarificationQuestionCount": len(result.get("clarification_questions") or []),
+    }
+
+
+class PlanningWorker(BaseWorker):
+    """Synchronous worker that wraps LLM3DPipeline for preview steps."""
+
+    def __init__(
+        self,
+        *,
+        worker_id: str,
+        event_publisher: EventPublisher,
+        s3: S3Client,
+    ) -> None:
+        super().__init__(worker_id=worker_id, event_publisher=event_publisher)
+        self._s3 = s3
+
+    def process(self, command: CommandMessage) -> WorkerResult:
+        log_context = _planning_log_context(command, self.worker_id)
+        log = _bind_logger(log_context)
+        payload = command.payload  # ThreeDLlmCommandPayload
+        ifc_url: str = payload.sourceSceneStorageUrl
+        user_instruction: str = _resolve_effective_instruction(
+            payload.userInstruction,
+            payload.conversationHistory,
+            payload.plannerOptions,
+        )
+        output_url: str | None = command.expectedOutput.threeDPlanStorageUrl
+        log.info(
+            "planning_3d_command_received",
+            instructionLen=len(user_instruction),
+            conversationMessageCount=len(payload.conversationHistory),
+            plannerOptionKeys=sorted((payload.plannerOptions or {}).keys()),
+            outputStorageUrlPresent=bool(output_url),
+        )
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            ifc_path = Path(tmp_dir) / "input.ifc"
+            try:
+                log.info("planning_3d_ifc_download_started", sourceStorageUrlPresent=bool(ifc_url))
+                ifc_bytes = self._s3.read_bytes(ifc_url)
+                ifc_path.write_bytes(ifc_bytes)
+                log.info("planning_3d_ifc_download_completed", ifcBytes=len(ifc_bytes))
+            except Exception as exc:
+                raise RetryableWorkerError(
+                    code="IFC_DOWNLOAD_FAILED",
+                    message=f"IFC 파일 다운로드 실패: {exc}",
+                ) from exc
+
+            pipeline = LLM3DPipeline(ifc_path=str(ifc_path), log_context=log_context)
+            try:
+                result = asyncio.run(
+                    _run_pipeline_preview(
+                        pipeline,
+                        user_instruction,
+                        payload.plannerOptions,
+                    )
+                )
+                log.info("planning_3d_pipeline_preview_completed", **_result_summary(result))
+            except Exception as exc:
+                log.error(
+                    "planning_3d_pipeline_preview_failed",
+                    errorClass=type(exc).__name__,
+                    errorMessage=str(exc),
+                )
+                raise NonRetryableWorkerError(
+                    code="PIPELINE_FAILED",
+                    message=f"Pipeline 실행 실패: {exc}",
+                ) from exc
+
+        return self._map_result(result, command, output_url, log_context=log_context)
+
+    def _map_result(
+        self,
+        result: dict[str, Any],
+        command: CommandMessage,
+        output_url: str | None,
+        log_context: dict[str, Any] | None = None,
+    ) -> WorkerResult:
+        log = _bind_logger(log_context or _planning_log_context(command, self.worker_id))
+        status = result.get("status")
+        stored_url = self._store_result(result, command, output_url, log=log)
+
+        if status == "needs_clarification":
+            # ambiguity_question 경로는 session_id가 없으므로 UUID로 대체
+            session_id = result.get("session_id") or str(uuid.uuid4())
+            log.warning(
+                "planning_needs_clarification",
+                sessionId=session_id,
+                questionCount=len(result.get("clarification_questions", [])),
+            )
+            clarification_url = self._store_clarification_artifact(result, session_id, output_url)
+            return ClarificationResult(
+                error=ClarificationRequiredError(
+                    code="NEEDS_CLARIFICATION",
+                    message=result.get("summary", "생성 전 확인이 필요합니다."),
+                    clarification_request_id=session_id,
+                    detail_storage_url=clarification_url,
+                )
+            )
+
+        if status == "preview_ready":
+            log.info(
+                "planning_3d_downstream_result_ready",
+                outputStorageUrlPresent=bool(stored_url),
+                **_result_summary(result),
+            )
+            return CompletedResult(output=EventOutputRef(storageUrl=stored_url))
+
+        log.warning(
+            "planning_3d_downstream_result_ready",
+            outputStorageUrlPresent=bool(stored_url),
+            **_result_summary(result),
+        )
+        return FailedResult(
+            error=NonRetryableWorkerError(
+                code=f"PLANNING_{(status or 'unknown').upper()}",
+                message=result.get("summary") or f"계획 실행 실패: {status}",
+            )
+        )
+
+    def _store_result(
+        self,
+        result: dict[str, Any],
+        command: CommandMessage,
+        output_url: str | None,
+        log: Any | None = None,
+    ) -> str | None:
+        log = log or _bind_logger(_planning_log_context(command, self.worker_id))
+        if not output_url:
+            log.info("planning_3d_result_upload_started", outputStorageUrlPresent=False)
+            return None
+        try:
+            payload = _build_result_payload(result, command)
+            log.info(
+                "planning_3d_result_payload_built",
+                schemaStatus=payload.get("status"),
+                commandCount=len(payload.get("commands") or []),
+                issueCount=len(payload.get("issues") or []),
+                **_operation_summary(payload.get("operations") or []),
+            )
+            loc = parse_s3_url(output_url)
+            log.info("planning_3d_result_upload_started", outputStorageUrlPresent=True)
+            stored_url = cast(
+                str,
+                self._s3.write_text(
+                    key=loc.key,
+                    text=json.dumps(payload, ensure_ascii=False),
+                    content_type="application/json; charset=utf-8",
+                    bucket=loc.bucket,
+                ),
+            )
+            log.info(
+                "planning_3d_result_upload_completed",
+                outputStorageUrlPresent=bool(stored_url),
+            )
+            return stored_url
+        except Exception as exc:
+            raise RetryableWorkerError(
+                code="RESULT_UPLOAD_FAILED",
+                message=f"결과 업로드 실패: {exc}",
+            ) from exc
+
+    def _store_clarification_artifact(
+        self,
+        result: dict[str, Any],
+        session_id: str,
+        output_url: str | None,
+    ) -> str:
+        """FE가 소비하는 ClarificationArtifact 형식 JSON을 별도 S3 객체로 저장한다."""
+        if not output_url:
+            raise RetryableWorkerError(
+                code="CLARIFICATION_ARTIFACT_UPLOAD_FAILED",
+                message="clarification artifact 저장 위치(output_url)가 없습니다.",
+            )
+        try:
+            artifact = _build_clarification_artifact(result, session_id)
+            loc = parse_s3_url(output_url)
+            clarification_key = loc.key.rstrip("/") + ".clarification.json"
+            return cast(
+                str,
+                self._s3.write_text(
+                    key=clarification_key,
+                    text=json.dumps(artifact, ensure_ascii=False),
+                    content_type="application/json; charset=utf-8",
+                    bucket=loc.bucket,
+                ),
+            )
+        except Exception as exc:
+            raise RetryableWorkerError(
+                code="CLARIFICATION_ARTIFACT_UPLOAD_FAILED",
+                message=f"clarification artifact 업로드 실패: {exc}",
+            ) from exc
+
+
+# ── planner_3d_result.v1.schema.json 변환 헬퍼 ───────────────────────────────
+
+
+async def _run_pipeline_preview(
+    pipeline: LLM3DPipeline,
+    user_instruction: str,
+    planner_options: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    try:
+        return await _execute_preview_for_instruction(pipeline, user_instruction, planner_options)
+    finally:
+        try:
+            await pipeline.aclose()
+        except Exception:
+            _logger.warning("planning_pipeline_close_failed", exc_info=True)
+
+
+async def _execute_preview_for_instruction(
+    pipeline: LLM3DPipeline,
+    user_instruction: str,
+    planner_options: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    has_host_wall_override = isinstance(planner_options, dict) and isinstance(
+        planner_options.get("host_wall_global_id"),
+        str,
+    ) and bool(str(planner_options.get("host_wall_global_id")).strip())
+    host_wall_global_id = (
+        str(planner_options.get("host_wall_global_id", "")).strip()
+        if isinstance(planner_options, dict)
+        else ""
+    )
+
+    command_texts = pipeline.split_chat_commands(user_instruction)
+    pipeline._logger.info(
+        "llm3d_chat_split",
+        commandCount=len(command_texts),
+        instructionLen=len(user_instruction),
+    )
+    if len(command_texts) <= 1:
+        if not has_host_wall_override:
+            return await pipeline.execute_preview(user_instruction)
+        if _is_stale_host_wall(pipeline, host_wall_global_id):
+            return _stale_host_wall_result(host_wall_global_id)
+        command = await pipeline.engine.parse_command(
+            user_instruction,
+            ifc_context=pipeline._ifc_context_text,
+        )
+        return await pipeline.execute_command_preview(
+            _apply_planner_options(command, planner_options)
+        )
+
+    previews: list[dict[str, Any]] = []
+    for index, command_text in enumerate(command_texts, start=1):
+        pipeline._logger.info(
+            "llm3d_chat_command_started",
+            commandIndex=index,
+            splitInstructionLen=len(command_text),
+        )
+        if not has_host_wall_override:
+            preview = await pipeline.execute_preview(command_text)
+            preview["split_index"] = index
+            preview["split_instruction"] = command_text
+            previews.append(preview)
+            pipeline._logger.info(
+                "llm3d_chat_command_completed",
+                commandIndex=index,
+                previewStatus=preview.get("status"),
+                sessionId=preview.get("session_id"),
+                matchedCount=preview.get(
+                    "matched_count",
+                    len(preview.get("matched_elements") or []),
+                ),
+            )
+
+            if preview.get("status") != "preview_ready":
+                return _split_command_blocked_result(preview, index, command_text, previews)
+            continue
+
+        command = await pipeline.engine.parse_command(
+            command_text,
+            ifc_context=pipeline._ifc_context_text,
+        )
+        if index == 1:
+            if _is_stale_host_wall(pipeline, host_wall_global_id):
+                return _stale_host_wall_result(host_wall_global_id)
+        preview = await pipeline.execute_command_preview(
+            _apply_planner_options(command, planner_options if index == 1 else None)
+        )
+        preview["split_index"] = index
+        preview["split_instruction"] = command_text
+        previews.append(preview)
+        pipeline._logger.info(
+            "llm3d_chat_command_completed",
+            commandIndex=index,
+            previewStatus=preview.get("status"),
+            sessionId=preview.get("session_id"),
+            matchedCount=preview.get(
+                "matched_count",
+                len(preview.get("matched_elements") or []),
+            ),
+        )
+
+        if preview.get("status") != "preview_ready":
+            return _split_command_blocked_result(preview, index, command_text, previews)
+
+    return {
+        "status": "preview_ready",
+        "summary": f"Generated {len(previews)} preview commands.",
+        "commands": [
+            preview["command"]
+            for preview in previews
+            if isinstance(preview.get("command"), dict)
+        ],
+        "split_results": previews,
+    }
+
+
+def _split_command_blocked_result(
+    preview: dict[str, Any],
+    index: int,
+    command_text: str,
+    previews: list[dict[str, Any]],
+) -> dict[str, Any]:
+    summary = preview.get("summary") or preview.get("message") or "Preview generation failed."
+    blocked_summary = f"Command {index} failed: {summary}"
+    successful_count = sum(1 for item in previews if item.get("status") == "preview_ready")
+    questions = preview.get("clarification_questions")
+
+    if not questions:
+        questions = [
+            {
+                "trigger": "custom",
+                "question_ko": (
+                    f"{index}번째 명령 '{command_text}'을 처리하지 못했습니다. "
+                    "대상 층/공간/객체를 더 구체적으로 알려주세요."
+                ),
+                "options": [],
+                "context": {
+                    "reason": "split_command_failed",
+                    "failed_status": str(preview.get("status") or "unknown"),
+                    "failed_index": index,
+                    "failed_instruction": command_text,
+                    "successful_count": successful_count,
+                },
+            }
+        ]
+
+    return {
+        **preview,
+        "status": "needs_clarification",
+        "summary": blocked_summary,
+        "clarification_questions": questions,
+        "split_results": previews,
+    }
+
+
+def _is_stale_host_wall(pipeline: LLM3DPipeline, global_id: str) -> bool:
+    model = pipeline.query_engine.get_model()
+    if model is None:
+        return False
+    try:
+        entity = model.by_guid(global_id)
+    except Exception:
+        return True
+    return entity is None or not entity.is_a("IfcWall")
+
+
+def _stale_host_wall_result(global_id: str) -> dict[str, Any]:
+    question = "선택한 벽이 현재 모델에서 유효하지 않습니다. 벽을 다시 선택해 주세요."
+    return {
+        "status": "needs_clarification",
+        "summary": question,
+        "clarification_questions": [
+            {
+                "question_ko": question,
+                "options": [],
+                "context": {
+                    "reason": "invalid_host_wall_selection",
+                    "invalid_global_id": global_id,
+                    "apply_field": "host_wall_global_id",
+                },
+            }
+        ],
+    }
+
+
+def _resolve_effective_instruction(
+    user_instruction: str,
+    conversation_history: list[Any],
+    planner_options: dict[str, Any] | None,
+) -> str:
+    if not isinstance(planner_options, dict):
+        return user_instruction
+
+    host_wall_global_id = planner_options.get("host_wall_global_id")
+    if not isinstance(host_wall_global_id, str) or not host_wall_global_id.strip():
+        return user_instruction
+
+    for entry in reversed(conversation_history):
+        role = getattr(entry, "role", None)
+        content = getattr(entry, "content", None)
+        if role == "user" and isinstance(content, str) and content.strip():
+            return content.strip()
+    return user_instruction
+
+
+def _apply_planner_options(command: Any, planner_options: dict[str, Any] | None) -> Any:
+    if not isinstance(planner_options, dict):
+        return command
+
+    host_wall_global_id = planner_options.get("host_wall_global_id")
+    if not isinstance(host_wall_global_id, str) or not host_wall_global_id.strip():
+        return command
+
+    create_info = getattr(command, "create_info", None)
+    if str(getattr(command, "command_type", "")) != "CREATE" or create_info is None:
+        return command
+
+    element_type = str(getattr(create_info, "element_type", ""))
+    if element_type not in {"IfcDoor", "IfcWindow"}:
+        return command
+
+    create_info.host_wall_global_id = host_wall_global_id.strip()
+    return command
+
+
+def _build_result_payload(
+    result: dict[str, Any],
+    command: CommandMessage,
+) -> dict[str, Any]:
+    """파이프라인 결과를 planner_3d_result.v1.schema.json 형식으로 변환."""
+    pipeline_status = result.get("status", "")
+    schema_status = _PIPELINE_TO_SCHEMA_STATUS.get(pipeline_status, "invalid_instruction")
+
+    command_entries: list[tuple[dict[str, Any], list[dict[str, Any]]]] = []
+    commands: list[dict[str, Any]] = []
+    if schema_status == "ready":
+        command_entries = _command_preview_entries(result)
+        commands = [_map_command(raw_cmd) for raw_cmd, _ in command_entries]
+
+    clarification = (
+        _map_clarification(result) if schema_status == "clarification_required" else None
+    )
+    issues = _map_issues(result, pipeline_status, schema_status)
+
+    return {
+        "schema_version": "v1",
+        "planner_type": "3d",
+        "request_id": command.jobStepId,
+        "project_id": command.projectId,
+        "base_revision_id": command.sourceRevisionId,
+        "source_scene_type": "SCENE_3D",
+        "status": schema_status,
+        "commands": commands,
+        "operations": _map_operations(
+            commands,
+            [matched for _, matched in command_entries],
+        ),
+        "clarification": clarification,
+        "issues": issues,
+    }
+
+
+def _command_preview_entries(
+    result: dict[str, Any],
+) -> list[tuple[dict[str, Any], list[dict[str, Any]]]]:
+    split_results = result.get("split_results")
+    if isinstance(split_results, list) and split_results:
+        entries: list[tuple[dict[str, Any], list[dict[str, Any]]]] = []
+        for preview in split_results:
+            if not isinstance(preview, dict):
+                continue
+            raw_cmd = preview.get("command")
+            if isinstance(raw_cmd, dict):
+                entries.append((raw_cmd, list(preview.get("matched_elements") or [])))
+        return entries
+
+    raw_commands = result.get("commands")
+    if isinstance(raw_commands, list):
+        return [
+            (raw_cmd, [])
+            for raw_cmd in raw_commands
+            if isinstance(raw_cmd, dict)
+        ]
+
+    raw_cmd = result.get("command")
+    if isinstance(raw_cmd, dict):
+        return [(raw_cmd, list(result.get("matched_elements") or []))]
+    return []
+
+
+def _map_command(raw: dict[str, Any]) -> dict[str, Any]:
+    """LLM3DCommand.model_dump() → planner3dCommand 스키마 형식."""
+    cmd_type = raw.get("command_type", "")
+    cmd: dict[str, Any] = {
+        "command_type": cmd_type,
+        "target": _map_target(raw.get("target") or {}),
+        "confidence": raw.get("confidence", 1.0),
+        "raw_instruction": raw.get("raw_instruction", ""),
+    }
+    if cmd_type == "MODIFY":
+        changes = raw.get("changes")
+        cmd["changes"] = _map_changes(changes) if changes else None
+        cmd["create_info"] = None
+    elif cmd_type == "CREATE":
+        cmd["changes"] = None
+        ci = raw.get("create_info")
+        cmd["create_info"] = _map_create_info(ci) if ci else None
+    else:  # DELETE
+        cmd["changes"] = None
+        cmd["create_info"] = None
+    return cmd
+
+
+def _map_target(raw: dict[str, Any]) -> dict[str, Any]:
+    target: dict[str, Any] = {"element_type": raw.get("element_type", "IfcWall")}
+    for field in ("global_id", "name", "storey", "space_name", "direction", "tag"):
+        val = raw.get(field)
+        if val is not None and val != "":
+            target[field] = val
+    if raw.get("select_all"):
+        target["select_all"] = True
+    return target
+
+
+def _map_operations(
+    commands: list[dict[str, Any]],
+    matched_by_command: list[list[dict[str, Any]]] | None = None,
+) -> list[dict[str, Any]]:
+    operations: list[dict[str, Any]] = []
+    for index, command in enumerate(commands, start=1):
+        matched = (
+            matched_by_command[index - 1]
+            if matched_by_command is not None and index - 1 < len(matched_by_command)
+            else []
+        )
+        mapped = _map_operation(command, index, matched)
+        if mapped is not None:
+            operations.extend(mapped)
+    return operations
+
+
+def _map_operation(
+    command: dict[str, Any],
+    index: int,
+    matched_elements: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]] | None:
+    cmd_type = command.get("command_type")
+    if cmd_type == "CREATE":
+        create_info = command.get("create_info")
+        if isinstance(create_info, dict):
+            return [
+                {
+                    "id": f"op-{index:03d}",
+                    "type": "create_element",
+                    "parameters": _map_create_parameters(create_info),
+                }
+            ]
+        return None
+
+    selector = _map_selector(command.get("target") or {})
+    broad_roof_appearance = _is_broad_roof_appearance_command(command)
+    if broad_roof_appearance:
+        matched_ids = _matched_global_ids(
+            matched_elements or [],
+            expected_element_type="IfcRoof",
+        )
+        if matched_ids:
+            selector = {"global_ids": matched_ids, "element_type": "IfcRoof"}
+        elif matched_elements:
+            return None
+    if not selector:
+        return None
+
+    if cmd_type == "DELETE":
+        return [
+            {
+                "id": f"op-{index:03d}",
+                "type": "delete_elements",
+                "selector": selector,
+                "parameters": {},
+            }
+        ]
+
+    if cmd_type != "MODIFY":
+        return None
+
+    changes = command.get("changes")
+    if not isinstance(changes, dict):
+        return None
+
+    operations: list[dict[str, Any]] = []
+    update_params = _map_update_parameters(changes)
+    if broad_roof_appearance and update_params:
+        update_params["propagate_roof_appearance"] = True
+    if update_params:
+        operations.append(
+            {
+                "id": f"op-{index:03d}-update",
+                "type": "update_element_properties",
+                "selector": selector,
+                "parameters": update_params,
+            }
+        )
+
+    transform_params = _map_transform_parameters(changes)
+    if transform_params:
+        operations.append(
+            {
+                "id": f"op-{index:03d}-transform",
+                "type": "transform_elements",
+                "selector": selector,
+                "parameters": transform_params,
+            }
+        )
+
+    return operations or None
+
+
+def _is_broad_roof_appearance_command(command: dict[str, Any]) -> bool:
+    if str(command.get("command_type") or "") != "MODIFY":
+        return False
+    target = command.get("target") or {}
+    changes = command.get("changes") or {}
+    if target.get("element_type") != "IfcRoof" or not target.get("select_all"):
+        return False
+    if not (changes.get("color") or changes.get("material")):
+        return False
+    return not any(
+        target.get(field)
+        for field in ("global_id", "name", "storey", "space_name", "direction", "tag")
+    )
+
+
+def _matched_global_ids(
+    matched_elements: list[dict[str, Any]],
+    *,
+    expected_element_type: str | None = None,
+) -> list[str]:
+    global_ids: list[str] = []
+    seen: set[str] = set()
+    for item in matched_elements:
+        if (
+            expected_element_type is not None
+            and str(item.get("element_type") or "") != expected_element_type
+        ):
+            continue
+        global_id = item.get("global_id")
+        if not isinstance(global_id, str) or not global_id or global_id in seen:
+            continue
+        seen.add(global_id)
+        global_ids.append(global_id)
+    return global_ids
+
+
+def _map_selector(target: dict[str, Any]) -> dict[str, Any]:
+    selector: dict[str, Any] = {}
+    global_id = target.get("global_id")
+    if global_id:
+        selector["global_ids"] = [global_id]
+    for field in ("element_type", "name", "storey", "space_name", "tag"):
+        val = target.get(field)
+        if val is not None and val != "":
+            selector[field] = val
+    direction = _normalize_direction(target.get("direction"))
+    if direction:
+        selector["direction"] = direction
+    if target.get("select_all"):
+        selector["select_all"] = True
+    return selector
+
+
+def _map_update_parameters(changes: dict[str, Any]) -> dict[str, Any]:
+    parameters: dict[str, Any] = {}
+    dimensions: dict[str, Any] = {}
+    for source, target in (
+        ("length_mm", "length"),
+        ("width_mm", "width"),
+        ("height_mm", "height"),
+    ):
+        val = changes.get(source)
+        if isinstance(val, dict):
+            dimensions[target] = {
+                "mode": val.get("mode", "ABSOLUTE"),
+                "value": val.get("value", 0.0),
+            }
+    if dimensions:
+        parameters["dimensions_mm"] = dimensions
+
+    for field in ("color", "material", "face_offset_mm"):
+        val = changes.get(field)
+        if val is not None:
+            parameters[field] = val
+    return parameters
+
+
+def _map_transform_parameters(changes: dict[str, Any]) -> dict[str, Any]:
+    parameters: dict[str, Any] = {}
+    position = changes.get("position_mm")
+    if isinstance(position, dict):
+        parameters["translation_mm"] = {
+            "x": position.get("x", 0.0),
+            "y": position.get("y", 0.0),
+            "z": position.get("z", 0.0),
+        }
+    rotation = changes.get("rotation_deg")
+    if isinstance(rotation, dict):
+        parameters["rotation_deg"] = {
+            "x": rotation.get("x", 0.0),
+            "y": rotation.get("y", 0.0),
+            "z": rotation.get("z", 0.0),
+        }
+    return parameters
+
+
+def _map_create_parameters(create_info: dict[str, Any]) -> dict[str, Any]:
+    element_type = str(create_info.get("element_type") or "IfcWall")
+    parameters: dict[str, Any] = {
+        "element_type": element_type,
+        "storey": create_info.get("storey") or "1F",
+        "coordinate_space": create_info.get("coordinate_space") or "PROJECT_ABSOLUTE_MM",
+    }
+
+    start = create_info.get("start_point_mm")
+    if isinstance(start, dict):
+        parameters["start_mm"] = {
+            "x": start.get("x", 0.0),
+            "y": start.get("y", 0.0),
+            "z": start.get("z", 0.0),
+        }
+
+    dimensions: dict[str, Any] = {}
+    for field, target in (
+        ("length_mm", "length"),
+        ("width_mm", "width"),
+        ("height_mm", "height"),
+    ):
+        val = create_info.get(field)
+        if val is not None:
+            dimensions[target] = val
+    if dimensions:
+        parameters["dimensions_mm"] = dimensions
+
+    direction = _normalize_direction(create_info.get("direction"))
+    if direction:
+        parameters["direction"] = direction
+
+    requires_top_level_length = element_type in {"IfcWall", "IfcBeam", "IfcRoof"}
+    if requires_top_level_length and create_info.get("length_mm") is not None:
+        parameters["length_mm"] = create_info["length_mm"]
+    if create_info.get("azimuth_deg") is not None:
+        parameters["azimuth_deg"] = create_info["azimuth_deg"]
+    elif direction is not None:
+        parameters["azimuth_deg"] = _direction_to_azimuth(direction)
+
+    for field in (
+        "space_name",
+        "color",
+        "material",
+        "roof_shape_preset",
+        "ridge_height_mm",
+        "step_count",
+        "riser_height_mm",
+        "tread_depth_mm",
+        "host_wall_global_id",
+        "sill_height_mm",
+        "opening_offset_mm",
+    ):
+        val = create_info.get(field)
+        if val is not None and val != "":
+            parameters[field] = val
+    return parameters
+
+
+def _normalize_direction(value: Any) -> str | None:
+    if not isinstance(value, str) or not value:
+        return None
+    normalized = value.strip().lower()
+    return {
+        "north": "North",
+        "south": "South",
+        "east": "East",
+        "west": "West",
+    }.get(normalized)
+
+
+def _direction_to_azimuth(direction: str) -> float:
+    return {
+        "North": 90.0,
+        "South": 270.0,
+        "East": 0.0,
+        "West": 180.0,
+    }.get(direction, 0.0)
+
+
+def _map_changes(raw: dict[str, Any]) -> dict[str, Any] | None:
+    """LLM3DChanges.model_dump() → threeDChanges 스키마 형식.
+
+    주요 변환:
+    - material: {name: str} → str
+    - rotation_deg: float → {x: 0, y: 0, z: float}
+    - deletion 필드 제외 (DELETE는 command_type으로 표현)
+    """
+    changes: dict[str, Any] = {}
+
+    material = raw.get("material")
+    if isinstance(material, dict) and material.get("name"):
+        changes["material"] = material["name"]
+
+    for field in ("color", "face_offset_mm"):
+        val = raw.get(field)
+        if val is not None:
+            changes[field] = val
+
+    for field in ("length_mm", "height_mm", "width_mm"):
+        val = raw.get(field)
+        if isinstance(val, dict):
+            changes[field] = {"mode": val["mode"], "value": val["value"]}
+
+    pos = raw.get("position_mm")
+    if isinstance(pos, dict):
+        changes["position_mm"] = {
+            "mode": pos.get("mode", "RELATIVE"),
+            "x": pos.get("x", 0.0),
+            "y": pos.get("y", 0.0),
+            "z": pos.get("z", 0.0),
+        }
+
+    rot = raw.get("rotation_deg")
+    if rot is not None:
+        changes["rotation_deg"] = {"x": 0.0, "y": 0.0, "z": float(rot)}
+
+    return changes or None
+
+
+def _map_create_info(raw: dict[str, Any]) -> dict[str, Any] | None:
+    """LLM3DCreateInfo.model_dump() → threeDCreateInfo 스키마 형식.
+
+    주요 변환:
+    - start_point → start_point_mm
+    - shape_preset → roof_shape_preset
+    - material: {name: str} → str
+    - coordinate_space 추가
+    """
+    if not raw:
+        return None
+    ci: dict[str, Any] = {
+        "element_type": raw.get("element_type", "IfcWall"),
+        "storey": raw.get("storey") or "1F",
+        "coordinate_space": "PROJECT_ABSOLUTE_MM",
+    }
+
+    sp = raw.get("start_point")
+    if isinstance(sp, dict):
+        ci["start_point_mm"] = {
+            "x": sp.get("x", 0.0),
+            "y": sp.get("y", 0.0),
+            "z": sp.get("z", 0.0),
+        }
+
+    for field in (
+        "length_mm",
+        "width_mm",
+        "height_mm",
+        "azimuth_deg",
+        "step_count",
+        "riser_height_mm",
+        "tread_depth_mm",
+        "sill_height_mm",
+        "opening_offset_mm",
+    ):
+        val = raw.get(field)
+        if val is not None:
+            ci[field] = val
+
+    for field in ("space_name", "direction", "color", "host_wall_global_id"):
+        val = raw.get(field)
+        if val:
+            ci[field] = val
+
+    material = raw.get("material")
+    if isinstance(material, dict) and material.get("name"):
+        ci["material"] = material["name"]
+
+    shape = raw.get("shape_preset")
+    if shape:
+        ci["roof_shape_preset"] = shape
+        if shape == "GABLED":
+            ridge = raw.get("ridge_height_mm")
+            if ridge is not None:
+                ci["ridge_height_mm"] = ridge
+
+    return ci
+
+
+def _map_clarification(result: dict[str, Any]) -> dict[str, Any]:
+    """파이프라인 needs_clarification 결과 → clarification 스키마 형식."""
+    questions: list[dict[str, Any]] = result.get("clarification_questions") or []
+    if questions:
+        first = questions[0]
+        question_text = first.get("question_ko") or result.get("summary", "추가 정보가 필요합니다.")
+        options: list[str | dict[str, Any]] = []
+        for option in first.get("options", []):
+            if not isinstance(option, dict):
+                continue
+            label = option.get("label")
+            if not label:
+                continue
+            option_id = option.get("id")
+            if option_id:
+                mapped_option: dict[str, Any] = {
+                    "id": str(option_id),
+                    "label": str(label),
+                }
+                if option.get("value") is not None:
+                    mapped_option["value"] = option["value"]
+                if option.get("description"):
+                    mapped_option["description"] = str(option["description"])
+                options.append(mapped_option)
+            else:
+                options.append(str(label))
+
+        clarification: dict[str, Any] = {"question": question_text}
+        if options:
+            clarification["options"] = options
+        context = first.get("context")
+        if isinstance(context, dict) and context:
+            clarification["context"] = context
+        return clarification
+    # ambiguity_question 경로: 질문만 있고 선택지 없음
+    return {"question": result.get("summary", "추가 정보가 필요합니다.")}
+
+
+def _build_clarification_artifact(
+    result: dict[str, Any],
+    session_id: str,
+) -> dict[str, Any]:
+    """파이프라인 clarification 결과 → FE ClarificationArtifact 계약 형식으로 변환."""
+    clarification = _map_clarification(result)
+    question = clarification.get("question", "추가 정보가 필요합니다.")
+    options: list[Any] = clarification.get("options") or []
+    context: dict[str, Any] = clarification.get("context") or {}
+    apply_field: str | None = context.get("apply_field") if isinstance(context, dict) else None
+
+    alternatives = [
+        {
+            "alternative_id": opt["id"],
+            "title": opt["label"],
+            "description": opt.get("description", ""),
+            "fill": {apply_field: opt["value"]}
+            if apply_field and opt.get("value") is not None
+            else {},
+            "affected_entities": [],
+            "warnings": [],
+            "metrics": [],
+        }
+        for opt in options
+        if isinstance(opt, dict) and opt.get("id") and opt.get("label")
+    ]
+
+    return {
+        "schema_version": "v1",
+        "kind": "alternatives" if alternatives else "open_ended",
+        "question": question,
+        "alternatives": alternatives,
+        "parsed_command_preview": None,
+        "policy_plan": None,
+        "job_id": session_id,
+        "step_no": 1,
+        "clarification_request_id": session_id,
+        "timestamp": datetime.now(UTC).isoformat(),
+    }
+
+
+def _map_issues(
+    result: dict[str, Any],
+    pipeline_status: str,
+    schema_status: str,
+) -> list[dict[str, Any]]:
+    issues: list[dict[str, Any]] = []
+
+    for msg in result.get("structural_warnings") or []:
+        issues.append({"code": "STRUCTURAL_WARNING", "severity": "warning", "message": msg})
+
+    for msg in result.get("collision_warnings") or []:
+        issues.append({"code": "COLLISION_WARNING", "severity": "warning", "message": msg})
+
+    if schema_status == "invalid_instruction":
+        code_map = {
+            "not_found": "NOT_FOUND",
+            "failed_quality_check": "QUALITY_CHECK_FAILED",
+            "failed_structural_check": "STRUCTURAL_BLOCKED",
+        }
+        error_code = code_map.get(pipeline_status, "PLANNING_ERROR")
+        message = result.get("summary") or result.get("message") or "처리할 수 없는 명령입니다."
+        issues.append({"code": error_code, "severity": "error", "message": message})
+
+    return issues
+
+
+__all__ = ["PlanningWorker"]

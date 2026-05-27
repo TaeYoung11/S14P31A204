@@ -1,0 +1,32 @@
+# ControlNet Canny fine-tuning sweep — best 파라미터 미세 조정
+#
+# 목적: sweep_controlnet.yaml 결과 (cn_scale=0.3, strength=0.70, guidance=7) 기준
+#       strength ±0.03 / guidance ±1~2 범위 미세 조정 확인
+#       input (3) 으로 일반화 검증
+#
+# 사용법:
+#   uv run python -m ai_evals.runners.img2img_sweep \
+#     --config packages/ai-evals/configs/sweep_controlnet_finetune.yaml \
+#     --controlnet
+#
+# 확정 파라미터로 input 1~3 전체 검증
+# 스윕 규모: 3 × 1 × 1 × 1 × 1 × 1 = 3 렌더/run (~GPU 1분 미만)
+
+model:
+  id: SG161222/Realistic_Vision_V6.0_B1_noVAE
+
+seed: 42
+
+fixtures:
+  - packages/ai-rendering/tests/fixtures/input/input (1).jpg
+  - packages/ai-rendering/tests/fixtures/input/input (2).jpg
+  - packages/ai-rendering/tests/fixtures/input/input (3).jpg
+
+presets:
+  - scandinavian
+
+sweep:
+  strength: [0.67]
+  guidance_scale: [7]
+  controlnet_conditioning_scale: [0.3]
+  num_inference_steps: [25]

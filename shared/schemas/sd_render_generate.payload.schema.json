@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://a204.batang/shared/schemas/sd_render_generate.payload.schema.json",
+  "title": "SdRenderGeneratePayload",
+  "description": "Payload for SD_RENDER_GENERATE worker command.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["prompt"],
+  "properties": {
+    "prompt": {
+      "type": "string",
+      "minLength": 1
+    },
+    "negativePrompt": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "sourceImageStorageUrl": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 2048
+    }
+  }
+}

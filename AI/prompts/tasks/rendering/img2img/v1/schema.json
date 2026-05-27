@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "img2img 프리셋용 프롬프트 자산 스키마. 렌더링 파라미터(strength 등)는 포함하지 않음.",
+  "type": "object",
+  "required": ["prompt"],
+  "additionalProperties": false,
+  "properties": {
+    "prompt": {
+      "type": "string",
+      "description": "Stable Diffusion positive prompt — 생성할 외관 스타일 묘사"
+    },
+    "negative_prompt": {
+      "type": "string",
+      "description": "Stable Diffusion negative prompt — 억제할 요소 묘사"
+    }
+  }
+}

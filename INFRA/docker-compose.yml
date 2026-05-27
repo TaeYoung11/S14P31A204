@@ -1,0 +1,408 @@
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: batang-nginx
+    restart: unless-stopped
+    ports:
+      - "${NGINX_HTTP_PORT:-80}:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      fe:
+        condition: service_started
+      be:
+        condition: service_started
+    networks:
+      - batang-network
+
+  fe:
+    build:
+      context: ../FE
+      dockerfile: Dockerfile
+      args:
+        VITE_KAKAO_MAP_API_KEY: ${VITE_KAKAO_MAP_API_KEY:-}
+        VITE_API_URL: ${VITE_API_URL:-/api/v1}
+    container_name: batang-fe
+    restart: unless-stopped
+    expose:
+      - "80"
+    networks:
+      - batang-network
+
+  be:
+    build:
+      context: ../BE
+      dockerfile: Dockerfile
+    container_name: batang-be
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Seoul
+      JAVA_TOOL_OPTIONS: "-Duser.timezone=Asia/Seoul"
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-docker}
+      SPRING_DATASOURCE_URL: ${SPRING_DATASOURCE_URL:-jdbc:postgresql://postgres:5432/${POSTGRES_DB:-batang}}
+      SPRING_DATASOURCE_USERNAME: ${SPRING_DATASOURCE_USERNAME:-${POSTGRES_USER:-batang}}
+      SPRING_DATASOURCE_PASSWORD: ${SPRING_DATASOURCE_PASSWORD:-${POSTGRES_PASSWORD:-batang}}
+      SPRING_SQL_INIT_MODE: ${SPRING_SQL_INIT_MODE:-always}
+      SPRING_REDIS_HOST: ${SPRING_REDIS_HOST:-redis}
+      SPRING_REDIS_PORT: ${SPRING_REDIS_PORT:-6379}
+      SPRING_REDIS_PASSWORD: ${SPRING_REDIS_PASSWORD:-batang}
+      SPRING_REDIS_DATABASE: ${SPRING_REDIS_DATABASE:-0}
+      SPRING_REDIS_TIMEOUT: ${SPRING_REDIS_TIMEOUT:-3s}
+      SPRING_RABBITMQ_HOST: ${SPRING_RABBITMQ_HOST:-rabbitmq}
+      SPRING_RABBITMQ_PORT: ${SPRING_RABBITMQ_PORT:-5672}
+      SPRING_RABBITMQ_USERNAME: ${SPRING_RABBITMQ_USERNAME:-${RABBITMQ_DEFAULT_USER:-guest}}
+      SPRING_RABBITMQ_PASSWORD: ${SPRING_RABBITMQ_PASSWORD:-${RABBITMQ_DEFAULT_PASS:-guest}}
+      SPRING_RABBITMQ_VHOST: ${SPRING_RABBITMQ_VHOST:-/}
+      JWT_SECRET: ${JWT_SECRET}
+      MAIL_USERNAME: ${MAIL_USERNAME}
+      MAIL_PASSWORD: ${MAIL_PASSWORD}
+      VWORLD_API_KEY: ${VWORLD_API_KEY:-}
+      VWORLD_BASE_URL: ${VWORLD_BASE_URL:-https://apis.vworld.kr}
+      VWORLD_CADASTRAL_PATH: ${VWORLD_CADASTRAL_PATH:-/2ddata/cadastral/data}
+      VWORLD_REFERER: ${VWORLD_REFERER:-}
+      VWORLD_OUTPUT: ${VWORLD_OUTPUT:-json}
+      VWORLD_SRS_NAME: ${VWORLD_SRS_NAME:-EPSG:4326}
+      VWORLD_PROPERTY_NAME: ${VWORLD_PROPERTY_NAME:-pnu,jibun,bonbun,bubun,ag_geom,addr}
+      VWORLD_BUFFER: ${VWORLD_BUFFER:-10}
+      VWORLD_PAGE_INDEX: ${VWORLD_PAGE_INDEX:-1}
+      VWORLD_PAGE_UNIT: ${VWORLD_PAGE_UNIT:-10}
+      VWORLD_TIMEOUT_SECONDS: ${VWORLD_TIMEOUT_SECONDS:-3}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_S3_ENDPOINT_URL: ${AWS_S3_ENDPOINT_URL:-http://minio:9000}
+      AWS_S3_PUBLIC_ENDPOINT_URL: ${AWS_S3_PUBLIC_ENDPOINT_URL:-http://${SERVER_IP:-localhost}}
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET:-${MINIO_BUCKET:-batang-artifacts}}
+      AWS_S3_PRESIGN_EXPIRATION_SECONDS: ${AWS_S3_PRESIGN_EXPIRATION_SECONDS:-300}
+      AWS_S3_DELETE_QUEUE_KEY: ${AWS_S3_DELETE_QUEUE_KEY:-workspace:floor-plan:s3:delete:queue}
+      AWS_S3_DELETE_BATCH_SIZE: ${AWS_S3_DELETE_BATCH_SIZE:-500}
+      AWS_S3_DELETE_SCHEDULE_CRON: ${AWS_S3_DELETE_SCHEDULE_CRON:-0 0 4 * * *}
+      AWS_S3_DELETE_SCHEDULE_ZONE: ${AWS_S3_DELETE_SCHEDULE_ZONE:-Asia/Seoul}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-${MINIO_ROOT_USER:-minio}}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-${MINIO_ROOT_PASSWORD:-minio123}}
+    expose:
+      - "8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    networks:
+      - batang-network
+
+  worker-ifc-generate:
+    build:
+      context: ../AI
+      dockerfile: Dockerfile
+      target: ai-core
+    container_name: batang-worker-ifc-generate
+    restart: unless-stopped
+    environment:
+      WORKER_TYPE: IFC_GENERATE_FROM_BUBBLE
+      WORKER_ID: ${IFC_GENERATE_WORKER_ID:-ifc-generate-worker-1}
+      ENVIRONMENT: ${ENVIRONMENT:-staging}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_JSON: ${LOG_JSON:-false}
+      HEALTH_HOST: 0.0.0.0
+      HEALTH_PORT: 8081
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: ${SPRING_RABBITMQ_USERNAME:-${RABBITMQ_DEFAULT_USER:-guest}}
+      RABBITMQ_PASSWORD: ${SPRING_RABBITMQ_PASSWORD:-${RABBITMQ_DEFAULT_PASS:-guest}}
+      RABBITMQ_VHOST: ${SPRING_RABBITMQ_VHOST:-/}
+      S3_BUCKET: ${AWS_S3_BUCKET:-${MINIO_BUCKET:-batang-artifacts}}
+      S3_ENDPOINT_URL: ${AWS_S3_ENDPOINT_URL:-http://minio:9000}
+      S3_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-${MINIO_ROOT_USER:-minio}}
+      S3_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-${MINIO_ROOT_PASSWORD:-minio123}}
+      S3_REGION: ${AWS_REGION:-us-east-1}
+      AI_WORKER_TEMP_DIR: ${AI_WORKER_TEMP_DIR:-/tmp/ai-layout-import}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    networks:
+      - batang-network
+
+  worker-planning-2d:
+    build:
+      context: ../AI
+      dockerfile: Dockerfile
+      target: ai-core
+    container_name: batang-worker-planning-2d
+    restart: unless-stopped
+    environment:
+      WORKER_TYPE: TWO_D_LLM
+      WORKER_ID: ${TWO_D_LLM_WORKER_ID:-planning-2d-worker-1}
+      ENVIRONMENT: ${ENVIRONMENT:-staging}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_JSON: ${LOG_JSON:-false}
+      HEALTH_HOST: 0.0.0.0
+      HEALTH_PORT: 8081
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: ${SPRING_RABBITMQ_USERNAME:-${RABBITMQ_DEFAULT_USER:-guest}}
+      RABBITMQ_PASSWORD: ${SPRING_RABBITMQ_PASSWORD:-${RABBITMQ_DEFAULT_PASS:-guest}}
+      RABBITMQ_VHOST: ${SPRING_RABBITMQ_VHOST:-/}
+      S3_BUCKET: ${AWS_S3_BUCKET:-${MINIO_BUCKET:-batang-artifacts}}
+      S3_ENDPOINT_URL: ${AWS_S3_ENDPOINT_URL:-http://minio:9000}
+      S3_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-${MINIO_ROOT_USER:-minio}}
+      S3_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-${MINIO_ROOT_PASSWORD:-minio123}}
+      S3_REGION: ${AWS_REGION:-us-east-1}
+      MODEL_ENDPOINT: ${TWO_D_LLM_BASE_URL:-http://host.docker.internal:11434/v1}
+      "2D_LLM_MODEL_NAME": ${TWO_D_LLM_MODEL_NAME:-gemma3:4b}
+      "2D_LLM_API_KEY": ${TWO_D_LLM_API_KEY:-ollama}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    networks:
+      - batang-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  worker-planning-3d:
+    build:
+      context: ../AI
+      dockerfile: Dockerfile
+      target: ai-core
+    container_name: batang-worker-planning-3d
+    restart: unless-stopped
+    environment:
+      WORKER_TYPE: THREE_D_LLM
+      WORKER_ID: ${THREE_D_LLM_WORKER_ID:-planning-3d-worker-1}
+      ENVIRONMENT: ${ENVIRONMENT:-staging}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_JSON: ${LOG_JSON:-false}
+      HEALTH_HOST: 0.0.0.0
+      HEALTH_PORT: 8081
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: ${SPRING_RABBITMQ_USERNAME:-${RABBITMQ_DEFAULT_USER:-guest}}
+      RABBITMQ_PASSWORD: ${SPRING_RABBITMQ_PASSWORD:-${RABBITMQ_DEFAULT_PASS:-guest}}
+      RABBITMQ_VHOST: ${SPRING_RABBITMQ_VHOST:-/}
+      S3_BUCKET: ${AWS_S3_BUCKET:-${MINIO_BUCKET:-batang-artifacts}}
+      S3_ENDPOINT_URL: ${AWS_S3_ENDPOINT_URL:-http://minio:9000}
+      S3_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-${MINIO_ROOT_USER:-minio}}
+      S3_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-${MINIO_ROOT_PASSWORD:-minio123}}
+      S3_REGION: ${AWS_REGION:-us-east-1}
+      LLM_MODEL_NAME: ${LLM_MODEL_NAME:-qwen2.5:7b}
+      LLM_BASE_URL: ${LLM_BASE_URL:-http://host.docker.internal:11434/v1}
+      LLM_API_KEY: ${LLM_API_KEY:-ollama}
+      LLM_REASONING_EFFORT: ${LLM_REASONING_EFFORT:-none}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    networks:
+      - batang-network
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  worker-authoring:
+    build:
+      context: ../AI
+      dockerfile: Dockerfile
+      target: ai-core
+    container_name: batang-worker-authoring
+    restart: unless-stopped
+    environment:
+      WORKER_TYPE: IFC_EDIT_APPLY
+      WORKER_ID: ${AUTHORING_WORKER_ID:-authoring-worker-1}
+      ENVIRONMENT: ${ENVIRONMENT:-staging}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_JSON: ${LOG_JSON:-false}
+      HEALTH_HOST: 0.0.0.0
+      HEALTH_PORT: 8081
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: ${SPRING_RABBITMQ_USERNAME:-${RABBITMQ_DEFAULT_USER:-guest}}
+      RABBITMQ_PASSWORD: ${SPRING_RABBITMQ_PASSWORD:-${RABBITMQ_DEFAULT_PASS:-guest}}
+      RABBITMQ_VHOST: ${SPRING_RABBITMQ_VHOST:-/}
+      S3_BUCKET: ${AWS_S3_BUCKET:-${MINIO_BUCKET:-batang-artifacts}}
+      S3_ENDPOINT_URL: ${AWS_S3_ENDPOINT_URL:-http://minio:9000}
+      S3_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-${MINIO_ROOT_USER:-minio}}
+      S3_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-${MINIO_ROOT_PASSWORD:-minio123}}
+      S3_REGION: ${AWS_REGION:-us-east-1}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    networks:
+      - batang-network
+
+  worker-rendering:
+    profiles:
+      - ai
+    build:
+      context: ../AI
+      dockerfile: Dockerfile
+      target: ai-rendering
+    container_name: batang-worker-rendering
+    restart: unless-stopped
+    environment:
+      WORKER_TYPE: SD_RENDER_GENERATE
+      WORKER_ID: ${RENDERING_WORKER_ID:-rendering-worker-1}
+      ENVIRONMENT: ${ENVIRONMENT:-staging}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      LOG_JSON: ${LOG_JSON:-false}
+      HEALTH_HOST: 0.0.0.0
+      HEALTH_PORT: 8081
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: ${SPRING_RABBITMQ_USERNAME:-${RABBITMQ_DEFAULT_USER:-guest}}
+      RABBITMQ_PASSWORD: ${SPRING_RABBITMQ_PASSWORD:-${RABBITMQ_DEFAULT_PASS:-guest}}
+      RABBITMQ_VHOST: ${SPRING_RABBITMQ_VHOST:-/}
+      # SD 렌더는 한 잡당 GPU 작업이 길어 단일 thread 가 RabbitMQ heartbeat 를
+      # 못 보내고 60초 기본값에 끊긴다. 600초로 늘려 H-1.b + H-3 까지 한 잡이
+      # 끝날 때까지 broker 연결을 살린다 (RENDERING_RABBITMQ_HEARTBEAT 로 override).
+      RABBITMQ_HEARTBEAT: ${RENDERING_RABBITMQ_HEARTBEAT:-600}
+      S3_BUCKET: ${AWS_S3_BUCKET:-${MINIO_BUCKET:-batang-artifacts}}
+      S3_ENDPOINT_URL: ${AWS_S3_ENDPOINT_URL:-http://minio:9000}
+      S3_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-${MINIO_ROOT_USER:-minio}}
+      S3_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-${MINIO_ROOT_PASSWORD:-minio123}}
+      S3_REGION: ${AWS_REGION:-us-east-1}
+      # 모델 캐시를 named volume `hf-cache` 에 영속화.
+      # - HF_HOME: SD 1.5 / ControlNet / Realistic Vision V6 등 HuggingFace
+      #   기반 모델 (~5GB) → /models/huggingface
+      # - IFC2IMG_REALESRGAN_CACHE_DIR: Real-ESRGAN x4plus weight (~70MB) →
+      #   /models/realesrgan (코드 기본값 `~/.cache/realesrgan` 을 override).
+      # 두 캐시 모두 같은 볼륨의 하위 디렉토리에 두므로 인스턴스 재기동 /
+      # 컨테이너 재생성 후에도 재다운로드 없이 첫 잡부터 캐시 hit.
+      HF_HOME: /models/huggingface
+      IFC2IMG_REALESRGAN_CACHE_DIR: /models/realesrgan
+    volumes:
+      - hf-cache:/models
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    networks:
+      - batang-network
+    # GPU 노출 (EC2 g6.2xlarge / L4 1개 기준).
+    # 호스트에 NVIDIA driver + nvidia-container-toolkit 이 설치돼 있어야 한다.
+    # GPU 가 없는 환경(예: 로컬 Docker Desktop on Windows) 에서는 이 설정이
+    # 무시되지 않고 reservation 실패로 컨테이너 기동을 막을 수 있으므로,
+    # 로컬에서는 `--profile ai` 를 빼고 띄우거나 이 블록을 임시 주석 처리한다.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: batang-postgres
+    restart: unless-stopped
+    command: ["postgres", "-c", "timezone=Asia/Seoul"]
+    environment:
+      TZ: Asia/Seoul
+      POSTGRES_DB: ${POSTGRES_DB:-batang}
+      POSTGRES_USER: ${POSTGRES_USER:-batang}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-batang}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - batang-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: batang-redis
+    restart: unless-stopped
+    command: ["sh", "-c", "redis-server --appendonly yes --requirepass \"$${REDIS_PASSWORD}\""]
+    environment:
+      REDIS_PASSWORD: ${SPRING_REDIS_PASSWORD:-batang}
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - redis-data:/data
+    networks:
+      - batang-network
+
+  rabbitmq:
+    image: rabbitmq:4-management
+    container_name: batang-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: ${SPRING_RABBITMQ_USERNAME:-${RABBITMQ_DEFAULT_USER:-guest}}
+      RABBITMQ_DEFAULT_PASS: ${SPRING_RABBITMQ_PASSWORD:-${RABBITMQ_DEFAULT_PASS:-guest}}
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    ports:
+      - "${RABBITMQ_MANAGEMENT_BIND:-127.0.0.1}:15672:15672"
+    networks:
+      - batang-network
+
+  minio:
+    image: quay.io/minio/minio:latest
+    container_name: batang-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio123}
+      MINIO_BROWSER_REDIRECT_URL: ${MINIO_BROWSER_REDIRECT_URL:-http://${SERVER_IP:-localhost}/minio/}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9000/minio/health/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - minio-data:/data
+    ports:
+      - "${MINIO_API_BIND:-127.0.0.1}:9000:9000"
+      - "${MINIO_CONSOLE_BIND:-127.0.0.1}:9001:9001"
+    networks:
+      - batang-network
+
+  minio-init:
+    image: quay.io/minio/mc:latest
+    container_name: batang-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}";
+        mc mb -p "local/$${AWS_S3_BUCKET}" || true;
+        exit 0;
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minio123}
+      AWS_S3_BUCKET: ${AWS_S3_BUCKET:-${MINIO_BUCKET:-batang-artifacts}}
+    networks:
+      - batang-network
+
+volumes:
+  postgres-data:
+  redis-data:
+  rabbitmq-data:
+  minio-data:
+  hf-cache:
+
+networks:
+  batang-network:
+    driver: bridge

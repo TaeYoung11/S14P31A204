@@ -1,0 +1,2818 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>바탕:BATANG — 건축의 정밀함을 디지털로 설계하다</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.css"
+    rel="stylesheet">
+
+  <style>
+    :root {
+      --bg: #f4f5f9;
+      --bg-2: #eaecf2;
+      --paper: #ffffff;
+      --ink: #111827;
+      --ink-2: #374151;
+      --muted: #6b7280;
+      --muted-2: #9ca3af;
+      --line: #e5e7eb;
+      --line-2: #d1d5db;
+      --accent: #4f46e5;
+      --accent-soft: rgba(79, 70, 229, 0.08);
+      --serif: 'Pretendard Variable', 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      --mono: var(--serif);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html,
+    body {
+      height: 100%;
+      overflow: hidden;
+    }
+
+    body {
+      font-family: var(--serif);
+      color: var(--ink);
+      background: var(--bg);
+      word-break: keep-all;
+      overflow-wrap: break-word;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      letter-spacing: -0.005em;
+    }
+
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    p,
+    li,
+    dt,
+    dd,
+    blockquote,
+    figcaption {
+      word-break: keep-all;
+      overflow-wrap: break-word;
+      text-wrap: pretty;
+    }
+
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6 {
+      text-wrap: balance;
+    }
+
+    img,
+    canvas {
+      -webkit-user-drag: none;
+    }
+
+    #scene-canvas {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 0;
+      cursor: pointer;
+    }
+
+    body.interactive #scene-canvas {
+      cursor: grab;
+    }
+
+    body.interactive #scene-canvas:active {
+      cursor: grabbing;
+    }
+
+    /* 텍스트 가독성을 높이는 은은한 장면 오버레이 */
+    .veil {
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+      pointer-events: none;
+      background:
+        radial-gradient(60% 60% at 18% 50%, rgba(244, 245, 249, 0.85) 0%, rgba(244, 245, 249, 0) 60%),
+        radial-gradient(40% 40% at 90% 10%, rgba(79, 70, 229, 0.06) 0%, rgba(79, 70, 229, 0) 70%);
+    }
+
+    /* 얇은 그리드 오버레이 */
+    .grid-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+      pointer-events: none;
+      background-image:
+        linear-gradient(to right, rgba(17, 24, 39, 0.04) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(17, 24, 39, 0.04) 1px, transparent 1px);
+      background-size: 64px 64px;
+      mask-image: radial-gradient(ellipse 100% 80% at 50% 50%, black 30%, transparent 80%);
+    }
+
+    /* ── 헤더 ─────────────────────────────────── */
+    header.nav {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 28px 40px;
+    }
+
+    .logo-link {
+      display: inline-flex;
+      align-items: center;
+      text-decoration: none;
+    }
+
+    .logo-img {
+      height: 22px;
+      width: auto;
+      display: block;
+    }
+
+    .nav-right {
+      display: flex;
+      align-items: center;
+      gap: 24px;
+    }
+
+    .nav-link {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--ink-2);
+      text-decoration: none;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      transition: color .15s ease;
+    }
+
+    .nav-link:hover {
+      color: var(--accent);
+    }
+
+    .nav-cta {
+      background: var(--ink);
+      color: white;
+      font-size: 13px;
+      font-weight: 500;
+      padding: 9px 16px;
+      border-radius: 8px;
+      border: 0;
+      cursor: pointer;
+      transition: background .15s ease, transform .15s ease;
+    }
+
+    .nav-cta:hover {
+      background: #1f2937;
+      transform: translateY(-1px);
+    }
+
+    /* ── 히어로 텍스트 ─────────────────────────── */
+    main {
+      position: relative;
+      z-index: 5;
+      height: 100vh;
+      pointer-events: none;
+    }
+
+    .hero {
+      position: absolute;
+      left: 56px;
+      top: 50%;
+      transform: translateY(-50%);
+      max-width: 560px;
+      pointer-events: none;
+    }
+
+    .hero>* {
+      pointer-events: auto;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.18em;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 28px;
+      padding: 6px 12px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.6);
+      backdrop-filter: blur(8px);
+    }
+
+    .eyebrow .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+      animation: pulse 2.4s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+
+      0%,
+      100% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: 0.4;
+      }
+    }
+
+    h1.title {
+      font-size: clamp(40px, 5.4vw, 76px);
+      font-weight: 700;
+      line-height: 1.06;
+      letter-spacing: -0.035em;
+      color: var(--ink);
+      margin-bottom: 24px;
+      text-wrap: balance;
+    }
+
+    h1.title .accent {
+      color: var(--accent);
+      font-style: normal;
+      position: relative;
+    }
+
+    h1.title .underline {
+      position: relative;
+      display: inline-block;
+    }
+
+    .hero p.lead {
+      font-size: 16px;
+      line-height: 1.7;
+      color: var(--ink-2);
+      max-width: 460px;
+      margin-bottom: 36px;
+      text-wrap: pretty;
+    }
+
+    .ctas {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-family: var(--serif);
+      font-weight: 500;
+      font-size: 14px;
+      padding: 12px 22px;
+      border-radius: 10px;
+      border: 0;
+      cursor: pointer;
+      text-decoration: none;
+      transition: transform .15s ease, box-shadow .2s ease, background .15s ease;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: white;
+      box-shadow: 0 4px 14px rgba(79, 70, 229, 0.28), 0 1px 0 rgba(255, 255, 255, 0.2) inset;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 22px rgba(79, 70, 229, 0.36), 0 1px 0 rgba(255, 255, 255, 0.2) inset;
+      background: #4338ca;
+    }
+
+    .btn-ghost {
+      background: rgba(255, 255, 255, 0.7);
+      color: var(--ink);
+      border: 1px solid var(--line);
+      backdrop-filter: blur(8px);
+    }
+
+    .btn-ghost:hover {
+      background: white;
+      border-color: var(--line-2);
+    }
+
+    .btn .arrow {
+      transition: transform .2s ease;
+    }
+
+    .btn:hover .arrow {
+      transform: translateX(3px);
+    }
+
+    /* 장면 위에 떠 있는 데이터 표시 패널 */
+    .readout {
+      position: fixed;
+      right: 40px;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 6;
+      width: 260px;
+      background: rgba(255, 255, 255, 0.78);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 16px 18px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--ink-2);
+      box-shadow: 0 12px 40px rgba(17, 24, 39, 0.06);
+    }
+
+    .readout .ro-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-bottom: 10px;
+      margin-bottom: 10px;
+      border-bottom: 1px dashed var(--line);
+      color: var(--muted);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .readout .ro-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 0;
+      color: var(--ink-2);
+    }
+
+    .readout .ro-row .k {
+      color: var(--muted);
+    }
+
+    .readout .ro-row .v {
+      font-weight: 500;
+      color: var(--ink);
+    }
+
+    .readout .ro-foot {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px dashed var(--line);
+      font-size: 10px;
+      color: var(--muted-2);
+      letter-spacing: 0.05em;
+    }
+
+    .ro-pill {
+      display: inline-block;
+      padding: 2px 6px;
+      background: var(--accent-soft);
+      color: var(--accent);
+      border-radius: 4px;
+      font-weight: 500;
+    }
+
+    /* ── 하단 정보 바 ─────────────────────────── */
+    footer.foot {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 6;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 24px 40px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--muted);
+      letter-spacing: 0.16em;
+    }
+
+    .keywords {
+      display: flex;
+      gap: 28px;
+    }
+
+    .keywords span {
+      position: relative;
+    }
+
+    .keywords span:not(:last-child)::after {
+      content: "";
+      position: absolute;
+      right: -16px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 2px;
+      height: 2px;
+      border-radius: 50%;
+      background: var(--muted-2);
+    }
+
+    .interact-hint {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted-2);
+    }
+
+    .interact-hint .ico {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      border: 1px solid var(--line-2);
+      border-radius: 4px;
+      color: var(--ink-2);
+      font-size: 10px;
+    }
+
+    /* ── 측면 마커 ───────────────────────────── */
+    .side-marker {
+      position: fixed;
+      right: 40px;
+      bottom: 80px;
+      z-index: 6;
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--muted-2);
+      letter-spacing: 0.2em;
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+    }
+
+    /* 큰 워터마크 */
+    .watermark {
+      position: fixed;
+      right: -4px;
+      bottom: -28px;
+      z-index: 2;
+      font-family: var(--serif);
+      font-weight: 700;
+      font-size: clamp(140px, 18vw, 260px);
+      line-height: 1;
+      letter-spacing: -0.045em;
+      color: rgba(17, 24, 39, 0.04);
+      pointer-events: none;
+      user-select: none;
+    }
+
+    /* 시각 옵션 패널 */
+    .tweaks {
+      position: fixed;
+      bottom: 80px;
+      left: 40px;
+      z-index: 12;
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(14px);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 14px 16px;
+      width: 240px;
+      box-shadow: 0 16px 50px rgba(17, 24, 39, 0.08);
+      font-size: 12px;
+      display: none;
+    }
+
+    .tweaks.show {
+      display: block;
+    }
+
+    .tweaks h4 {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .tweaks h4 .close {
+      cursor: pointer;
+      color: var(--muted-2);
+      font-weight: 400;
+      font-size: 14px;
+      background: none;
+      border: 0;
+    }
+
+    .tweak-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px 0;
+      color: var(--ink-2);
+    }
+
+    .swatches {
+      display: flex;
+      gap: 6px;
+    }
+
+    .sw {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      cursor: pointer;
+      border: 2px solid transparent;
+      transition: transform .15s ease;
+    }
+
+    .sw.active {
+      border-color: var(--ink);
+    }
+
+    .sw:hover {
+      transform: scale(1.1);
+    }
+
+    .seg {
+      display: flex;
+      background: var(--bg-2);
+      border-radius: 6px;
+      padding: 2px;
+    }
+
+    .seg button {
+      border: 0;
+      background: transparent;
+      font-size: 11px;
+      padding: 4px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      color: var(--ink-2);
+      font-family: var(--mono);
+    }
+
+    .seg button.active {
+      background: white;
+      color: var(--ink);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+    }
+
+    /* 모서리 눈금 */
+    .ticks {
+      position: fixed;
+      pointer-events: none;
+      z-index: 3;
+      width: 24px;
+      height: 24px;
+      border-color: var(--muted-2);
+    }
+
+    .ticks.tl {
+      top: 80px;
+      left: 40px;
+      border-top: 1px solid;
+      border-left: 1px solid;
+    }
+
+    .ticks.tr {
+      top: 80px;
+      right: 40px;
+      border-top: 1px solid;
+      border-right: 1px solid;
+    }
+
+    .ticks.bl {
+      bottom: 64px;
+      left: 40px;
+      border-bottom: 1px solid;
+      border-left: 1px solid;
+    }
+
+    .ticks.br {
+      bottom: 64px;
+      right: 40px;
+      border-bottom: 1px solid;
+      border-right: 1px solid;
+    }
+
+    /* 초기 로딩 화면 */
+    .loader {
+      position: fixed;
+      inset: 0;
+      z-index: 99;
+      background: var(--bg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: opacity .6s ease;
+    }
+
+    .loader.hide {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .loader .bar {
+      width: 180px;
+      height: 1px;
+      background: var(--line);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .loader .bar::after {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 40%;
+      background: var(--accent);
+      animation: load 1.2s ease-in-out infinite;
+    }
+
+    @keyframes load {
+      0% {
+        transform: translateX(-100%);
+      }
+
+      100% {
+        transform: translateX(350%);
+      }
+    }
+
+    /* 메인 랜딩 최신 스타일 보정 */
+    :root {
+      --bg: #eef2f7;
+      --bg-2: #ede9fe;
+      --accent: #5b46e8;
+      --accent-2: #7c3aed;
+      --accent-soft: rgba(91, 70, 232, 0.12);
+      --accent-glow: rgba(124, 58, 237, 0.28);
+    }
+
+    body {
+      background:
+        radial-gradient(900px 520px at 72% 18%, rgba(139, 92, 246, 0.18), transparent 65%),
+        linear-gradient(135deg, #f8fafc 0%, #f1efff 46%, #f5f3ff 100%);
+      letter-spacing: 0;
+    }
+
+    .veil {
+      background:
+        linear-gradient(90deg, rgba(248, 250, 252, 0.99) 0%, rgba(248, 250, 252, 0.95) 31%, rgba(248, 250, 252, 0.72) 39%, rgba(248, 250, 252, 0.18) 54%, rgba(248, 250, 252, 0.02) 70%),
+        radial-gradient(900px 600px at 81% 44%, rgba(91, 70, 232, 0.1), transparent 74%),
+        radial-gradient(620px 520px at 42% 52%, rgba(255, 255, 255, 0.88), transparent 72%);
+    }
+
+    .grid-overlay {
+      opacity: 0.2;
+      animation: gridDrift 18s linear infinite;
+    }
+
+    .motion-layer,
+    .beam-layer,
+    .scanline-layer {
+      position: fixed;
+      inset: 0;
+      z-index: 2;
+      pointer-events: none;
+    }
+
+    .motion-layer {
+      overflow: hidden;
+      mix-blend-mode: multiply;
+    }
+
+    .motion-layer::before,
+    .motion-layer::after {
+      content: "";
+      position: absolute;
+      width: 56vw;
+      height: 56vw;
+      min-width: 560px;
+      min-height: 560px;
+      border-radius: 38% 62% 54% 46%;
+      filter: blur(46px);
+      opacity: .22;
+      transform: translateZ(0);
+      animation: meshMove 13s ease-in-out infinite alternate;
+    }
+
+    .motion-layer::before {
+      right: -12vw;
+      top: -18vw;
+      background: conic-gradient(from 120deg, rgba(91, 70, 232, .7), rgba(124, 58, 237, .55), rgba(167, 139, 250, .42), rgba(91, 70, 232, .7));
+    }
+
+    .motion-layer::after {
+      right: 16vw;
+      bottom: -30vw;
+      background: conic-gradient(from 20deg, rgba(139, 92, 246, .44), rgba(244, 114, 182, .24), rgba(91, 70, 232, .38), rgba(139, 92, 246, .44));
+      animation-delay: -4s;
+    }
+
+    .beam-layer {
+      background:
+        linear-gradient(116deg, transparent 0 45%, rgba(255,255,255,.58) 49%, transparent 53% 100%),
+        linear-gradient(72deg, transparent 0 62%, rgba(91,70,232,.09) 66%, transparent 70% 100%);
+      opacity: .65;
+      animation: beamSweep 7.5s ease-in-out infinite;
+    }
+
+    .scanline-layer {
+      background: linear-gradient(180deg, transparent, rgba(91,70,232,.08), transparent);
+      height: 34vh;
+      inset: -34vh 0 auto;
+      opacity: .45;
+      animation: scanDrop 6.5s cubic-bezier(.2,.8,.2,1) infinite;
+    }
+
+    header.nav {
+      padding: clamp(18px, 2.4vw, 30px) clamp(20px, 3.4vw, 44px);
+    }
+
+    .nav-link {
+      display: none;
+    }
+
+    .nav-cta {
+      min-height: 48px;
+      padding: 0 24px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #5b46e8, #7c3aed);
+      box-shadow:
+        0 18px 44px rgba(91,70,232,.28),
+        0 0 0 10px rgba(255,255,255,.72);
+      font-weight: 700;
+      font-size: 15px;
+    }
+
+    .nav-cta:hover {
+      background: linear-gradient(135deg, #4f46e5, #6d28d9);
+      transform: translateY(-2px);
+    }
+
+    .hero {
+      left: clamp(28px, 5vw, 72px);
+      top: 52%;
+      max-width: min(470px, 31vw);
+      animation: heroReveal .8s cubic-bezier(.2, .8, .2, 1) both;
+    }
+
+    .hero::before {
+      content: none;
+    }
+
+    .eyebrow {
+      border-color: rgba(91, 70, 232, 0.18);
+      background: rgba(255, 255, 255, 0.72);
+      box-shadow: 0 12px 36px rgba(15, 23, 42, 0.08);
+    }
+
+    h1.title {
+      font-size: clamp(48px, 5.9vw, 92px);
+      line-height: 0.98;
+      letter-spacing: 0.04em;
+      filter: drop-shadow(0 18px 42px rgba(15, 23, 42, 0.10));
+    }
+
+    h1.title .accent {
+      background: linear-gradient(110deg, #4f46e5 0%, #7c3aed 36%, #8b5cf6 62%, #5b46e8 100%);
+      background-size: 220% auto;
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      animation: titleShine 5s ease-in-out infinite;
+      text-shadow: 0 0 34px rgba(124, 58, 237, 0.18);
+    }
+
+    .hero p.lead {
+      max-width: 460px;
+      font-size: clamp(16px, 1.38vw, 19px);
+      color: #334155;
+      margin-bottom: 30px;
+    }
+
+    .ctas {
+      flex-wrap: wrap;
+      margin-bottom: 26px;
+    }
+
+    .btn {
+      min-height: 48px;
+      border-radius: 999px;
+      white-space: nowrap;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      box-shadow: 0 18px 40px rgba(91, 70, 232, 0.26);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .btn-primary::after {
+      content: "";
+      position: absolute;
+      inset: -40% auto -40% -70%;
+      width: 56%;
+      transform: rotate(18deg);
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,.72), transparent);
+      animation: ctaShine 3.4s ease-in-out infinite;
+    }
+
+    .btn-primary:hover {
+      background: linear-gradient(135deg, #4f46e5, #6d28d9);
+      box-shadow: 0 22px 52px rgba(91, 70, 232, 0.34);
+    }
+
+    .btn-ghost {
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+    }
+
+    .watermark {
+      background: linear-gradient(90deg, rgba(91, 70, 232, 0.1), rgba(124, 58, 237, 0.08));
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+
+    .stage-frame {
+      display: none;
+    }
+
+    .stage-frame::before,
+    .stage-frame::after {
+      content: "";
+      position: absolute;
+      border-radius: inherit;
+      pointer-events: none;
+    }
+
+    .stage-frame::before {
+      inset: 18px;
+      border: 1px solid rgba(91,70,232,.09);
+      background-image:
+        linear-gradient(to right, rgba(91,70,232,.06) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(91,70,232,.06) 1px, transparent 1px);
+      background-size: 54px 54px;
+      mask-image: linear-gradient(90deg, transparent, black 18%, black 86%, transparent);
+    }
+
+    .stage-frame::after {
+      left: 8%;
+      right: 8%;
+      bottom: 11%;
+      height: 18px;
+      background: radial-gradient(ellipse at center, rgba(91,70,232,.22), transparent 70%);
+      filter: blur(12px);
+      animation: stageShadow 4.2s ease-in-out infinite;
+    }
+
+    .workflow-pills {
+      position: fixed;
+      right: clamp(32px, 4.4vw, 76px);
+      bottom: clamp(26px, 5vh, 58px);
+      z-index: 6;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(72px, 1fr));
+      width: min(43vw, 650px);
+      gap: 10px;
+      pointer-events: none;
+    }
+
+    .workflow-pills span {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 40px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.68);
+      border: 1px solid rgba(124,58,237,.12);
+      color: #64748b;
+      font-weight: 700;
+      box-shadow: 0 16px 48px rgba(15,23,42,.07);
+      backdrop-filter: blur(12px);
+      animation: pillGlow 16.8s ease-in-out infinite;
+    }
+
+    .workflow-pills span:nth-child(2) {
+      animation-delay: 4.2s;
+    }
+
+    .workflow-pills span:nth-child(3) {
+      animation-delay: 8.4s;
+    }
+
+    .workflow-pills span:nth-child(4) {
+      animation-delay: 12.6s;
+    }
+
+    .workflow-pills span {
+      animation: none;
+    }
+
+    .workflow-pills span.active {
+      background: linear-gradient(135deg, #5b46e8, #7c3aed);
+      color: #fff;
+      box-shadow: 0 18px 48px rgba(91,70,232,.28);
+    }
+
+    .foot {
+      padding-inline: clamp(24px, 5vw, 64px);
+      display: none;
+    }
+
+    @keyframes heroReveal {
+      from {
+        opacity: 0;
+        transform: translateY(calc(-50% + 18px));
+      }
+      to {
+        opacity: 1;
+        transform: translateY(-50%);
+      }
+    }
+
+    @keyframes panelFloat {
+      0%, 100% {
+        transform: translateY(-50%);
+      }
+      50% {
+        transform: translateY(calc(-50% - 10px));
+      }
+    }
+
+    @keyframes gridDrift {
+      from {
+        background-position: 0 0;
+      }
+      to {
+        background-position: 64px 64px;
+      }
+    }
+
+    @keyframes meshMove {
+      from {
+        transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+      }
+      to {
+        transform: translate3d(-6vw, 4vh, 0) rotate(18deg) scale(1.08);
+      }
+    }
+
+    @keyframes beamSweep {
+      0%, 100% {
+        transform: translateX(-8%);
+        opacity: .28;
+      }
+      45%, 60% {
+        transform: translateX(8%);
+        opacity: .72;
+      }
+    }
+
+    @keyframes scanDrop {
+      0% {
+        transform: translateY(0);
+      }
+      72%, 100% {
+        transform: translateY(150vh);
+      }
+    }
+
+    @keyframes titleShine {
+      0%, 100% {
+        background-position: 0% center;
+      }
+      50% {
+        background-position: 100% center;
+      }
+    }
+
+    @keyframes ctaShine {
+      0%, 58% {
+        left: -70%;
+      }
+      100% {
+        left: 120%;
+      }
+    }
+
+    @keyframes metricRise {
+      from {
+        opacity: 0;
+        transform: translateY(16px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes cardDrift {
+      0%, 100% {
+        transform: translateY(0);
+      }
+      50% {
+        transform: translateY(12px);
+      }
+    }
+
+    @keyframes progressBreath {
+      0%, 100% {
+        width: 72%;
+      }
+      50% {
+        width: 88%;
+      }
+    }
+
+    @keyframes boardReveal {
+      from {
+        opacity: 0;
+        transform: translateY(calc(-50% + 22px)) scale(.98);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(-50%) scale(1);
+      }
+    }
+
+    @keyframes boardFloat {
+      0%, 100% {
+        transform: translateY(-50%);
+      }
+      50% {
+        transform: translateY(calc(-50% - 12px));
+      }
+    }
+
+    @keyframes roomPulse {
+      0%, 100% {
+        box-shadow: 0 18px 45px rgba(91,70,232,.1);
+      }
+      50% {
+        box-shadow: 0 18px 55px rgba(91,70,232,.22);
+      }
+    }
+
+    @keyframes modelRise {
+      0%, 100% {
+        transform: rotateX(58deg) rotateZ(-18deg) translateY(0);
+      }
+      50% {
+        transform: rotateX(58deg) rotateZ(-18deg) translateY(-8px);
+      }
+    }
+
+    @keyframes stageFloat {
+      0%, 100% {
+        transform: translateY(-50%) translateX(0);
+      }
+      50% {
+        transform: translateY(calc(-50% - 8px)) translateX(4px);
+      }
+    }
+
+    @keyframes stageShadow {
+      0%, 100% {
+        opacity: .42;
+        transform: scaleX(.92);
+      }
+      50% {
+        opacity: .72;
+        transform: scaleX(1.06);
+      }
+    }
+
+    @keyframes pillGlow {
+      0%, 19%, 100% {
+        background: rgba(255,255,255,.68);
+        color: #64748b;
+        box-shadow: 0 16px 48px rgba(15,23,42,.07);
+      }
+      6%, 16% {
+        background: linear-gradient(135deg, #5b46e8, #7c3aed);
+        color: #fff;
+        box-shadow: 0 18px 48px rgba(91,70,232,.28);
+      }
+    }
+
+    @media (max-width: 980px) {
+      .hero {
+        top: 42%;
+        max-width: min(560px, 78vw);
+      }
+
+      .hero::before {
+        inset: -28px -26px -28px -26px;
+      }
+
+      .stage-frame {
+        right: 18px;
+        left: 18px;
+        top: auto;
+        bottom: 22px;
+        width: auto;
+        height: 44vh;
+        transform: none;
+      }
+
+      .workflow-pills {
+        left: 26px;
+        right: 26px;
+        bottom: 30px;
+        width: auto;
+      }
+    }
+
+    @media (max-width: 720px) {
+      body,
+      html {
+        overflow: hidden;
+      }
+
+      .hero {
+        top: 38%;
+        left: 22px;
+        right: 22px;
+        max-width: none;
+      }
+
+      h1.title {
+        font-size: clamp(40px, 14vw, 64px);
+      }
+
+      .hero p.lead {
+        max-width: 320px;
+      }
+
+      .btn {
+        width: auto;
+        max-width: 280px;
+      }
+
+      .ctas {
+        gap: 10px;
+      }
+
+      .stage-frame {
+        display: none;
+      }
+
+      .workflow-pills {
+        grid-template-columns: repeat(4, 1fr);
+        gap: 6px;
+        left: 16px;
+        right: 16px;
+        bottom: 20px;
+      }
+
+      .workflow-pills span {
+        min-height: 34px;
+        font-size: 12px;
+      }
+
+      .side-marker,
+      .ticks,
+      .watermark {
+        display: none;
+      }
+
+      footer.foot {
+        padding: 22px;
+        font-size: 10px;
+      }
+
+      .keywords {
+        gap: 16px;
+        max-width: 100%;
+        overflow: hidden;
+      }
+
+      .keywords span:not(:last-child)::after {
+        display: none;
+      }
+    }
+
+    /* 중간 크기 텍스트 가독성 보정 */
+    body {
+      font-size: 15px;
+    }
+
+    .nav-link,
+    .eyebrow,
+    .status,
+    .status-panel,
+    .metric-label,
+    .workflow-meta,
+    .tweaks,
+    .tweaks h4,
+    .seg button,
+    footer.foot {
+      font-size: 12.5px;
+    }
+
+    .nav-cta,
+    .btn,
+    .tweaks-close {
+      font-size: 15px;
+    }
+
+    .hero p.lead {
+      font-size: clamp(17px, 1.45vw, 20px);
+    }
+
+    .workflow-pills span {
+      font-size: 13.5px;
+    }
+
+    /* 메인 비주얼 구성 정돈 */
+    .veil {
+      background:
+        linear-gradient(90deg, rgba(248, 250, 252, 0.98) 0%, rgba(248, 250, 252, 0.91) 26%, rgba(248, 250, 252, 0.46) 41%, rgba(248, 250, 252, 0.04) 61%, rgba(248, 250, 252, 0) 78%),
+        radial-gradient(820px 560px at 82% 24%, rgba(124, 58, 237, 0.16), transparent 72%),
+        radial-gradient(520px 420px at 28% 56%, rgba(255, 255, 255, 0.84), transparent 76%);
+    }
+
+    .motion-layer {
+      opacity: .82;
+    }
+
+    .beam-layer {
+      opacity: .38;
+    }
+
+    header.nav {
+      padding: clamp(20px, 2.1vw, 32px) clamp(24px, 4vw, 56px);
+    }
+
+    .logo-img {
+      height: clamp(32px, 2.2vw, 44px);
+      filter: drop-shadow(0 12px 24px rgba(15, 23, 42, .08));
+    }
+
+    .nav-cta {
+      min-height: 46px;
+      padding: 0 24px;
+      box-shadow:
+        0 16px 38px rgba(91,70,232,.24),
+        inset 0 1px 0 rgba(255,255,255,.32);
+    }
+
+    .hero {
+      left: clamp(32px, 5vw, 80px);
+      top: 51%;
+      max-width: min(540px, 35vw);
+    }
+
+    h1.title {
+      font-size: clamp(58px, 5.2vw, 86px);
+      line-height: 1.02;
+      letter-spacing: 0;
+      filter: drop-shadow(0 18px 38px rgba(15, 23, 42, 0.09));
+    }
+
+    .hero p.lead {
+      max-width: 510px;
+      margin-top: 28px;
+      margin-bottom: 28px;
+      font-size: clamp(17px, 1.28vw, 19px);
+      line-height: 1.82;
+      color: #475569;
+    }
+
+    .ctas {
+      gap: 12px;
+      margin-bottom: 0;
+    }
+
+    .btn {
+      min-height: 50px;
+      padding: 0 26px;
+      box-shadow: 0 14px 34px rgba(15, 23, 42, .08);
+    }
+
+    .btn-primary {
+      box-shadow: 0 18px 42px rgba(91, 70, 232, 0.24);
+    }
+
+    .btn-ghost {
+      background: rgba(255, 255, 255, .82);
+    }
+
+    .watermark {
+      right: clamp(24px, 4vw, 72px);
+      bottom: clamp(102px, 13vh, 150px);
+      z-index: 1;
+      font-size: clamp(72px, 9.8vw, 158px);
+      letter-spacing: .08em;
+      opacity: .58;
+      transform: translateY(8px);
+      background: linear-gradient(90deg, rgba(91, 70, 232, 0.11), rgba(124, 58, 237, 0.065));
+      -webkit-background-clip: text;
+      background-clip: text;
+    }
+
+    .workflow-pills {
+      position: static;
+      width: min(390px, 100%);
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 6px;
+      margin: -10px 0 26px;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      box-shadow: none;
+      backdrop-filter: none;
+      pointer-events: auto;
+    }
+
+    .workflow-pills span {
+      min-height: 28px;
+      border: 0;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, .66);
+      box-shadow: none;
+      color: #64748b;
+      font-size: 12.5px;
+      font-weight: 750;
+      letter-spacing: 0;
+      opacity: .82;
+      cursor: pointer;
+      transition: background .18s ease, color .18s ease, opacity .18s ease, box-shadow .18s ease, transform .18s ease;
+    }
+
+    .workflow-pills span:hover {
+      background: rgba(255, 255, 255, .9);
+      color: #4f46e5;
+      opacity: 1;
+      transform: translateY(-1px);
+    }
+
+    .workflow-pills span.active {
+      background: rgba(91, 70, 232, .1);
+      color: #5b46e8;
+      box-shadow: inset 0 0 0 1px rgba(91,70,232,.16);
+      opacity: 1;
+    }
+
+    .ticks {
+      opacity: .72;
+    }
+
+    @media (max-width: 1180px) {
+      .hero {
+        max-width: min(540px, 55vw);
+      }
+
+      .watermark {
+        bottom: 112px;
+        font-size: clamp(64px, 11vw, 130px);
+      }
+    }
+
+    @media (max-width: 980px) {
+      .hero {
+        top: 42%;
+        max-width: min(560px, 78vw);
+      }
+    }
+
+    @media (max-width: 720px) {
+      .hero {
+        top: 40%;
+        left: 22px;
+        right: 22px;
+        max-width: none;
+      }
+
+      h1.title {
+        font-size: clamp(42px, 13vw, 58px);
+      }
+
+      .hero p.lead {
+        max-width: 340px;
+        margin-top: 22px;
+        margin-bottom: 24px;
+        font-size: 16px;
+      }
+
+      .workflow-pills {
+        width: min(330px, 100%);
+        gap: 4px;
+        margin: -8px 0 22px;
+      }
+
+      .workflow-pills span {
+        min-height: 26px;
+        font-size: 12px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <canvas id="scene-canvas"></canvas>
+  <div class="grid-overlay"></div>
+  <div class="veil"></div>
+  <div class="motion-layer"></div>
+  <div class="beam-layer"></div>
+  <div class="scanline-layer"></div>
+  <div class="stage-frame"></div>
+
+  <div class="ticks tl"></div>
+  <div class="ticks tr"></div>
+  <div class="ticks bl"></div>
+  <div class="ticks br"></div>
+
+  <header class="nav">
+    <a href="Intro.html" class="logo-link">
+      <img src="logo.svg" alt="바탕 : BATANG" class="logo-img" />
+    </a>
+    <nav class="nav-right">
+      <a class="nav-link" href="About.html">ABOUT</a>
+      <button class="nav-cta" onclick="document.getElementById('go-login').click()">로그인 →</button>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero">
+      <h1 class="title">
+        아이디어를<br>
+        <span class="accent">공간</span>으로
+      </h1>
+      <p class="lead">
+        버블 다이어그램에서 2D, 3D, 실사 렌더까지 이어지는 AI 기반 건축 설계 흐름.
+      </p>
+      <div class="workflow-pills" aria-label="설계 흐름 단계 선택">
+        <span role="button" tabindex="0" data-stage="0">버블</span>
+        <span role="button" tabindex="0" data-stage="1">2D</span>
+        <span role="button" tabindex="0" data-stage="2">3D</span>
+        <span role="button" tabindex="0" data-stage="3">실사</span>
+      </div>
+      <div class="ctas">
+        <a id="go-login" class="btn btn-primary" href="Login.html">
+          시작하기 <span class="arrow">→</span>
+        </a>
+        <a class="btn btn-ghost" href="About.html">
+          서비스 보기
+        </a>
+      </div>
+    </section>
+  </main>
+
+  <div class="watermark">BATANG</div>
+
+  <!-- 시각 옵션 패널 -->
+  <div class="tweaks" id="tweaks-panel">
+    <h4>
+      TWEAKS
+      <button class="close" id="tweaks-close">×</button>
+    </h4>
+    <div class="tweak-row">
+      <span>Accent</span>
+      <div class="swatches" id="sw-accent">
+        <div class="sw active" data-color="#4f46e5" style="background:#4f46e5"></div>
+        <div class="sw" data-color="#0ea5e9" style="background:#0ea5e9"></div>
+        <div class="sw" data-color="#dc2626" style="background:#dc2626"></div>
+        <div class="sw" data-color="#111827" style="background:#111827"></div>
+      </div>
+    </div>
+    <div class="tweak-row">
+      <span>Composition</span>
+      <div class="seg" id="seg-comp">
+        <button class="active" data-comp="city">city</button>
+        <button data-comp="tower">tower</button>
+        <button data-comp="campus">campus</button>
+      </div>
+    </div>
+    <div class="tweak-row">
+      <span>Auto-orbit</span>
+      <div class="seg" id="seg-orbit">
+        <button class="active" data-orbit="1">on</button>
+        <button data-orbit="0">off</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="loader" id="loader">
+    <div class="bar"></div>
+  </div>
+
+  <!-- Three.js 모듈 로더 -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+    }
+  }
+  </script>
+
+  <script type="module">
+    import * as THREE from 'three';
+
+    /* ─── 장면 초기화 ─── */
+    const canvas = document.getElementById('scene-canvas');
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+    const scene = new THREE.Scene();
+    scene.background = null;
+
+    const W = () => window.innerWidth, H = () => window.innerHeight;
+    const camera = new THREE.PerspectiveCamera(30, W() / H(), 0.1, 200);
+    const camTarget = new THREE.Vector3(6.05, 1.45, -0.35);
+
+    /* ─── 조명 설정 ─── */
+    const ambient = new THREE.AmbientLight(0xffffff, 0.55);
+    scene.add(ambient);
+
+    const hemi = new THREE.HemisphereLight(0xeef0ff, 0xd9dbe5, 0.45);
+    scene.add(hemi);
+
+    const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+    sun.position.set(8, 14, 6);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.camera.left = -14;
+    sun.shadow.camera.right = 14;
+    sun.shadow.camera.top = 14;
+    sun.shadow.camera.bottom = -14;
+    sun.shadow.camera.near = 0.5;
+    sun.shadow.camera.far = 60;
+    sun.shadow.bias = -0.0005;
+    sun.shadow.radius = 6;
+    scene.add(sun);
+
+    const fill = new THREE.DirectionalLight(0xc8d0ff, 0.4);
+    fill.position.set(-6, 4, -4);
+    scene.add(fill);
+
+    /* ─── 바닥면 설정 ─── */
+    function makeGroundTexture() {
+      const c = document.createElement('canvas');
+      c.width = c.height = 1024;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#fafbff';
+      ctx.fillRect(0, 0, 1024, 1024);
+
+      ctx.strokeStyle = 'rgba(91,70,232,0.035)';
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= 32; i++) {
+        const p = (i / 32) * 1024;
+        ctx.beginPath(); ctx.moveTo(p, 0); ctx.lineTo(p, 1024); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, p); ctx.lineTo(1024, p); ctx.stroke();
+      }
+
+      ctx.strokeStyle = 'rgba(91,70,232,0.055)';
+      ctx.lineWidth = 1.5;
+      for (let i = 0; i <= 8; i++) {
+        const p = (i / 8) * 1024;
+        ctx.beginPath(); ctx.moveTo(p, 0); ctx.lineTo(p, 1024); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, p); ctx.lineTo(1024, p); ctx.stroke();
+      }
+
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.anisotropy = 8;
+      return tex;
+    }
+
+    const groundMat = new THREE.MeshStandardMaterial({
+      map: makeGroundTexture(),
+      roughness: 0.95,
+      metalness: 0.0,
+    });
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(28, 28), groundMat);
+    ground.rotation.x = -Math.PI / 2;
+    ground.receiveShadow = true;
+    scene.add(ground);
+
+    /* ─── 버블 → 2D → 3D → 실사 렌더 워크플로우 ─── */
+    const workflowGroup = new THREE.Group();
+    workflowGroup.position.set(8.35, 0.05, -0.45);
+    scene.add(workflowGroup);
+
+    const bubbleGroup = new THREE.Group();
+    const planGroup = new THREE.Group();
+    const renderGroup = new THREE.Group();
+    bubbleGroup.scale.setScalar(1.02);
+    planGroup.scale.setScalar(0.9);
+    planGroup.position.x = 0.25;
+    renderGroup.scale.setScalar(0.95);
+    workflowGroup.add(bubbleGroup, planGroup, renderGroup);
+
+    const clamp01 = v => Math.max(0, Math.min(1, v));
+    const smooth01 = v => {
+      const t = clamp01(v);
+      return t * t * (3 - 2 * t);
+    };
+
+    // Three.js 그룹 전체의 표시 상태를 동기화한다. 불투명 매스는 depthWrite를 유지해 뒤쪽 디테일 비침을 막는다.
+    function setObjectOpacity(object, opacity) {
+      object.visible = opacity > 0.015;
+      object.traverse((node) => {
+        const materials = node.material ? (Array.isArray(node.material) ? node.material : [node.material]) : [];
+        materials.forEach((material) => {
+          if (material.depthTest === false) {
+            material.transparent = true;
+            material.opacity = opacity;
+            material.depthWrite = false;
+          } else {
+            const isOpaque = opacity >= 0.985;
+            material.transparent = !isOpaque;
+            material.opacity = isOpaque ? 1 : opacity;
+            material.depthWrite = opacity > 0.65;
+          }
+        });
+      });
+    }
+
+    function makeLine(points, color = 0x7c3aed, opacity = 1) {
+      const geometry = new THREE.BufferGeometry().setFromPoints(points);
+      const material = new THREE.LineBasicMaterial({
+        color,
+        transparent: true,
+        opacity,
+        depthWrite: false,
+      });
+      return new THREE.Line(geometry, material);
+    }
+
+    function makeTube(points, radius = 0.025, color = 0x7c3aed, opacity = 0.72) {
+      const curve = new THREE.CatmullRomCurve3(points, false, 'catmullrom', 0.35);
+      const geometry = new THREE.TubeGeometry(curve, 48, radius, 10, false);
+      const material = new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity,
+        depthWrite: false,
+        depthTest: false,
+      });
+      return new THREE.Mesh(geometry, material);
+    }
+
+    function makeWorkflowPlanTexture() {
+      const c = document.createElement('canvas');
+      c.width = 1600;
+      c.height = 1100;
+      const ctx = c.getContext('2d');
+      ctx.clearRect(0, 0, c.width, c.height);
+      ctx.fillStyle = 'rgba(255,255,255,0.92)';
+      ctx.fillRect(0, 0, c.width, c.height);
+
+      ctx.strokeStyle = 'rgba(15,23,42,0.06)';
+      ctx.lineWidth = 1;
+      for (let x = 0; x <= c.width; x += 40) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, c.height); ctx.stroke();
+      }
+      for (let y = 0; y <= c.height; y += 40) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(c.width, y); ctx.stroke();
+      }
+
+      const wall = 'rgba(15,23,42,0.82)';
+      const thin = 'rgba(15,23,42,0.48)';
+      const dim = 'rgba(91,70,232,0.5)';
+      ctx.strokeStyle = wall;
+      ctx.lineWidth = 14;
+      ctx.lineJoin = 'round';
+      ctx.strokeRect(210, 170, 1080, 720);
+      ctx.beginPath();
+      ctx.moveTo(650, 170); ctx.lineTo(650, 890);
+      ctx.moveTo(210, 520); ctx.lineTo(650, 520);
+      ctx.moveTo(650, 475); ctx.lineTo(1290, 475);
+      ctx.moveTo(930, 475); ctx.lineTo(930, 890);
+      ctx.moveTo(210, 690); ctx.lineTo(470, 690);
+      ctx.moveTo(1090, 475); ctx.lineTo(1090, 890);
+      ctx.stroke();
+
+      ctx.strokeStyle = thin;
+      ctx.lineWidth = 4;
+      ctx.strokeRect(260, 230, 300, 210);
+      ctx.strokeRect(735, 230, 310, 150);
+      ctx.strokeRect(760, 570, 120, 210);
+      ctx.strokeRect(1130, 570, 100, 220);
+
+      ctx.strokeStyle = 'rgba(15,23,42,0.3)';
+      ctx.lineWidth = 2;
+      for (let i = 0; i < 8; i++) {
+        ctx.strokeRect(300 + i * 34, 580, 28, 58);
+      }
+      ctx.strokeRect(320, 745, 190, 88);
+      ctx.strokeRect(745, 260, 260, 82);
+      ctx.strokeRect(1000, 610, 66, 180);
+
+      ctx.strokeStyle = dim;
+      ctx.lineWidth = 3;
+      ctx.setLineDash([16, 12]);
+      ctx.strokeRect(160, 120, 1180, 820);
+      ctx.setLineDash([]);
+
+      ctx.strokeStyle = dim;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(210, 980); ctx.lineTo(1290, 980);
+      ctx.moveTo(210, 960); ctx.lineTo(210, 1000);
+      ctx.moveTo(1290, 960); ctx.lineTo(1290, 1000);
+      ctx.moveTo(1420, 170); ctx.lineTo(1420, 890);
+      ctx.moveTo(1400, 170); ctx.lineTo(1440, 170);
+      ctx.moveTo(1400, 890); ctx.lineTo(1440, 890);
+      ctx.stroke();
+
+      ctx.fillStyle = 'rgba(15,23,42,0.55)';
+      ctx.font = '24px Pretendard, sans-serif';
+      ctx.fillText('12,535', 710, 1018);
+      ctx.save();
+      ctx.translate(1460, 560);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillText('7,130', 0, 0);
+      ctx.restore();
+
+      const texture = new THREE.CanvasTexture(c);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.anisotropy = 8;
+      return texture;
+    }
+
+    function makeTextPlane(text, width = 1.05, height = 0.34, options = {}) {
+      const c = document.createElement('canvas');
+      c.width = 512;
+      c.height = 176;
+      const ctx = c.getContext('2d');
+      ctx.clearRect(0, 0, c.width, c.height);
+      if (options.badge !== false) {
+        ctx.fillStyle = options.background || 'rgba(255,255,255,0.86)';
+        const r = 48;
+        ctx.beginPath();
+        ctx.roundRect(28, 30, c.width - 56, c.height - 60, r);
+        ctx.fill();
+      }
+      ctx.fillStyle = options.color || '#111827';
+      ctx.font = `800 ${options.fontSize || 54}px Pretendard, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, c.width / 2, c.height / 2 + 2);
+
+      const texture = new THREE.CanvasTexture(c);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.anisotropy = 8;
+      const material = new THREE.MeshBasicMaterial({
+        map: texture,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        depthTest: false,
+        side: THREE.DoubleSide,
+      });
+      const plane = new THREE.Mesh(new THREE.PlaneGeometry(width, height), material);
+      plane.userData.bubbleOpacity = options.opacity ?? 0.86;
+      return plane;
+    }
+
+    function makeSiteShape(points, color, opacity) {
+      const shape = new THREE.Shape();
+      points.forEach(([x, y], index) => {
+        if (index === 0) shape.moveTo(x, y);
+        else shape.lineTo(x, y);
+      });
+      shape.closePath();
+      return new THREE.Mesh(
+        new THREE.ShapeGeometry(shape),
+        new THREE.MeshBasicMaterial({
+          color,
+          transparent: true,
+          opacity,
+          depthWrite: false,
+          depthTest: false,
+          side: THREE.DoubleSide,
+        })
+      );
+    }
+
+    function makeExtrudedEllipse(rx, ry, depth, material) {
+      const shape = new THREE.Shape();
+      shape.absellipse(0, 0, rx, ry, 0, Math.PI * 2, false, 0);
+      const geometry = new THREE.ExtrudeGeometry(shape, {
+        depth,
+        bevelEnabled: true,
+        bevelThickness: depth * 0.28,
+        bevelSize: Math.min(rx, ry) * 0.045,
+        bevelSegments: 8,
+        curveSegments: 72,
+      });
+      geometry.translate(0, 0, -depth / 2);
+      return new THREE.Mesh(geometry, material);
+    }
+
+    const diagramZ = -1.55;
+    const sitePoints = [
+      [-3.25, -1.74],
+      [-2.72, 1.65],
+      [-0.22, 2.04],
+      [2.72, 1.55],
+      [3.32, -1.28],
+      [1.2, -1.96],
+      [-1.42, -1.8],
+    ];
+
+    const bubbleBoard = new THREE.Mesh(
+      new THREE.BoxGeometry(7.25, 4.75, 0.08),
+      new THREE.MeshPhysicalMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0,
+        roughness: 0.24,
+        metalness: 0.02,
+        transmission: 0.16,
+        thickness: 0.26,
+        depthWrite: false,
+        depthTest: false,
+      })
+    );
+    bubbleBoard.position.set(0, 1.9, diagramZ - 0.1);
+    bubbleBoard.userData.bubbleOpacity = 0.32;
+
+    const bubbleShadow = new THREE.Mesh(
+      new THREE.PlaneGeometry(7.55, 5.05),
+      new THREE.MeshBasicMaterial({
+        color: 0x7c3aed,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        depthTest: false,
+        side: THREE.DoubleSide,
+      })
+    );
+    bubbleShadow.position.set(0, 1.75, diagramZ - 0.26);
+    bubbleShadow.userData.bubbleOpacity = 0.1;
+    bubbleGroup.add(bubbleShadow, bubbleBoard);
+
+    const siteFill = makeSiteShape(sitePoints, 0xf8f7ff, 0);
+    siteFill.position.set(0, 1.9, diagramZ - 0.04);
+    siteFill.userData.bubbleOpacity = 0.62;
+    bubbleGroup.add(siteFill);
+
+    const siteOutline = makeLine(
+      [...sitePoints, sitePoints[0]].map(([x, y]) => new THREE.Vector3(x, y + 1.9, diagramZ + 0.01)),
+      0x334155,
+      0
+    );
+    siteOutline.userData.isBubbleConnector = true;
+    siteOutline.userData.bubbleOpacity = 0.68;
+    bubbleGroup.add(siteOutline);
+
+    const axisLine = makeLine([
+      new THREE.Vector3(-2.9, 1.88, diagramZ + 0.03),
+      new THREE.Vector3(-1.2, 2.35, diagramZ + 0.03),
+      new THREE.Vector3(0.55, 2.1, diagramZ + 0.03),
+      new THREE.Vector3(2.7, 1.64, diagramZ + 0.03),
+    ], 0x64748b, 0);
+    axisLine.userData.isBubbleConnector = true;
+    axisLine.userData.bubbleOpacity = 0.52;
+    bubbleGroup.add(axisLine);
+
+    const bubbleZones = [
+      { label: 'PUBLIC', kr: '공용', x: -1.95, y: 0.95, r: 0.9, sx: 1.42, sy: 0.88, color: 0x5b46e8 },
+      { label: 'CORE', kr: '코어', x: -0.2, y: 1.12, r: 0.58, sx: 1.0, sy: 0.96, color: 0x0ea5e9 },
+      { label: 'WORK', kr: '업무', x: 1.36, y: 0.86, r: 0.94, sx: 1.38, sy: 0.9, color: 0x22c55e },
+      { label: 'SERVICE', kr: '지원', x: 0.32, y: -0.72, r: 0.74, sx: 1.34, sy: 0.82, color: 0xf59e0b },
+      { label: 'LOUNGE', kr: '라운지', x: 2.38, y: -0.58, r: 0.58, sx: 1.22, sy: 0.86, color: 0xec4899 },
+      { label: 'ENTRY', kr: '진입', x: -2.28, y: -0.9, r: 0.54, sx: 1.08, sy: 0.76, color: 0x8b5cf6 },
+    ];
+
+    bubbleZones.forEach((zone, index) => {
+      const node = new THREE.Group();
+      node.position.set(zone.x, zone.y + 1.9, diagramZ + 0.1 + index * 0.006);
+      node.userData.baseY = zone.y + 1.9;
+      node.userData.bubbleIndex = index;
+      node.userData.isBubbleNode = true;
+
+      const zoneDepth = 0.18 + zone.r * 0.06;
+      const shadow = new THREE.Mesh(
+        new THREE.CircleGeometry(zone.r, 72),
+        new THREE.MeshBasicMaterial({
+          color: zone.color,
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+          depthTest: false,
+          side: THREE.DoubleSide,
+        })
+      );
+      shadow.scale.set(zone.sx * 1.06, zone.sy * 1.06, 1);
+      shadow.position.set(0.08, -0.08, -0.12);
+      shadow.userData.bubbleOpacity = 0.2;
+      node.add(shadow);
+
+      const fill = makeExtrudedEllipse(
+        zone.r * zone.sx,
+        zone.r * zone.sy,
+        zoneDepth,
+        new THREE.MeshPhysicalMaterial({
+          color: zone.color,
+          transparent: true,
+          opacity: 0,
+          roughness: 0.28,
+          metalness: 0.04,
+          transmission: 0.1,
+          thickness: 0.28,
+          clearcoat: 0.46,
+          clearcoatRoughness: 0.22,
+          depthWrite: false,
+          depthTest: false,
+        })
+      );
+      fill.position.z = 0;
+      fill.userData.bubbleOpacity = 0.46;
+      fill.castShadow = true;
+      node.add(fill);
+
+      const rim = new THREE.Mesh(
+        new THREE.RingGeometry(zone.r * 0.98, zone.r * 1.02, 72),
+        new THREE.MeshBasicMaterial({
+          color: zone.color,
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+          depthTest: false,
+          side: THREE.DoubleSide,
+        })
+      );
+      rim.scale.set(zone.sx, zone.sy, 1);
+      rim.position.z = zoneDepth / 2 + 0.025;
+      rim.userData.isBubbleRim = true;
+      rim.userData.bubbleOpacity = 0.92;
+      node.add(rim);
+
+      const highlight = new THREE.Mesh(
+        new THREE.RingGeometry(zone.r * 0.52, zone.r * 0.56, 72),
+        new THREE.MeshBasicMaterial({
+          color: 0xffffff,
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+          depthTest: false,
+          side: THREE.DoubleSide,
+        })
+      );
+      highlight.scale.set(zone.sx * 0.92, zone.sy * 0.86, 1);
+      highlight.position.set(-zone.r * zone.sx * 0.12, zone.r * zone.sy * 0.12, zoneDepth / 2 + 0.04);
+      highlight.userData.bubbleOpacity = 0.24;
+      node.add(highlight);
+
+      const label = makeTextPlane(zone.kr, 0.94, 0.34, {
+        color: '#111827',
+        background: 'rgba(255,255,255,0.88)',
+        fontSize: 54,
+        opacity: 0.9,
+      });
+      label.position.set(0, 0.02, zoneDepth / 2 + 0.1);
+      node.add(label);
+
+      const subLabel = makeTextPlane(zone.label, 0.9, 0.22, {
+        color: '#64748b',
+        background: 'rgba(255,255,255,0)',
+        badge: false,
+        fontSize: 34,
+        opacity: 0.72,
+      });
+      subLabel.position.set(0, -0.32, zoneDepth / 2 + 0.11);
+      node.add(subLabel);
+
+      bubbleGroup.add(node);
+    });
+
+    const relationPairs = [
+      [0, 1], [1, 2], [1, 3], [3, 4], [0, 5], [0, 3], [2, 4],
+    ];
+    relationPairs.forEach(([a, b], index) => {
+      const from = bubbleZones[a];
+      const to = bubbleZones[b];
+      const connector = makeTube([
+        new THREE.Vector3(from.x, from.y + 1.9, diagramZ + 0.02),
+        new THREE.Vector3((from.x + to.x) / 2, (from.y + to.y) / 2 + 1.9 + 0.12, diagramZ + 0.04),
+        new THREE.Vector3(to.x, to.y + 1.9, diagramZ + 0.02),
+      ], index === 1 ? 0.025 : 0.018, index === 1 ? 0x5b46e8 : 0x94a3b8, 0);
+      connector.userData.isBubbleConnector = true;
+      connector.userData.bubbleOpacity = index === 1 ? 0.82 : 0.56;
+      bubbleGroup.add(connector);
+    });
+
+    const planFrame = new THREE.Mesh(
+      new THREE.BoxGeometry(7.55, 5.05, 0.1),
+      new THREE.MeshPhysicalMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0,
+        roughness: 0.2,
+        metalness: 0.02,
+        transmission: 0.14,
+        thickness: 0.28,
+        depthWrite: false,
+        depthTest: false,
+      })
+    );
+    const planPlane = new THREE.Mesh(
+      new THREE.PlaneGeometry(7.25, 4.75),
+      new THREE.MeshBasicMaterial({
+        map: makeWorkflowPlanTexture(),
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        depthTest: false,
+        side: THREE.DoubleSide,
+      })
+    );
+    planFrame.position.set(0, 1.88, -1.7);
+    planPlane.position.set(0, 1.88, -1.56);
+    const planShadow = new THREE.Mesh(
+      new THREE.PlaneGeometry(7.8, 5.3),
+      new THREE.MeshBasicMaterial({
+        color: 0x7c3aed,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        depthTest: false,
+        side: THREE.DoubleSide,
+      })
+    );
+    planShadow.position.set(0, 1.72, -1.82);
+    planGroup.add(planShadow, planFrame, planPlane);
+    const renderMats = {
+      grass: new THREE.MeshStandardMaterial({ color: 0x7f9f68, roughness: 0.9 }),
+      wall: new THREE.MeshStandardMaterial({ color: 0xf5f1ea, roughness: 0.62 }),
+      roof: new THREE.MeshStandardMaterial({ color: 0x30323a, roughness: 0.58 }),
+      wood: new THREE.MeshStandardMaterial({ color: 0xb88652, roughness: 0.68 }),
+      glass: new THREE.MeshStandardMaterial({ color: 0x26364f, roughness: 0.18, metalness: 0.18 }),
+      path: new THREE.MeshStandardMaterial({ color: 0xd8d2c6, roughness: 0.86 }),
+      shrub: new THREE.MeshStandardMaterial({ color: 0x6d8d5d, roughness: 0.82 }),
+    };
+
+    function addRenderBox(w, h, d, x, y, z, mat, parent = renderGroup) {
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+      mesh.position.set(x, y, z);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      parent.add(mesh);
+      return mesh;
+    }
+
+    const renderYard = new THREE.Mesh(new THREE.PlaneGeometry(7.2, 4.8), renderMats.grass);
+    renderYard.rotation.x = -Math.PI / 2;
+    renderYard.position.y = 0.02;
+    renderYard.receiveShadow = true;
+    renderGroup.add(renderYard);
+    addRenderBox(3.15, 1.42, 1.9, -0.55, 0.74, -0.2, renderMats.wall);
+    addRenderBox(1.45, 1.12, 1.55, 1.65, 0.58, 0.1, renderMats.wall);
+    addRenderBox(3.45, 0.32, 2.18, -0.55, 1.58, -0.2, renderMats.roof);
+    addRenderBox(1.7, 0.28, 1.78, 1.65, 1.25, 0.1, renderMats.roof);
+    addRenderBox(3.8, 0.08, 1.05, -0.1, 0.08, 1.25, renderMats.wood);
+    addRenderBox(0.55, 0.95, 0.04, -1.65, 0.58, 0.78, renderMats.glass);
+    addRenderBox(0.72, 0.62, 0.04, -0.55, 0.72, 0.78, renderMats.glass);
+    addRenderBox(0.68, 0.78, 0.04, 1.25, 0.62, 0.9, renderMats.glass);
+    addRenderBox(0.48, 1.08, 0.05, 0.25, 0.56, 0.79, renderMats.wood);
+    addRenderBox(0.72, 0.04, 2.4, 0.28, 0.045, 2.0, renderMats.path);
+    [-2.8, -2.35, 2.65, 3.05].forEach((x, i) => {
+      const shrub = new THREE.Mesh(new THREE.SphereGeometry(0.26 + (i % 2) * 0.08, 18, 12), renderMats.shrub);
+      shrub.position.set(x, 0.28, 1.65 - (i % 2) * 0.5);
+      shrub.castShadow = true;
+      renderGroup.add(shrub);
+    });
+    renderGroup.position.set(0, 0.05, -0.65);
+    renderGroup.rotation.y = -0.18;
+
+    setObjectOpacity(bubbleGroup, 0);
+    setObjectOpacity(planGroup, 0);
+    setObjectOpacity(renderGroup, 0);
+
+    /* ─── Building blocks (architectural massing) ─── */
+    const blocksGroup = new THREE.Group();
+    workflowGroup.add(blocksGroup);
+
+    let ACCENT = new THREE.Color('#5b46e8');
+
+    const concreteColors = [0xf8fafc, 0xf1f5f9, 0xe8eef6, 0xe2e8f0];
+
+    function makeBlock(x, z, w, h, d, opts = {}) {
+      const isAccent = opts.accent || false;
+      const blockSeed = Math.abs(Math.round(x * 1000 + z * 100 + w * 10 + h * 7 + d * 13));
+      const baseColor = isAccent
+        ? ACCENT.clone().lerp(new THREE.Color(0xffffff), 0.34)
+        : new THREE.Color(concreteColors[blockSeed % concreteColors.length]);
+
+      // 건물의 기본 매스. 창문/문은 별도 details 그룹으로 붙여 매스 애니메이션과 동기화한다.
+      const mainMat = new THREE.MeshStandardMaterial({
+        color: baseColor,
+        roughness: isAccent ? 0.38 : 0.64,
+        metalness: isAccent ? 0.22 : 0.08,
+      });
+      const geo = new THREE.BoxGeometry(w, h, d);
+      const m = new THREE.Mesh(geo, mainMat);
+      m.castShadow = true;
+      m.receiveShadow = true;
+
+      // 창문, 창턱, 출입구처럼 건물 표면에 붙는 디테일 묶음.
+      const details = new THREE.Group();
+      details.visible = false;
+      m.add(details);
+
+      // 파사드 재질은 낮은 채도와 얇은 프레임을 사용해 미니어처 블록 느낌을 줄인다.
+      const darkGlass = new THREE.MeshStandardMaterial({
+        color: isAccent ? 0x251f4f : 0x17233b,
+        roughness: 0.16,
+        metalness: 0.42,
+      });
+      const litGlass = new THREE.MeshStandardMaterial({
+        color: 0xaeb9d8,
+        roughness: 0.2,
+        metalness: 0.18,
+        emissive: 0x8b8fd6,
+        emissiveIntensity: 0.12,
+      });
+      const accentLit = new THREE.MeshStandardMaterial({
+        color: 0xbeb7ee,
+        roughness: 0.18,
+        metalness: 0.2,
+        emissive: 0x8b5cf6,
+        emissiveIntensity: 0.16,
+      });
+      const frameMat = new THREE.MeshStandardMaterial({
+        color: isAccent ? 0xd8d4f8 : 0xd7dee8,
+        roughness: 0.68,
+        metalness: 0.04,
+      });
+      const sillMat = new THREE.MeshStandardMaterial({
+        color: isAccent ? 0xc9c2ee : 0xb8c2cf,
+        roughness: 0.62,
+      });
+
+      const floorH = 0.72;
+      const floors = Math.max(1, Math.floor((h - 0.4) / floorH));
+      const winH = 0.24;
+      const winW = 0.2;
+      const colSpacing = 0.72;
+      const facadeGap = 0.014;
+      const paneDepth = 0.018;
+      const litChance = isAccent ? 0.22 : 0.12;
+      const hasPortal = w >= 1.4;
+      const revealAtForY = y => clamp01(((y + h / 2) / h) * 0.92 + 0.02);
+      const addDetail = (mesh, revealY = mesh.position.y) => {
+        mesh.userData.revealAt = revealAtForY(revealY);
+        mesh.visible = false;
+        details.add(mesh);
+        return mesh;
+      };
+
+      // 같은 건물은 새로고침해도 같은 조명 창 패턴을 갖도록 좌표 기반 시드를 사용한다.
+      const seed = blockSeed | 0;
+      const rand = (i) => {
+        const v = Math.sin((seed + i) * 12.9898) * 43758.5453;
+        return v - Math.floor(v);
+      };
+      const makeFacadePosition = (localX, faceY, normalAxis, sign, offset) => (
+        normalAxis === 'z'
+          ? new THREE.Vector3(localX, faceY, sign * (d / 2 + offset))
+          : new THREE.Vector3(sign * (w / 2 + offset), faceY, localX)
+      );
+      let winIdx = 0;
+      const placeFace = (faceW, faceY, normalAxis, sign, floorIndex) => {
+        const isPrimaryFace = normalAxis === 'z' && sign === 1;
+        const isSideFace = normalAxis === 'x' && sign === 1;
+        if (!isPrimaryFace && !isSideFace) return;
+        if (isSideFace && floorIndex % 2 === 1) return;
+
+        const cols = isPrimaryFace
+          ? Math.max(1, Math.min(2, Math.floor((faceW + 0.08) / colSpacing)))
+          : 1;
+        const total = cols * colSpacing;
+        const startX = -total / 2 + colSpacing / 2;
+        for (let c = 0; c < cols; c++) {
+          const localX = startX + c * colSpacing;
+          if (isSideFace && (floorIndex + c + (isAccent ? 1 : 0)) % 3 === 2) continue;
+          // 출입구가 있는 1층 중앙부는 창문을 비워 문과 겹치지 않게 한다.
+          if (hasPortal && normalAxis === 'z' && sign === 1 && floorIndex === 0 && Math.abs(localX) < 0.48) {
+            continue;
+          }
+
+          const isLit = rand(winIdx++) < litChance;
+          const glassMat = isLit ? (isAccent ? accentLit : litGlass) : darkGlass;
+          let geomW, geomD;
+          if (normalAxis === 'z') { geomW = winW; geomD = paneDepth; }
+          else { geomW = paneDepth; geomD = winW; }
+          const frame = new THREE.Mesh(
+            new THREE.BoxGeometry(
+              normalAxis === 'z' ? geomW + 0.1 : 0.018,
+              winH + 0.1,
+              normalAxis === 'z' ? 0.018 : geomD + 0.1
+            ),
+            frameMat
+          );
+          const pane = new THREE.Mesh(
+            new THREE.BoxGeometry(geomW, winH, geomD),
+            glassMat
+          );
+          if (normalAxis === 'z') {
+            frame.position.copy(makeFacadePosition(localX, faceY, normalAxis, sign, 0.009 + facadeGap));
+            pane.position.copy(makeFacadePosition(localX, faceY, normalAxis, sign, geomD / 2 + facadeGap + 0.016));
+          } else {
+            frame.position.copy(makeFacadePosition(localX, faceY, normalAxis, sign, 0.009 + facadeGap));
+            pane.position.copy(makeFacadePosition(localX, faceY, normalAxis, sign, geomW / 2 + facadeGap + 0.016));
+          }
+          addDetail(frame, faceY);
+          addDetail(pane, faceY);
+
+          const mullion = new THREE.Mesh(
+            new THREE.BoxGeometry(
+              normalAxis === 'z' ? 0.012 : 0.018,
+              winH + 0.08,
+              normalAxis === 'z' ? 0.022 : 0.012
+            ),
+            frameMat
+          );
+          mullion.position.copy(pane.position);
+          mullion.position.copy(makeFacadePosition(localX, faceY, normalAxis, sign, 0.044 + facadeGap));
+          addDetail(mullion, faceY);
+
+          const sill = new THREE.Mesh(
+            new THREE.BoxGeometry(geomW + 0.12, 0.018, normalAxis === 'z' ? 0.048 : geomD + 0.02),
+            sillMat
+          );
+          if (normalAxis === 'z') {
+            sill.position.copy(makeFacadePosition(localX, faceY - winH / 2 - 0.02, normalAxis, sign, 0.03 + facadeGap));
+          } else {
+            sill.position.copy(makeFacadePosition(localX, faceY - winH / 2 - 0.02, normalAxis, sign, 0.03 + facadeGap));
+            sill.geometry = new THREE.BoxGeometry(0.06, 0.025, geomD + 0.04);
+          }
+          addDetail(sill, faceY - winH / 2 - 0.02);
+        }
+      };
+      for (let i = 0; i < floors; i++) {
+        const cy = -h / 2 + 0.45 + i * floorH;
+        placeFace(w, cy, 'z', 1, i);
+        placeFace(d, cy, 'x', 1, i);
+      }
+      // 층 경계선을 얇게 표현해 창문이 적어도 빌딩 층수가 읽히게 한다.
+      const slabMat = new THREE.MeshStandardMaterial({
+        color: isAccent ? 0xc4b5fd : 0xdbe4ee,
+        roughness: 0.78,
+      });
+      for (let i = 1; i < floors; i++) {
+        const cy = -h / 2 + 0.45 + i * floorH - winH / 2 - 0.06;
+        const slab = new THREE.Mesh(
+          new THREE.BoxGeometry(w + 0.025, 0.025, d + 0.025),
+          slabMat
+        );
+        slab.position.y = cy;
+        addDetail(slab, cy);
+      }
+
+      // 옥상부 매스는 본체보다 작게 두어 파라펫과 펜트하우스 느낌을 만든다.
+      const roofW = w * 0.55, roofD = d * 0.55, roofH = 0.18;
+      const roofMesh = new THREE.Mesh(
+        new THREE.BoxGeometry(roofW, roofH, roofD),
+        new THREE.MeshStandardMaterial({
+          color: isAccent ? 0x4338ca : 0x9aa0ad,
+          roughness: 0.58,
+          metalness: 0.1,
+        })
+      );
+      roofMesh.position.set(w * 0.1, h / 2 + roofH / 2, -d * 0.1);
+      roofMesh.castShadow = true;
+      addDetail(roofMesh, h * 0.42);
+
+      // 폭이 충분한 건물에만 별도 출입구를 두고, 주변 창문은 위에서 제외한다.
+      if (hasPortal) {
+        const portalFrame = new THREE.Mesh(
+          new THREE.BoxGeometry(0.56, 0.62, 0.035),
+          frameMat
+        );
+        portalFrame.position.set(0, -h / 2 + 0.31, d / 2 + 0.018);
+        addDetail(portalFrame, -h / 2 + 0.31);
+
+        const portal = new THREE.Mesh(
+          new THREE.BoxGeometry(0.42, 0.52, 0.03),
+          new THREE.MeshStandardMaterial({
+            color: isAccent ? 0x30246f : 0x1f2937,
+            roughness: 0.34,
+            metalness: 0.3,
+          })
+        );
+        portal.position.set(0, -h / 2 + 0.27, d / 2 + 0.04);
+        addDetail(portal, -h / 2 + 0.25);
+      }
+
+      // 높은 강조 건물에는 얇은 안테나를 추가해 실루엣을 구분한다.
+      if (isAccent && h >= 3.5) {
+        const pole = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.025, 0.025, 0.8, 6),
+          new THREE.MeshStandardMaterial({ color: 0x111827 })
+        );
+        pole.position.y = h / 2 + roofH + 0.4;
+        pole.castShadow = true;
+        addDetail(pole, h * 0.5);
+      }
+
+      // 얇은 엣지 라인으로 매스 경계를 정리해 낮은 폴리곤 모델에서도 건축 모형처럼 보이게 한다.
+      const edges = new THREE.EdgesGeometry(geo);
+      const lineMat = new THREE.LineBasicMaterial({
+        color: isAccent ? 0x8b5cf6 : 0x94a3b8,
+        transparent: true,
+        opacity: isAccent ? 0.18 : 0.12,
+      });
+      const wf = new THREE.LineSegments(edges, lineMat);
+      m.add(wf);
+
+      // 3D 단계에서 평면 블록이 건물 높이로 올라오는 애니메이션 상태.
+      const finalH = h;
+      const flatRatio = Math.max(0.04 / finalH, 0.02);
+      const cubeRatio = Math.min(w, d) / finalH;
+      const morphStart = performance.now() / 1000 + (blocksGroup.children.length * 0.08);
+      m.userData = {
+        baseY: h / 2, hover: 0, isAccent,
+        finalH, flatRatio, cubeRatio,
+        morphStart, morphDone: false,
+        details, detailReveal: 0,
+      };
+      m.scale.y = flatRatio;
+      m.position.set(x, finalH * flatRatio / 2, z);
+      blocksGroup.add(m);
+
+      return m;
+    }
+
+    /* 장면 구성 */
+    const COMPOSITIONS = {
+      city: [
+        { x: -3.4, z: -1.9, w: 1.15, h: 3.0, d: 1.3 },
+        { x: -1.85, z: 0.75, w: 1.34, h: 5.15, d: 1.38, accent: true },
+        { x: -0.1, z: -2.35, w: 2.6, h: 0.9, d: 1.35 },
+        { x: 0.85, z: 1.55, w: 1.0, h: 4.2, d: 1.55 },
+        { x: 2.85, z: -0.7, w: 1.48, h: 3.0, d: 1.2 },
+        { x: 2.0, z: -3.1, w: 2.2, h: 0.75, d: 1.1 },
+        { x: 4.3, z: 1.95, w: 1.1, h: 3.7, d: 1.12 },
+        { x: -2.55, z: 3.25, w: 2.1, h: 0.8, d: 1.15 },
+      ],
+      tower: [
+        { x: 0.0, z: 0.0, w: 2.4, h: 6.6, d: 2.4, accent: true },
+        { x: -2.6, z: -1.6, w: 1.4, h: 1.6, d: 1.4 },
+        { x: 2.6, z: -1.6, w: 1.4, h: 2.0, d: 1.4 },
+        { x: 2.4, z: 2.2, w: 1.6, h: 1.2, d: 1.2 },
+        { x: -2.6, z: 2.2, w: 1.6, h: 1.6, d: 1.6 },
+        { x: 0.0, z: -3.0, w: 3.2, h: 0.8, d: 1.0 },
+      ],
+      campus: [
+        { x: -4.0, z: -1.0, w: 2.4, h: 1.6, d: 2.4 },
+        { x: -1.2, z: 1.2, w: 2.6, h: 1.2, d: 2.0 },
+        { x: 2.0, z: -0.6, w: 2.2, h: 2.4, d: 2.6, accent: true },
+        { x: 4.4, z: 1.6, w: 1.6, h: 1.4, d: 1.6 },
+        { x: -2.6, z: 3.4, w: 1.6, h: 1.0, d: 1.6 },
+        { x: 1.4, z: 3.4, w: 1.2, h: 1.6, d: 1.2 },
+        { x: -4.6, z: 2.6, w: 1.0, h: 1.0, d: 1.2 },
+      ],
+    };
+
+    function loadComposition(name) {
+      // 기존 구성 요소를 비우고 선택된 구성으로 다시 채운다.
+      while (blocksGroup.children.length) {
+        const c = blocksGroup.children.pop();
+        c.geometry?.dispose();
+        c.material?.dispose();
+      }
+      const comp = COMPOSITIONS[name] || COMPOSITIONS.city;
+      comp.forEach(b => makeBlock(b.x, b.z, b.w, b.h, b.d, { accent: b.accent }));
+      updateReadout(name);
+    }
+
+    /* ─── 워크플로우 단계 보간 ─── */
+    const easeInOut = t => t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+    // Phase A: 평면 → 큐브, Phase B: 큐브 유지, Phase C: 큐브 → 건물.
+    const PHASE_A = 1.0, PHASE_HOLD = 0.25, PHASE_C = 1.4;
+    function morphScale(elapsed, flatR, cubeR) {
+      if (elapsed <= 0) return flatR;
+      if (elapsed < PHASE_A) {
+        const t = easeInOut(elapsed / PHASE_A);
+        return flatR + (cubeR - flatR) * t;
+      }
+      if (elapsed < PHASE_A + PHASE_HOLD) return cubeR;
+      const t2 = (elapsed - PHASE_A - PHASE_HOLD) / PHASE_C;
+      if (t2 >= 1) return 1;
+      return cubeR + (1 - cubeR) * easeInOut(t2);
+    }
+    loadComposition('city');
+
+    function updateReadout(name) {
+      const r = document.getElementById('readout');
+      if (!r) return;
+      const stories = name === 'tower' ? '12F · B2' : name === 'campus' ? '3F · B1' : '4F · B1';
+      const gfa = name === 'tower' ? '1,840.0㎡' : name === 'campus' ? '768.4㎡' : '412.6㎡';
+      const storiesNode = document.getElementById('ro-stories');
+      const gfaNode = document.getElementById('ro-gfa');
+      if (storiesNode) storiesNode.textContent = stories;
+      if (gfaNode) gfaNode.textContent = gfa;
+    }
+
+    /* ─── 마우스 상호작용 ─── */
+    const mouse = { x: 0, y: 0, tx: 0, ty: 0 };
+    let dragging = false, dragStart = { x: 0, y: 0 }, manualRot = 0, manualRotTarget = 0, manualTilt = 0, manualTiltTarget = 0;
+    let dragVelX = 0, dragVelY = 0;
+    let zoom = 1, zoomTarget = 1;
+    let userInteracted = false;
+
+    canvas.addEventListener('mousemove', (e) => {
+      if (!userInteracted) return;
+      mouse.tx = (e.clientX / window.innerWidth) - 0.5;
+      mouse.ty = (e.clientY / window.innerHeight) - 0.5;
+      if (dragging) {
+        const dx = (e.clientX - dragStart.x) / window.innerWidth;
+        const dy = (e.clientY - dragStart.y) / window.innerHeight;
+        manualRotTarget += dx * 3.0;
+        manualTiltTarget = Math.max(-0.35, Math.min(0.55, manualTiltTarget + dy * 1.0));
+        dragVelX = dx * 3.0;
+        dragVelY = dy * 1.0;
+        dragStart = { x: e.clientX, y: e.clientY };
+      }
+      hoverPick(e.clientX, e.clientY);
+    });
+    canvas.addEventListener('mousedown', (e) => {
+      if (!userInteracted) {
+        userInteracted = true;
+        manualRotTarget = baseAngle;
+        manualRot = baseAngle;
+        document.body.classList.add('interactive');
+      }
+      dragging = true;
+      dragStart = { x: e.clientX, y: e.clientY };
+      dragVelX = 0; dragVelY = 0;
+    });
+    window.addEventListener('mouseup', () => dragging = false);
+    canvas.addEventListener('mouseleave', () => {
+      mouse.tx = 0; mouse.ty = 0;
+    });
+
+    /* 휠 확대/축소 */
+    canvas.addEventListener('wheel', (e) => {
+      if (!userInteracted) return;
+      e.preventDefault();
+      zoomTarget = Math.max(0.6, Math.min(1.8, zoomTarget + e.deltaY * 0.0012));
+    }, { passive: false });
+
+    /* 기본 터치 조작 */
+    let touchStart = null;
+    canvas.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 1) {
+        if (!userInteracted) {
+          userInteracted = true;
+          manualRotTarget = baseAngle;
+          manualRot = baseAngle;
+          document.body.classList.add('interactive');
+        }
+        touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      }
+    }, { passive: true });
+    canvas.addEventListener('touchmove', (e) => {
+      if (e.touches.length === 1 && touchStart) {
+        const dx = (e.touches[0].clientX - touchStart.x) / window.innerWidth;
+        const dy = (e.touches[0].clientY - touchStart.y) / window.innerHeight;
+        manualRotTarget += dx * 3.0;
+        manualTiltTarget = Math.max(-0.35, Math.min(0.55, manualTiltTarget + dy * 1.0));
+        touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      }
+    }, { passive: true });
+    canvas.addEventListener('touchend', () => touchStart = null);
+
+    /* 호버 대상 감지 */
+    const ray = new THREE.Raycaster();
+    const ndc = new THREE.Vector2();
+    let hovered = null;
+    function hoverPick(cx, cy) {
+      ndc.x = (cx / window.innerWidth) * 2 - 1;
+      ndc.y = -(cy / window.innerHeight) * 2 + 1;
+      ray.setFromCamera(ndc, camera);
+      const hits = ray.intersectObjects(blocksGroup.children, false);
+      const newHovered = hits.length ? hits[0].object : null;
+      if (newHovered !== hovered) {
+        if (hovered) hovered.userData.hoverTarget = 0;
+        hovered = newHovered;
+        if (hovered) {
+          hovered.userData.hoverTarget = 1;
+          // 현재 회전값을 읽을 수 있도록 방위각 표시를 갱신한다.
+          const conf = 84 + Math.round(((hovered.position.x + hovered.position.z) * 31 + 100) % 16);
+          const azimuth = document.getElementById('ro-azi');
+          if (azimuth) azimuth.textContent = conf + '%';
+        }
+      }
+    }
+
+    /* ─── 애니메이션 루프 ─── */
+    let autoOrbit = true;
+    const WORKFLOW_CAMERA_YAW = -0.13;
+    let baseAngle = WORKFLOW_CAMERA_YAW;
+    const workflowStart = performance.now() / 1000;
+    let workflowPhaseOffset = 0;
+    const WORKFLOW_DURATIONS = [4.2, 4.2, 7.2, 4.2];
+    const WORKFLOW_OFFSETS = WORKFLOW_DURATIONS.reduce((acc, duration, index) => {
+      acc.push(index === 0 ? 0 : acc[index - 1] + WORKFLOW_DURATIONS[index - 1]);
+      return acc;
+    }, []);
+    const WORKFLOW_TOTAL = WORKFLOW_DURATIONS.reduce((total, duration) => total + duration, 0);
+    const workflowPillNodes = Array.from(document.querySelectorAll('.workflow-pills span'));
+    let activeWorkflowStage = -1;
+
+    function getWorkflowStage(phase) {
+      for (let i = WORKFLOW_OFFSETS.length - 1; i >= 0; i -= 1) {
+        if (phase >= WORKFLOW_OFFSETS[i]) return i;
+      }
+      return 0;
+    }
+
+    function updateWorkflowPills(stage) {
+      if (stage === activeWorkflowStage) return;
+      activeWorkflowStage = stage;
+      workflowPillNodes.forEach((node, index) => {
+        node.classList.toggle('active', index === stage);
+      });
+    }
+
+    function jumpToWorkflowStage(stage) {
+      const targetStage = Math.max(0, Math.min(WORKFLOW_DURATIONS.length - 1, stage));
+      const now = performance.now() / 1000;
+      const targetPhase = (WORKFLOW_OFFSETS[targetStage] || 0) + Math.min(0.45, WORKFLOW_DURATIONS[targetStage] * 0.16);
+      workflowPhaseOffset = (targetPhase - (now - workflowStart)) % WORKFLOW_TOTAL;
+      if (workflowPhaseOffset < 0) workflowPhaseOffset += WORKFLOW_TOTAL;
+      updateWorkflowPills(targetStage);
+    }
+
+    workflowPillNodes.forEach((node, index) => {
+      node.addEventListener('click', () => jumpToWorkflowStage(index));
+      node.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        jumpToWorkflowStage(index);
+      });
+    });
+
+    function workflowAlpha(phase, stage, fade = 0.8) {
+      const duration = WORKFLOW_DURATIONS[stage] || WORKFLOW_DURATIONS[0];
+      const local = phase - (WORKFLOW_OFFSETS[stage] || 0);
+      if (local < 0 || local > duration) return 0;
+      return Math.min(smooth01(local / fade), smooth01((duration - local) / fade));
+    }
+
+    function workflowLocal(phase, stage) {
+      return phase - (WORKFLOW_OFFSETS[stage] || 0);
+    }
+
+    function updateWorkflowScene(now) {
+      const phase = (now - workflowStart + workflowPhaseOffset) % WORKFLOW_TOTAL;
+      updateWorkflowPills(getWorkflowStage(phase));
+      const bubbleAlpha = workflowAlpha(phase, 0);
+      const planAlpha = workflowAlpha(phase, 1);
+      const buildingAlpha = workflowAlpha(phase, 2, 0.95);
+      const renderAlpha = workflowAlpha(phase, 3, 0.95);
+      const buildingLocal = workflowLocal(phase, 2);
+      const buildingDuration = WORKFLOW_DURATIONS[2];
+      // 창문이 반투명 매스 뒤로 비쳐 보이지 않도록 3D 빌딩은 끝 구간에서 빠르게 숨긴다.
+      const buildingInStage = buildingLocal >= 0 && buildingLocal <= buildingDuration - 0.22;
+      const buildingDisplayAlpha = buildingInStage
+        ? (buildingLocal < 0.45 ? smooth01(buildingLocal / 0.45) : 1)
+        : 0;
+      const buildingProgress = buildingDisplayAlpha > 0 ? smooth01(buildingLocal / 3.4) : 0;
+
+      setObjectOpacity(bubbleGroup, bubbleAlpha);
+      setObjectOpacity(planGroup, planAlpha);
+      setObjectOpacity(renderGroup, renderAlpha);
+      setObjectOpacity(blocksGroup, buildingDisplayAlpha);
+
+      bubbleGroup.lookAt(camera.position);
+      bubbleGroup.rotateX(-0.08);
+      bubbleGroup.rotateY(-0.24);
+      bubbleGroup.traverse((node) => {
+        if (node.userData.bubbleOpacity === undefined || !node.material) return;
+        const materials = Array.isArray(node.material) ? node.material : [node.material];
+        materials.forEach((material) => {
+          material.transparent = true;
+          material.depthWrite = false;
+          material.opacity = bubbleAlpha * node.userData.bubbleOpacity;
+        });
+      });
+      bubbleGroup.children.forEach((child) => {
+        if (child.userData.isBubbleConnector && child.material) {
+          child.material.opacity = bubbleAlpha * (child.userData.bubbleOpacity ?? 0.72);
+          return;
+        }
+        if (!child.userData.isBubbleNode) return;
+
+        const index = child.userData.bubbleIndex || 0;
+        const pulse = 1 + Math.sin(now * 2.2 + index * 0.9) * 0.018;
+        child.scale.setScalar(pulse);
+        child.position.y = child.userData.baseY + Math.sin(now * 1.3 + index) * 0.025;
+        child.traverse((node) => {
+          if (!node.material) return;
+          const materials = Array.isArray(node.material) ? node.material : [node.material];
+          materials.forEach((material) => {
+            const baseOpacity = node.userData.bubbleOpacity ?? (node.userData.isBubbleRim ? 0.74 : 0.5 + index * 0.04);
+            material.transparent = true;
+            material.depthWrite = false;
+            material.opacity = bubbleAlpha * baseOpacity;
+          });
+        });
+      });
+
+      planGroup.lookAt(camera.position);
+      planFrame.scale.setScalar(0.86 + planAlpha * 0.08);
+      planPlane.scale.setScalar(0.86 + planAlpha * 0.08);
+      planFrame.material.opacity = planAlpha * 0.76;
+      planPlane.material.opacity = planAlpha;
+      planShadow.material.opacity = planAlpha * 0.12;
+      planFrame.position.y = 1.86 + planAlpha * 0.16 + Math.sin(now * 1.1) * 0.03;
+      planPlane.position.y = planFrame.position.y;
+
+      renderGroup.position.y = 0.05 + renderAlpha * 0.22 + Math.sin(now * 1.2) * 0.025;
+      renderGroup.rotation.y = -0.22 + Math.sin(now * 0.55) * 0.035;
+      renderGroup.scale.setScalar(0.88 + renderAlpha * 0.12);
+
+      return { buildingProgress, buildingAlpha: buildingDisplayAlpha };
+    }
+
+    function tick(t) {
+      // 마우스 입력을 부드럽게 보간한다.
+      mouse.x += (mouse.tx - mouse.x) * 0.06;
+      mouse.y += (mouse.ty - mouse.y) * 0.06;
+      manualRot += (manualRotTarget - manualRot) * 0.12;
+      manualTilt += (manualTiltTarget - manualTilt) * 0.12;
+      zoom += (zoomTarget - zoom) * 0.08;
+
+      // 드래그 해제 후 관성 회전을 적용한다.
+      if (!dragging) {
+        manualRotTarget += dragVelX * 0.92;
+        manualTiltTarget = Math.max(-0.35, Math.min(0.55, manualTiltTarget + dragVelY * 0.92));
+        dragVelX *= 0.92;
+        dragVelY *= 0.92;
+        if (Math.abs(dragVelX) < 0.0005) dragVelX = 0;
+        if (Math.abs(dragVelY) < 0.0005) dragVelY = 0;
+      }
+
+      if (!userInteracted) baseAngle = WORKFLOW_CAMERA_YAW;
+
+      const radius = 14.2 * zoom;
+      const yaw = userInteracted
+        ? (manualRot + mouse.x * 0.6)
+        : baseAngle;
+      const pitchOffset = userInteracted
+        ? (manualTilt + mouse.y * 0.22)
+        : 0;
+      camera.position.x = Math.sin(yaw) * radius;
+      camera.position.z = Math.cos(yaw) * radius;
+      camera.position.y = Math.max(2, 9 - pitchOffset * 10);
+      camera.position.x += 5.8;
+      camera.lookAt(camTarget);
+
+      const now = performance.now() / 1000;
+      const workflow = updateWorkflowScene(now);
+      blocksGroup.children.forEach(m => {
+        const ud = m.userData;
+        const sy = ud.flatRatio + (1 - ud.flatRatio) * workflow.buildingProgress;
+        m.scale.y = sy;
+        ud.baseY = (ud.finalH * sy) / 2;
+        if (ud.details) {
+          ud.detailReveal = workflow.buildingProgress;
+          const detailsVisible = workflow.buildingProgress > 0.015 && workflow.buildingAlpha > 0.08;
+          ud.details.visible = detailsVisible;
+          ud.details.scale.setScalar(1);
+          ud.details.children.forEach((detail) => {
+            const revealAt = detail.userData.revealAt ?? 0;
+            // 각 디테일은 자신이 붙은 층 높이에 맞춰 건물 상승과 함께 나타난다.
+            const reveal = detailsVisible ? smooth01((workflow.buildingProgress - revealAt + 0.08) / 0.12) : 0;
+            detail.visible = reveal > 0.02;
+            detail.scale.setScalar(Math.max(0.72, reveal));
+          });
+        }
+        const target = (ud.hoverTarget || 0);
+        ud.hover += (target - ud.hover) * 0.12;
+        m.position.y = ud.baseY + ud.hover * 0.4;
+        m.rotation.y = ud.hover * 0.04;
+      });
+
+      renderer.render(scene, camera);
+      introAnimationFrame = requestAnimationFrame(tick);
+    }
+
+    function resize() {
+      renderer.setSize(W(), H(), false);
+      camera.aspect = W() / H();
+      camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    let introAnimationFrame = 0;
+    let introAnimationPaused = false;
+    function setIntroAnimationPaused(paused) {
+      if (introAnimationPaused === paused) return;
+      introAnimationPaused = paused;
+      if (paused) {
+        cancelAnimationFrame(introAnimationFrame);
+        introAnimationFrame = 0;
+        return;
+      }
+      introAnimationFrame = requestAnimationFrame(tick);
+    }
+
+    window.addEventListener('message', (event) => {
+      const data = event.data || {};
+      if (data.type !== '__batang_intro_animation') return;
+      setIntroAnimationPaused(Boolean(data.paused));
+    });
+
+    introAnimationFrame = requestAnimationFrame(tick);
+
+    // 첫 렌더 이후 로딩 화면을 숨긴다.
+    setTimeout(() => {
+      document.getElementById('loader').classList.add('hide');
+    }, 350);
+
+    /* ─── 시각 옵션 ─── */
+    // 강조 색상
+    document.querySelectorAll('#sw-accent .sw').forEach(el => {
+      el.addEventListener('click', () => {
+        document.querySelectorAll('#sw-accent .sw').forEach(s => s.classList.remove('active'));
+        el.classList.add('active');
+        const c = el.dataset.color;
+        ACCENT = new THREE.Color(c);
+        document.documentElement.style.setProperty('--accent', c);
+        // 강조 블록 색상을 선택한 색으로 갱신한다.
+        blocksGroup.children.forEach(m => {
+          if (m.userData.isAccent) {
+            if (Array.isArray(m.material)) m.material.forEach(mm => mm.color?.set(c));
+            else m.material.color?.set(c);
+          }
+        });
+      });
+    });
+    // 장면 구성
+    document.querySelectorAll('#seg-comp button').forEach(b => {
+      b.addEventListener('click', () => {
+        document.querySelectorAll('#seg-comp button').forEach(x => x.classList.remove('active'));
+        b.classList.add('active');
+        loadComposition(b.dataset.comp);
+      });
+    });
+    // 자동 회전
+    document.querySelectorAll('#seg-orbit button').forEach(b => {
+      b.addEventListener('click', () => {
+        document.querySelectorAll('#seg-orbit button').forEach(x => x.classList.remove('active'));
+        b.classList.add('active');
+        autoOrbit = b.dataset.orbit === '1';
+      });
+    });
+
+    /* ─── 시각 옵션 패널 연동 ─── */
+    const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+      "accent": "#4f46e5",
+      "composition": "city"
+    }/*EDITMODE-END*/;
+    const panel = document.getElementById('tweaks-panel');
+    const closeBtn = document.getElementById('tweaks-close');
+    window.addEventListener('message', (e) => {
+      const d = e.data || {};
+      if (d.type === '__activate_edit_mode') panel.classList.add('show');
+      if (d.type === '__deactivate_edit_mode') panel.classList.remove('show');
+    });
+    closeBtn.addEventListener('click', () => {
+      panel.classList.remove('show');
+      window.parent.postMessage({ type: '__edit_mode_dismissed' }, '*');
+    });
+    window.parent.postMessage({ type: '__edit_mode_available' }, '*');
+  </script>
+</body>
+
+</html>

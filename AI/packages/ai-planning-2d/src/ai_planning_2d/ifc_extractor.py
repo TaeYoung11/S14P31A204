@@ -1,0 +1,1262 @@
+"""IFC 모델에서 벽, 공간, 개구부, 인접 정보를 단순화해 추출한다."""
+
+import json
+import math
+import re
+from collections import defaultdict
+from contextvars import ContextVar
+from typing import Any, cast
+
+import ifcopenshell
+import ifcopenshell.geom
+import ifcopenshell.util.element
+import ifcopenshell.util.placement
+
+from .command import (
+    AdjacencyContext,
+    BoundaryContext,
+    DoorContext,
+    IFCContext,
+    OpeningContext,
+    SpaceContext,
+    StoreyContext,
+    WallContext,
+    WindowContext,
+)
+
+from shapely import contains as shapely_contains, union_all as shapely_union_all  # type: ignore[import-untyped]
+from shapely.geometry import (  # type: ignore[import-untyped]
+    LineString as ShapelyLineString,
+    Point as ShapelyPoint,
+    Polygon as ShapelyPolygon,
+)
+
+
+_SPACE_TYPE_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "living": ("거실", "living", "wohnen", "living room"),
+    "bedroom": ("침실", "안방", "bedroom", "schlafzimmer"),
+    "kitchen": ("주방", "부엌", "kitchen", "küche"),
+    "bathroom": ("욕실", "화장실", "bathroom", "bad", "wc"),
+    "office": ("서재", "사무실", "office", "buero", "büro"),
+    "corridor": ("복도", "corridor", "hall", "flur"),
+}
+_MODEL_UNIT_TO_MM: ContextVar[float] = ContextVar("_MODEL_UNIT_TO_MM", default=1000.0)
+_FLOOR_NAME_RE = re.compile(r"^\s*(\d+)\s*F\s*$", re.IGNORECASE)
+_GENERIC_SPACE_NAMES = {"", "공간", "space", "room"}
+
+
+def resolve_space_type_from_name(name: str) -> str | None:
+    """방 이름(한국어 포함)에서 내부 space type 문자열을 추론한다."""
+    name_lower = name.lower().strip()
+    for space_type, keywords in _SPACE_TYPE_KEYWORDS.items():
+        if name_lower in keywords:
+            return space_type
+    return None
+
+
+class UnsupportedIfcSchemaError(ValueError):
+    """Raised when the IFC file schema is valid but unsupported."""
+
+
+class UnsupportedIfcLengthUnitError(ValueError):
+    """Raised when the IFC file uses a length unit this extractor does not support."""
+
+
+def extract_ifc_context(ifc_path: str) -> IFCContext:
+    """Open an IFC4-family file and extract IFCContext."""
+    ifc = ifcopenshell.open(ifc_path)
+    if not str(ifc.schema).upper().startswith("IFC4"):
+        raise UnsupportedIfcSchemaError(f"Unsupported IFC schema: {ifc.schema}")
+    unit_token = _MODEL_UNIT_TO_MM.set(_detect_model_unit_to_mm(ifc))
+    try:
+        storeys = _extract_storeys(ifc)
+        storey_floors = {storey["id"]: storey["floor"] for storey in storeys}
+
+        wall_to_spaces = _collect_wall_space_ids(ifc)
+        spaces = _extract_spaces(ifc, storey_floors)
+        boundaries = _extract_boundaries(spaces)
+        walls = _extract_walls(ifc, storey_floors, wall_to_spaces)
+        wall_map = {wall["id"]: wall for wall in walls}
+        openings = _extract_openings(ifc, storey_floors, wall_map)
+        doors = _extract_doors(ifc, storey_floors, wall_map)
+        windows = _extract_windows(ifc, storey_floors, wall_map, spaces, boundaries)
+        adjacency = _extract_adjacency(wall_to_spaces)
+
+        return {
+            "spaces": spaces,
+            "adjacency": adjacency,
+            "walls": walls,
+            "openings": openings,
+            "doors": doors,
+            "windows": windows,
+            "boundaries": boundaries,
+            "storeys": storeys,
+        }
+    finally:
+        _MODEL_UNIT_TO_MM.reset(unit_token)
+
+
+def _extract_storeys(ifc: ifcopenshell.file) -> list[StoreyContext]:
+    storey_entities = ifc.by_type("IfcBuildingStorey")
+    storey_entities.sort(
+        key=lambda storey: (
+            getattr(storey, "Elevation", None) is None,
+            getattr(storey, "Elevation", None) or 0.0,
+        )
+    )
+    storeys: list[StoreyContext] = []
+    named_floor_storeys: list[tuple[int, Any]] = []
+    seen_named_floors: set[int] = set()
+    for storey in storey_entities:
+        floor_from_name = _floor_from_storey_name(storey)
+        if floor_from_name is None or floor_from_name in seen_named_floors:
+            continue
+        named_floor_storeys.append((floor_from_name, storey))
+        seen_named_floors.add(floor_from_name)
+
+    if named_floor_storeys:
+        assigned_floor_by_id: dict[str, int] = {
+            storey.GlobalId: floor for floor, storey in named_floor_storeys
+        }
+        # 패턴(\d+F)에 맞지 않는 storey(RF, PH, B1 등)도 element 누락을 막기 위해
+        # 포함한다. 이름 기반 번호와 충돌하지 않는 번호를 elevation 순서로 부여한다.
+        used_floors = set(assigned_floor_by_id.values())
+        next_floor = 1
+        for storey in storey_entities:
+            if storey.GlobalId in assigned_floor_by_id:
+                continue
+            while next_floor in used_floors:
+                next_floor += 1
+            assigned_floor_by_id[storey.GlobalId] = next_floor
+            used_floors.add(next_floor)
+            next_floor += 1
+        for storey in storey_entities:
+            elevation = getattr(storey, "Elevation", None)
+            storeys.append(
+                {
+                    "id": storey.GlobalId,
+                    "floor": assigned_floor_by_id[storey.GlobalId],
+                    "elevation": None if elevation is None else _model_to_mm(elevation),
+                }
+            )
+        storeys.sort(key=lambda item: item["floor"])
+        return storeys
+
+    for floor, storey in enumerate(storey_entities, start=1):
+        elevation = getattr(storey, "Elevation", None)
+        storeys.append(
+            {
+                "id": storey.GlobalId,
+                "floor": floor,
+                "elevation": None if elevation is None else _model_to_mm(elevation),
+            }
+        )
+    return storeys
+
+
+def _floor_from_storey_name(storey: Any) -> int | None:
+    name = getattr(storey, "Name", None)
+    if not isinstance(name, str):
+        return None
+    match = _FLOOR_NAME_RE.match(name)
+    if match is None:
+        return None
+    return int(match.group(1))
+
+
+def _build_containment_map(ifc: ifcopenshell.file, storey_floors: dict[str, int]) -> dict[str, int]:
+    """IfcRelContainedInSpatialStructure를 직접 순회해 element GlobalId → floor 매핑을 만든다.
+
+    일부 BE 생성 IFC에서 ifcopenshell get_container() 역방향 속성이 동작하지 않아
+    spaces가 추출되지 않는 경우의 fallback으로 사용한다.
+    """
+    mapping: dict[str, int] = {}
+    for rel in ifc.by_type("IfcRelContainedInSpatialStructure"):
+        storey = rel.RelatingStructure
+        if not storey.is_a("IfcBuildingStorey"):
+            continue
+        floor = storey_floors.get(storey.GlobalId)
+        if floor is None:
+            continue
+        for element in rel.RelatedElements:
+            mapping[element.GlobalId] = floor
+    return mapping
+
+
+def _extract_spaces(
+    ifc: ifcopenshell.file, storey_floors: dict[str, int]
+) -> list[SpaceContext]:
+    containment = _build_containment_map(ifc, storey_floors)
+    spaces: list[SpaceContext] = []
+    for space in ifc.by_type("IfcSpace"):
+        floor = _get_floor(space, storey_floors)
+        if floor is None:
+            floor = containment.get(space.GlobalId)
+        if floor is None:
+            continue
+
+        placement = _get_placement_matrix(space)
+        psets = ifcopenshell.util.element.get_psets(space)
+        dims = psets.get("Batang_SpaceDimensions", {})
+        base_quantities = psets.get("BaseQuantities", {})
+
+        width = _mm_from_custom_value(dims.get("Width"), min_value=2)
+        height = _mm_from_custom_value(dims.get("Height"), min_value=2)
+        rects = _parse_rects_json(dims.get("Rects"))
+        space_name = _extract_space_name(space, psets)
+        space_type = _extract_space_type(space, psets, dims)
+
+        polygon = None
+        polygon_is_world = False
+        if rects:
+            polygon = _rects_to_polygon(rects)
+        if not polygon:
+            polygon = _extract_space_footprint_polygon(space)
+        if not polygon:
+            polygon = _extract_space_body_polygon(space)
+        if not polygon:
+            polygon = _extract_space_geometry_bbox_polygon(space)
+            polygon_is_world = polygon is not None
+        if not polygon and width is not None and height is not None:
+            polygon = [
+                (0.0, 0.0),
+                (float(width), 0.0),
+                (float(width), float(height)),
+                (0.0, float(height)),
+            ]
+        if not polygon:
+            continue
+
+        if polygon_is_world:
+            world_polygon = polygon
+        else:
+            world_polygon = [_apply_placement_mm(point, placement) for point in polygon]
+        world_polygon = _normalize_polygon(world_polygon)
+        if width is None or height is None:
+            min_x, min_y, max_x, max_y = _bbox(world_polygon)
+            if width is None:
+                width = _mm_from_custom_value(base_quantities.get("Width"), min_value=2)
+                if width is None:
+                    width = round(max_x - min_x)
+            if height is None:
+                height = _mm_from_custom_value(base_quantities.get("Depth"), min_value=2)
+                if height is None:
+                    height = round(max_y - min_y)
+
+        spaces.append(
+            {
+                "id": space.GlobalId,
+                "name": space_name,
+                "type": space_type,
+                "floor": floor,
+                "polygon": world_polygon,
+                "width": width,
+                "height": height,
+                "x": _model_to_mm(placement[0][3]) if placement is not None else None,
+                "y": _model_to_mm(placement[1][3]) if placement is not None else None,
+                "angle": _placement_angle_deg(placement),
+                "locked": bool(dims.get("Locked", False)),
+                "zone_id": None,
+            }
+        )
+    return spaces
+
+
+def _extract_walls(
+    ifc: ifcopenshell.file,
+    storey_floors: dict[str, int],
+    wall_to_spaces: dict[str, list[str]],
+) -> list[WallContext]:
+    walls: list[WallContext] = []
+    for wall in ifc.by_type("IfcWall"):
+        floor = _get_floor(wall, storey_floors)
+        if floor is None:
+            continue
+
+        start_end = _extract_wall_start_end(wall)
+        if start_end is None:
+            continue
+        start, end = start_end
+        # IFCContext stores wall segments in normalized order for easier spatial reasoning.
+        # The original IFC axis direction is not preserved in wall["start"]/wall["end"].
+        start, end = _normalize_segment(start, end)
+
+        psets = ifcopenshell.util.element.get_psets(wall)
+        thickness = (
+            _mm_from_custom_value(
+                psets.get("Batang_WallDimensions", {}).get("Thickness"), min_value=2
+            )
+            or _mm_from_custom_value(
+                psets.get("Pset_WallCommon", {}).get("Thickness"), min_value=2
+            )
+            or 200
+        )
+        space_ids = wall_to_spaces.get(wall.GlobalId, [])
+        kind = None
+        if len(space_ids) == 0:
+            kind = "PARTITION"
+        elif len(space_ids) == 1:
+            kind = "EXTERIOR"
+        elif len(space_ids) == 2:
+            kind = "INTERIOR"
+
+        walls.append(
+            {
+                "id": wall.GlobalId,
+                "floor": floor,
+                "start": start,
+                "end": end,
+                "thickness": thickness,
+                "space_ids": space_ids,
+                "kind": kind,
+                "body_class": _classify_wall_body(wall),
+            }
+        )
+    return walls
+
+
+def _classify_wall_body(wall: ifcopenshell.entity_instance) -> str | None:
+    representation = getattr(wall, "Representation", None)
+    if not representation:
+        return None
+    body_rep = next(
+        (
+            rep
+            for rep in getattr(representation, "Representations", []) or []
+            if getattr(rep, "RepresentationIdentifier", None) == "Body"
+        ),
+        None,
+    )
+    if body_rep is None:
+        return None
+    items = list(getattr(body_rep, "Items", []) or [])
+    if not items:
+        return None
+    return _classify_shape_item(items[0])
+
+
+def _classify_shape_item(item: ifcopenshell.entity_instance) -> str:
+    if item.is_a("IfcExtrudedAreaSolid"):
+        return "parametric"
+    if item.is_a("IfcBooleanClippingResult"):
+        return "bcr"
+    if item.is_a("IfcBooleanResult"):
+        first_operand = getattr(item, "FirstOperand", None)
+        if first_operand is None:
+            return "boolean_other"
+        return _classify_shape_item(first_operand)
+    return item.is_a()
+
+
+def _extract_doors(
+    ifc: ifcopenshell.file,
+    storey_floors: dict[str, int],
+    wall_map: dict[str, WallContext],
+) -> list[DoorContext]:
+    doors: list[DoorContext] = []
+    for door in ifc.by_type("IfcDoor"):
+        host_wall_id = _get_host_wall_id(door)
+        if not host_wall_id or host_wall_id not in wall_map:
+            continue
+
+        wall = wall_map[host_wall_id]
+        floor = _get_floor(door, storey_floors) or wall["floor"]
+        width = _mm_from_ifc_length(getattr(door, "OverallWidth", None), default=900)
+        height = _mm_from_ifc_length(getattr(door, "OverallHeight", None), default=2100)
+        position = _project_position_on_wall(door, wall, width)
+        if position is None:
+            continue
+
+        space_ids = wall["space_ids"]
+        doors.append(
+            {
+                "id": door.GlobalId,
+                "floor": floor,
+                "host_wall_id": host_wall_id,
+                "host_wall_body_class": wall.get("body_class"),
+                "from_space_id": space_ids[0] if len(space_ids) >= 1 else None,
+                "to_space_id": space_ids[1] if len(space_ids) >= 2 else None,
+                "width": width,
+                "height": height,
+                "position": position,
+                "opening_type": "swing",
+                "swing_into_id": None,
+                "hinge_side": None,
+            }
+        )
+    return doors
+
+
+def _extract_openings(
+    ifc: ifcopenshell.file,
+    storey_floors: dict[str, int],
+    wall_map: dict[str, WallContext],
+) -> list[OpeningContext]:
+    openings: list[OpeningContext] = []
+    for opening in ifc.by_type("IfcOpeningElement"):
+        host_wall_id = _get_opening_host_wall_id(opening)
+        if not host_wall_id or host_wall_id not in wall_map:
+            continue
+
+        wall = wall_map[host_wall_id]
+        floor = _get_floor(opening, storey_floors) or wall["floor"]
+        filled_by_id = None
+        filled_by_kind = None
+        for rel in getattr(opening, "HasFillings", []) or []:
+            filler = getattr(rel, "RelatedBuildingElement", None)
+            if filler is None:
+                continue
+            filled_by_id = filler.GlobalId
+            if filler.is_a("IfcDoor"):
+                filled_by_kind = "door"
+            elif filler.is_a("IfcWindow"):
+                filled_by_kind = "window"
+            else:
+                filled_by_kind = filler.is_a()
+            break
+
+        openings.append(
+            {
+                "id": opening.GlobalId,
+                "floor": floor,
+                "host_wall_id": host_wall_id,
+                "host_wall_body_class": wall.get("body_class"),
+                "filled_by_id": filled_by_id,
+                "filled_by_kind": filled_by_kind,
+            }
+        )
+    return openings
+
+
+def _extract_windows(
+    ifc: ifcopenshell.file,
+    storey_floors: dict[str, int],
+    wall_map: dict[str, WallContext],
+    spaces: list[SpaceContext],
+    boundaries: list[BoundaryContext],
+) -> list[WindowContext]:
+    windows: list[WindowContext] = []
+    spaces_by_id = {space["id"]: space for space in spaces}
+    boundary_by_floor = {boundary["floor"]: boundary for boundary in boundaries}
+    for window in ifc.by_type("IfcWindow"):
+        host_wall_id = _get_host_wall_id(window)
+        if not host_wall_id or host_wall_id not in wall_map:
+            continue
+
+        wall = wall_map[host_wall_id]
+        floor = _get_floor(window, storey_floors) or wall["floor"]
+        width = _mm_from_ifc_length(getattr(window, "OverallWidth", None), default=900)
+        height = _mm_from_ifc_length(getattr(window, "OverallHeight", None), default=2100)
+        position = _project_position_on_wall(window, wall, width)
+        if position is None:
+            continue
+        opening_point = _opening_world_point_from_element(window)
+        if opening_point is None:
+            continue
+
+        adjacent_space_id = _resolve_window_adjacent_space_id(
+            wall=wall,
+            spaces_by_id=spaces_by_id,
+            boundary=boundary_by_floor.get(floor),
+            point_mm=opening_point,
+        )
+
+        placement = _get_placement_matrix(window)
+        sill_height = 900
+        if placement is not None:
+            sill_height = int(round(_model_to_mm(placement[2][3])))
+
+        windows.append(
+            {
+                "id": window.GlobalId,
+                "floor": floor,
+                "host_wall_id": host_wall_id,
+                "host_wall_body_class": wall.get("body_class"),
+                "adjacent_space_id": adjacent_space_id,
+                "width": width,
+                "height": height,
+                "sill_height": sill_height,
+                "position": position,
+            }
+        )
+    return windows
+
+
+def _extract_adjacency(wall_to_spaces: dict[str, list[str]]) -> list[AdjacencyContext]:
+    seen: set[tuple[str, str]] = set()
+    adjacency: list[AdjacencyContext] = []
+    for space_ids in wall_to_spaces.values():
+        if len(space_ids) < 2:
+            continue
+        ordered = sorted(space_ids)
+        pair = (ordered[0], ordered[1])
+        if pair in seen:
+            continue
+        seen.add(pair)
+        adjacency.append(
+            {
+                "space_a_id": pair[0],
+                "space_b_id": pair[1],
+                "strength": 0.5,
+            }
+        )
+    return adjacency
+
+
+def _extract_boundaries(spaces: list[SpaceContext]) -> list[BoundaryContext]:
+    by_floor: dict[int, list[list[tuple[float, float]]]] = defaultdict(list)
+    for space in spaces:
+        if space["polygon"]:
+            by_floor[space["floor"]].append(space["polygon"])
+
+    boundaries: list[BoundaryContext] = []
+    for floor in sorted(by_floor):
+        polygons = by_floor[floor]
+        outer_polygon = _union_outer_polygon(polygons)
+        boundaries.append({"floor": floor, "outer_polygon": outer_polygon, "holes": []})
+    return boundaries
+
+
+def _collect_wall_space_ids(ifc: ifcopenshell.file) -> dict[str, list[str]]:
+    # This extractor relies on IfcRelSpaceBoundary as the primary wall-space linkage source.
+    # Files that omit space boundaries may still yield usable space polygons, but wall.kind and
+    # wall_to_spaces-derived adjacency become conservative.
+    wall_to_spaces: dict[str, set[str]] = defaultdict(set)
+    for rel in ifc.by_type("IfcRelSpaceBoundary"):
+        wall = getattr(rel, "RelatedBuildingElement", None)
+        space = getattr(rel, "RelatingSpace", None)
+        if wall is None or space is None or not wall.is_a("IfcWall"):
+            continue
+        wall_to_spaces[wall.GlobalId].add(space.GlobalId)
+    return {wall_id: sorted(space_ids) for wall_id, space_ids in wall_to_spaces.items()}
+
+
+def _get_floor(element: Any, storey_floors: dict[str, int]) -> int | None:
+    container = ifcopenshell.util.element.get_container(element)
+    if container is not None and container.is_a("IfcBuildingStorey"):
+        return storey_floors.get(container.GlobalId)
+
+    for rel in getattr(element, "Decomposes", []) or []:
+        relating = getattr(rel, "RelatingObject", None)
+        if relating is not None and relating.is_a("IfcBuildingStorey"):
+            return storey_floors.get(relating.GlobalId)
+    return None
+
+
+def _get_placement_matrix(element: Any) -> Any | None:
+    placement = getattr(element, "ObjectPlacement", None)
+    if placement is None:
+        return None
+    try:
+        return ifcopenshell.util.placement.get_local_placement(placement)
+    except Exception:
+        return None
+
+
+def _parse_rects_json(value: Any) -> list[dict[str, Any]] | None:
+    if not value:
+        return None
+    if isinstance(value, str):
+        try:
+            data = json.loads(value)
+        except json.JSONDecodeError:
+            return None
+        return data if isinstance(data, list) else None
+    if isinstance(value, list):
+        return value
+    return None
+
+
+def _rects_to_polygon(rects: list[dict[str, Any]]) -> list[tuple[float, float]] | None:
+    polygons = []
+    for rect in rects:
+        x = float(rect["x"])
+        y = float(rect["y"])
+        width = float(rect["width"])
+        height = float(rect["height"])
+        polygons.append([(x, y), (x + width, y), (x + width, y + height), (x, y + height)])
+    return _union_outer_polygon(polygons)
+
+
+def _extract_space_body_polygon(space: Any) -> list[tuple[float, float]] | None:
+    representation = getattr(space, "Representation", None)
+    if representation is None:
+        return None
+    for shape in representation.Representations or []:
+        if getattr(shape, "RepresentationIdentifier", None) != "Body":
+            continue
+        for item in shape.Items or []:
+            if item.is_a("IfcExtrudedAreaSolid"):
+                swept_area = getattr(item, "SweptArea", None)
+                if swept_area is not None and swept_area.is_a("IfcRectangleProfileDef"):
+                    return _rectangle_profile_polygon_mm(swept_area)
+            if item.is_a("IfcFacetedBrep"):
+                polygon = _brep_to_footprint_polygon(item)
+                if polygon:
+                    return polygon
+    return None
+
+
+def _rectangle_profile_polygon_mm(profile: Any) -> list[tuple[float, float]]:
+    width_m = float(profile.XDim)
+    height_m = float(profile.YDim)
+    points_m = [
+        (-width_m / 2.0, -height_m / 2.0),
+        (width_m / 2.0, -height_m / 2.0),
+        (width_m / 2.0, height_m / 2.0),
+        (-width_m / 2.0, height_m / 2.0),
+    ]
+    return [
+        _apply_axis2_placement2d_m_to_mm(point, getattr(profile, "Position", None))
+        for point in points_m
+    ]
+
+
+def _extract_space_geometry_bbox_polygon(space: Any) -> list[tuple[float, float]] | None:
+    try:
+        settings = ifcopenshell.geom.settings()
+        settings.set("use-world-coords", True)
+        shape = ifcopenshell.geom.create_shape(settings, space)
+    except Exception:
+        return None
+
+    verts = list(getattr(shape.geometry, "verts", []) or [])
+    if len(verts) < 9:
+        return None
+
+    # IfcOpenShell geometry vertices are emitted in metres, independent of IFC length prefix.
+    xs = [float(value) * 1000.0 for value in verts[0::3]]
+    ys = [float(value) * 1000.0 for value in verts[1::3]]
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+    if math.isclose(min_x, max_x) or math.isclose(min_y, max_y):
+        return None
+    return [(min_x, min_y), (max_x, min_y), (max_x, max_y), (min_x, max_y)]
+
+
+def _extract_space_footprint_polygon(space: Any) -> list[tuple[float, float]] | None:
+    representation = getattr(space, "Representation", None)
+    if representation is None:
+        return None
+    for shape in representation.Representations or []:
+        if getattr(shape, "RepresentationIdentifier", None) != "FootPrint":
+            continue
+        for item in shape.Items or []:
+            if not item.is_a("IfcGeometricCurveSet"):
+                continue
+            for element in item.Elements or []:
+                if element.is_a("IfcPolyline") and len(element.Points) >= 3:
+                    return [
+                        (
+                            _model_to_mm(point.Coordinates[0]),
+                            _model_to_mm(point.Coordinates[1]),
+                        )
+                        for point in element.Points
+                    ]
+    return None
+
+
+def _brep_to_footprint_polygon(brep: Any) -> list[tuple[float, float]] | None:
+    shell = getattr(brep, "Outer", None)
+    if shell is None:
+        return None
+
+    candidates: list[list[tuple[float, float]]] = []
+    for face in shell.CfsFaces or []:
+        for bound in face.Bounds or []:
+            loop = getattr(bound, "Bound", None)
+            polygon = []
+            for point in getattr(loop, "Polygon", []) or []:
+                coords = tuple(getattr(point, "Coordinates", ()) or ())
+                if len(coords) < 2:
+                    continue
+                polygon.append((_model_to_mm(coords[0]), _model_to_mm(coords[1])))
+            if len(polygon) >= 3:
+                normalized = _normalize_polygon(polygon)
+                area = abs(_signed_area(normalized))
+                if area > 0:
+                    candidates.append(normalized)
+    if not candidates:
+        return None
+    return max(candidates, key=lambda polygon: abs(_signed_area(polygon)))
+
+
+def _extract_space_name(space: Any, psets: dict[str, Any]) -> str:
+    name = getattr(space, "Name", None)
+    long_name = getattr(space, "LongName", None)
+    if (
+        isinstance(name, str)
+        and name.strip().isdigit()
+        and (
+            not isinstance(long_name, str)
+            or long_name.strip().lower() in _GENERIC_SPACE_NAMES
+        )
+    ):
+        return f"{name.strip()}번방"
+
+    candidates = [
+        long_name,
+        psets.get("Batang_SpaceDimensions", {}).get("Name"),
+        psets.get("ArchiCADProperties", {}).get("Raumname"),
+        name,
+        space.GlobalId,
+    ]
+    for candidate in candidates:
+        if isinstance(candidate, str):
+            normalized = candidate.strip()
+            if normalized:
+                return normalized
+    return space.GlobalId
+
+
+def _extract_space_type(space: Any, psets: dict[str, Any], dims: dict[str, Any]) -> str:
+    explicit = dims.get("SpaceType")
+    if isinstance(explicit, str) and explicit.strip():
+        return explicit.strip()
+
+    # Batang BE 생성 IFC는 Pset_BatangLayoutImportRoom.RoomType에 타입을 저장한다.
+    batang_room_type = psets.get("Pset_BatangLayoutImportRoom", {}).get("RoomType")
+    if (
+        isinstance(batang_room_type, str)
+        and batang_room_type.strip()
+        and batang_room_type.strip() != "other"
+    ):
+        return batang_room_type.strip()
+
+    candidates = [
+        getattr(space, "LongName", None),
+        psets.get("ArchiCADProperties", {}).get("Raumname"),
+        getattr(space, "Name", None),
+    ]
+    for candidate in candidates:
+        if not isinstance(candidate, str):
+            continue
+        lowered = candidate.strip().lower()
+        if not lowered:
+            continue
+        for space_type, keywords in _SPACE_TYPE_KEYWORDS.items():
+            if any(keyword in lowered for keyword in keywords):
+                return space_type
+    return "other"
+
+
+def _extract_wall_start_end(wall: Any) -> tuple[tuple[float, float], tuple[float, float]] | None:
+    placement = _get_placement_matrix(wall)
+    axis_points = _extract_wall_axis_points_mm(wall, placement)
+    if axis_points is not None:
+        return axis_points
+
+    body_segment = _extract_wall_body_segment_mm(wall, placement)
+    if body_segment is not None:
+        return body_segment
+
+    if placement is None:
+        return None
+
+    length_mm = _get_wall_length_mm(wall)
+    if length_mm is None:
+        return None
+
+    start = (_model_to_mm(placement[0][3]), _model_to_mm(placement[1][3]))
+    end = (
+        start[0] + placement[0][0] * length_mm,
+        start[1] + placement[1][0] * length_mm,
+    )
+    return start, end
+
+
+def _extract_wall_axis_points_mm(
+    wall: Any, placement: Any | None
+) -> tuple[tuple[float, float], tuple[float, float]] | None:
+    representation = getattr(wall, "Representation", None)
+    if representation is None:
+        return None
+    for shape in representation.Representations or []:
+        if getattr(shape, "RepresentationIdentifier", None) != "Axis":
+            continue
+        for item in shape.Items or []:
+            if not item.is_a("IfcPolyline") or len(item.Points) < 2:
+                continue
+            first = item.Points[0].Coordinates
+            last = item.Points[-1].Coordinates
+            start = _point_to_mm(first, placement)
+            end = _point_to_mm(last, placement)
+            return start, end
+    return None
+
+
+def _get_wall_length_mm(wall: Any) -> float | None:
+    axis_points = _extract_wall_axis_points_mm(wall, _get_placement_matrix(wall))
+    if axis_points is not None:
+        start, end = axis_points
+        return math.dist(start, end)
+
+    psets = ifcopenshell.util.element.get_psets(wall)
+    length = psets.get("Qto_WallBaseQuantities", {}).get("Length")
+    if isinstance(length, int | float):
+        return _model_to_mm(length)
+
+    representation = getattr(wall, "Representation", None)
+    if representation is None:
+        return None
+    for shape in representation.Representations or []:
+        if getattr(shape, "RepresentationIdentifier", None) == "Box":
+            for item in shape.Items or []:
+                length = _wall_box_length_mm(item)
+                if length is not None:
+                    return length
+        if getattr(shape, "RepresentationIdentifier", None) != "Body":
+            continue
+        for item in shape.Items or []:
+            length = _wall_body_item_length_mm(item)
+            if length is not None:
+                return length
+    return None
+
+
+def _extract_wall_body_segment_mm(
+    wall: Any, placement: Any | None
+) -> tuple[tuple[float, float], tuple[float, float]] | None:
+    representation = getattr(wall, "Representation", None)
+    if representation is None:
+        return None
+
+    for shape in representation.Representations or []:
+        if getattr(shape, "RepresentationIdentifier", None) != "Body":
+            continue
+        for item in shape.Items or []:
+            local_segment = _wall_body_item_plan_segment_mm(item)
+            if local_segment is not None:
+                start, end = local_segment
+                return _apply_placement_mm(start, placement), _apply_placement_mm(end, placement)
+
+    for shape in representation.Representations or []:
+        if getattr(shape, "RepresentationIdentifier", None) != "Box":
+            continue
+        for item in shape.Items or []:
+            local_segment = _wall_box_plan_segment_mm(item)
+            if local_segment is not None:
+                start, end = local_segment
+                return _apply_placement_mm(start, placement), _apply_placement_mm(end, placement)
+    return None
+
+
+def _wall_body_item_plan_segment_mm(
+    item: Any,
+) -> tuple[tuple[float, float], tuple[float, float]] | None:
+    current = item
+    while hasattr(current, "FirstOperand"):
+        current = current.FirstOperand
+
+    if not current.is_a("IfcExtrudedAreaSolid"):
+        return None
+
+    segment = _wall_profile_plan_segment_mm(getattr(current, "SweptArea", None))
+    if segment is None:
+        return None
+    return (
+        _apply_axis2_placement3d_mm(segment[0], getattr(current, "Position", None)),
+        _apply_axis2_placement3d_mm(segment[1], getattr(current, "Position", None)),
+    )
+
+
+def _wall_profile_plan_segment_mm(
+    profile: Any | None,
+) -> tuple[tuple[float, float], tuple[float, float]] | None:
+    if profile is None:
+        return None
+    if profile.is_a("IfcRectangleProfileDef"):
+        x_dim = getattr(profile, "XDim", None)
+        y_dim = getattr(profile, "YDim", None)
+        if not isinstance(x_dim, int | float) or not isinstance(y_dim, int | float):
+            return None
+        x_dim = float(x_dim)
+        y_dim = float(y_dim)
+        if x_dim <= 0.0 or y_dim <= 0.0:
+            return None
+        if x_dim >= y_dim:
+            points_m = ((-x_dim / 2.0, 0.0), (x_dim / 2.0, 0.0))
+        else:
+            points_m = ((0.0, -y_dim / 2.0), (0.0, y_dim / 2.0))
+        return tuple(
+            _apply_axis2_placement2d_m_to_mm(point, getattr(profile, "Position", None))
+            for point in points_m
+        )  # type: ignore[return-value]
+
+    if not profile.is_a("IfcArbitraryClosedProfileDef"):
+        return None
+    curve = getattr(profile, "OuterCurve", None)
+    if curve is None or not curve.is_a("IfcPolyline"):
+        return None
+    points = getattr(curve, "Points", []) or []
+    coordinates = [
+        tuple(getattr(point, "Coordinates", ()) or ())
+        for point in points
+    ]
+    xy_points = [(float(coords[0]), float(coords[1])) for coords in coordinates if len(coords) >= 2]
+    if len(xy_points) < 2:
+        return None
+    xs = [point[0] for point in xy_points]
+    ys = [point[1] for point in xy_points]
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+    if (max_x - min_x) >= (max_y - min_y):
+        points_m = ((min_x, (min_y + max_y) / 2.0), (max_x, (min_y + max_y) / 2.0))
+    else:
+        points_m = (((min_x + max_x) / 2.0, min_y), ((min_x + max_x) / 2.0, max_y))
+    return tuple(
+        _apply_axis2_placement2d_m_to_mm(point, getattr(profile, "Position", None))
+        for point in points_m
+    )  # type: ignore[return-value]
+
+
+def _wall_box_plan_segment_mm(
+    item: Any,
+) -> tuple[tuple[float, float], tuple[float, float]] | None:
+    if not item.is_a("IfcBoundingBox"):
+        return None
+    corner = getattr(item, "Corner", None)
+    coordinates = tuple(getattr(corner, "Coordinates", ()) or ())
+    if len(coordinates) < 2:
+        return None
+    x_dim = getattr(item, "XDim", None)
+    y_dim = getattr(item, "YDim", None)
+    if not isinstance(x_dim, int | float) or not isinstance(y_dim, int | float):
+        return None
+    x_dim = float(x_dim)
+    y_dim = float(y_dim)
+    if x_dim <= 0.0 or y_dim <= 0.0:
+        return None
+    x0 = float(coordinates[0])
+    y0 = float(coordinates[1])
+    if x_dim >= y_dim:
+        start = (x0, y0 + y_dim / 2.0)
+        end = (x0 + x_dim, y0 + y_dim / 2.0)
+    else:
+        start = (x0 + x_dim / 2.0, y0)
+        end = (x0 + x_dim / 2.0, y0 + y_dim)
+    return (
+        (_model_to_mm(start[0]), _model_to_mm(start[1])),
+        (_model_to_mm(end[0]), _model_to_mm(end[1])),
+    )
+
+
+def _wall_box_length_mm(item: Any) -> float | None:
+    if not item.is_a("IfcBoundingBox"):
+        return None
+    dimensions = [
+        _model_to_mm(value)
+        for value in (getattr(item, "XDim", None), getattr(item, "YDim", None))
+        if isinstance(value, int | float) and float(value) > 0.0
+    ]
+    return max(dimensions) if dimensions else None
+
+
+def _wall_body_item_length_mm(item: Any) -> float | None:
+    current = item
+    while hasattr(current, "FirstOperand"):
+        current = current.FirstOperand
+
+    if not current.is_a("IfcExtrudedAreaSolid"):
+        return None
+
+    profile_length = _wall_profile_plan_length_mm(getattr(current, "SweptArea", None))
+    if profile_length is not None:
+        return profile_length
+
+    direction = getattr(current, "ExtrudedDirection", None)
+    ratios = tuple(getattr(direction, "DirectionRatios", ()) or ())
+    z_ratio = abs(float(ratios[2])) if len(ratios) >= 3 else 1.0
+    depth = getattr(current, "Depth", None)
+    if z_ratio < 0.5 and isinstance(depth, int | float):
+        return _model_to_mm(depth)
+    return None
+
+
+def _wall_profile_plan_length_mm(profile: Any | None) -> float | None:
+    if profile is None:
+        return None
+    if profile.is_a("IfcRectangleProfileDef"):
+        dimensions = [
+            _model_to_mm(value)
+            for value in (getattr(profile, "XDim", None), getattr(profile, "YDim", None))
+            if isinstance(value, int | float) and float(value) > 0.0
+        ]
+        return max(dimensions) if dimensions else None
+
+    if not profile.is_a("IfcArbitraryClosedProfileDef"):
+        return None
+    curve = getattr(profile, "OuterCurve", None)
+    if curve is None or not curve.is_a("IfcPolyline"):
+        return None
+    points = getattr(curve, "Points", []) or []
+    coordinates = [
+        tuple(getattr(point, "Coordinates", ()) or ())
+        for point in points
+    ]
+    xy_points = [(float(coords[0]), float(coords[1])) for coords in coordinates if len(coords) >= 2]
+    if len(xy_points) < 2:
+        return None
+    xs = [point[0] for point in xy_points]
+    ys = [point[1] for point in xy_points]
+    return _model_to_mm(max(max(xs) - min(xs), max(ys) - min(ys)))
+
+
+def _get_host_wall_id(element: Any) -> str | None:
+    for fills in getattr(element, "FillsVoids", []) or []:
+        opening = getattr(fills, "RelatingOpeningElement", None)
+        if opening is None:
+            continue
+        host_wall_id = _get_opening_host_wall_id(opening)
+        if host_wall_id is not None:
+            return host_wall_id
+    return None
+
+
+def _get_opening_host_wall_id(opening: Any) -> str | None:
+    for rel in getattr(opening, "VoidsElements", []) or []:
+        host = getattr(rel, "RelatingBuildingElement", None)
+        if host is not None and host.is_a("IfcWall"):
+            return host.GlobalId
+    return None
+
+
+def _project_position_on_wall(element: Any, wall: WallContext, width: int) -> int | None:
+    placement = _get_placement_matrix(element)
+    if placement is None:
+        return None
+
+    point = (_model_to_mm(placement[0][3]), _model_to_mm(placement[1][3]))
+    start = wall["start"]
+    end = wall["end"]
+    dx = end[0] - start[0]
+    dy = end[1] - start[1]
+    length = math.hypot(dx, dy)
+    if length == 0:
+        return None
+
+    ux = dx / length
+    uy = dy / length
+    offset = (point[0] - start[0]) * ux + (point[1] - start[1]) * uy
+    return int(round(offset + width / 2))
+
+
+def _opening_world_point_from_element(element: Any) -> tuple[float, float] | None:
+    placement = _get_placement_matrix(element)
+    if placement is None:
+        return None
+    return (_model_to_mm(placement[0][3]), _model_to_mm(placement[1][3]))
+
+
+def _resolve_window_adjacent_space_id(
+    *,
+    wall: WallContext,
+    spaces_by_id: dict[str, SpaceContext],
+    boundary: BoundaryContext | None,
+    point_mm: tuple[float, float],
+) -> str | None:
+    if len(wall["space_ids"]) == 1:
+        return wall["space_ids"][0]
+    if boundary is None:
+        return None
+    if not _wall_segment_on_outer_polygon(wall, boundary["outer_polygon"]):
+        return None
+    point = cast(Any, ShapelyPoint)(point_mm)
+    matches: list[str] = []
+    for space_id in wall["space_ids"]:
+        space = spaces_by_id.get(space_id)
+        polygon = space["polygon"] if space is not None else None
+        if not polygon:
+            continue
+        if shapely_contains(cast(Any, ShapelyPolygon)(polygon).buffer(400.0), point):
+            matches.append(space_id)
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
+def _wall_segment_on_outer_polygon(
+    wall: WallContext,
+    outer_polygon: list[tuple[float, float]],
+) -> bool:
+    wall_line = cast(Any, ShapelyLineString)([tuple(wall["start"]), tuple(wall["end"])])
+    outer_line = cast(Any, ShapelyLineString)([*outer_polygon, outer_polygon[0]])
+    return wall_line.distance(outer_line) <= 400.0
+
+
+def _apply_placement_mm(point: tuple[float, float], placement: Any | None) -> tuple[float, float]:
+    lx, ly = point
+    if placement is None:
+        return (lx, ly)
+    wx = placement[0][0] * lx + placement[0][1] * ly + _model_to_mm(placement[0][3])
+    wy = placement[1][0] * lx + placement[1][1] * ly + _model_to_mm(placement[1][3])
+    return (float(wx), float(wy))
+
+
+def _axis2_ref_direction_xy(placement: Any | None) -> tuple[float, float]:
+    ref_direction = getattr(placement, "RefDirection", None) if placement is not None else None
+    ratios = tuple(getattr(ref_direction, "DirectionRatios", ()) or ())
+    x_axis = float(ratios[0]) if len(ratios) >= 1 else 1.0
+    y_axis = float(ratios[1]) if len(ratios) >= 2 else 0.0
+    length = math.hypot(x_axis, y_axis)
+    if length <= 0.0:
+        return (1.0, 0.0)
+    return (x_axis / length, y_axis / length)
+
+
+def _apply_axis2_placement2d_m_to_mm(
+    point_m: tuple[float, float],
+    placement: Any | None,
+) -> tuple[float, float]:
+    location = getattr(placement, "Location", None) if placement is not None else None
+    coordinates = tuple(getattr(location, "Coordinates", ()) or ())
+    loc_x = float(coordinates[0]) if len(coordinates) >= 1 else 0.0
+    loc_y = float(coordinates[1]) if len(coordinates) >= 2 else 0.0
+    x_axis, y_axis = _axis2_ref_direction_xy(placement)
+    parent_x = loc_x + point_m[0] * x_axis - point_m[1] * y_axis
+    parent_y = loc_y + point_m[0] * y_axis + point_m[1] * x_axis
+    return (_model_to_mm(parent_x), _model_to_mm(parent_y))
+
+
+def _apply_axis2_placement3d_mm(
+    point_mm: tuple[float, float],
+    placement: Any | None,
+) -> tuple[float, float]:
+    if placement is None:
+        return point_mm
+    unit_to_mm = _MODEL_UNIT_TO_MM.get()
+    return _apply_axis2_placement2d_m_to_mm(
+        (point_mm[0] / unit_to_mm, point_mm[1] / unit_to_mm),
+        placement,
+    )
+
+
+def _point_to_mm(coords: Any, placement: Any | None) -> tuple[float, float]:
+    x = _model_to_mm(coords[0])
+    y = _model_to_mm(coords[1])
+    return _apply_placement_mm((x, y), placement)
+
+
+def _placement_angle_deg(placement: Any | None) -> float | None:
+    if placement is None:
+        return None
+    return math.degrees(math.atan2(placement[1][0], placement[0][0]))
+
+
+def _normalize_polygon(points: list[tuple[float, float]]) -> list[tuple[float, float]]:
+    if len(points) >= 2 and points[0] == points[-1]:
+        points = points[:-1]
+    if _signed_area(points) < 0:
+        points = list(reversed(points))
+    return points
+
+
+def _normalize_segment(
+    start: tuple[float, float], end: tuple[float, float]
+) -> tuple[tuple[float, float], tuple[float, float]]:
+    if start[0] > end[0] or (math.isclose(start[0], end[0]) and start[1] > end[1]):
+        return end, start
+    return start, end
+
+
+def _detect_model_unit_to_mm(ifc: ifcopenshell.file) -> float:
+    project = next(iter(ifc.by_type("IfcProject")), None)
+    unit_assignment = getattr(project, "UnitsInContext", None) if project is not None else None
+    if unit_assignment is None:
+        return 1000.0
+
+    length_unit = next(
+        (
+            unit
+            for unit in getattr(unit_assignment, "Units", []) or []
+            if unit and getattr(unit, "UnitType", None) == "LENGTHUNIT"
+        ),
+        None,
+    )
+    if length_unit is None:
+        raise UnsupportedIfcLengthUnitError("Unsupported IFC length unit: missing LENGTHUNIT")
+    if not length_unit.is_a("IfcSIUnit"):
+        raise UnsupportedIfcLengthUnitError(
+            f"Unsupported IFC length unit type: {length_unit.is_a()}"
+        )
+    if getattr(length_unit, "Name", None) != "METRE":
+        raise UnsupportedIfcLengthUnitError(
+            f"Unsupported IFC length unit: {getattr(length_unit, 'Name', None)}"
+        )
+    prefix = getattr(length_unit, "Prefix", None)
+    if prefix in (None, ""):
+        return 1000.0
+    if prefix == "MILLI":
+        return 1.0
+    if prefix == "CENTI":
+        return 10.0
+    if prefix == "DECI":
+        return 100.0
+    raise UnsupportedIfcLengthUnitError(f"Unsupported IFC length unit prefix: {prefix}")
+
+
+def _model_to_mm(value: Any) -> float:
+    return float(value) * _MODEL_UNIT_TO_MM.get()
+
+
+def _signed_area(points: list[tuple[float, float]]) -> float:
+    if len(points) < 3:
+        return 0.0
+    area = 0.0
+    for index, (x1, y1) in enumerate(points):
+        x2, y2 = points[(index + 1) % len(points)]
+        area += x1 * y2 - x2 * y1
+    return area / 2.0
+
+
+def _bbox(points: list[tuple[float, float]]) -> tuple[float, float, float, float]:
+    xs = [point[0] for point in points]
+    ys = [point[1] for point in points]
+    return min(xs), min(ys), max(xs), max(ys)
+
+
+def _union_outer_polygon(polygons: list[list[tuple[float, float]]]) -> list[tuple[float, float]]:
+    shape_polygons = [
+        cast(Any, ShapelyPolygon)(polygon) for polygon in polygons if len(polygon) >= 3
+    ]
+    if shape_polygons:
+        merged = shapely_union_all(shape_polygons)
+        if merged.geom_type == "MultiPolygon":
+            # IFC space polygons usually describe the interior face of walls.
+            # When multiple rooms are separated by wall thickness, the raw union can
+            # split the same storey outline into disconnected islands. Bridge small
+            # gaps first so the extracted floor boundary still matches the building
+            # exterior used by walls/openings.
+            merged = shapely_union_all(
+                [geom.buffer(400.0, join_style=2) for geom in merged.geoms]
+            ).buffer(-400.0, join_style=2)
+            if merged.geom_type == "MultiPolygon":
+                merged = max(merged.geoms, key=lambda geom: geom.area)
+        return _normalize_polygon(
+            [(float(x), float(y)) for x, y in merged.exterior.coords[:-1]]
+        )
+
+    all_points = [point for polygon in polygons for point in polygon]
+    min_x, min_y, max_x, max_y = _bbox(all_points)
+    return _normalize_polygon(
+        [(min_x, min_y), (max_x, min_y), (max_x, max_y), (min_x, max_y)]
+    )
+
+
+def _mm_from_custom_value(value: Any, min_value: int | None = None) -> int | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        mm_value = round(float(value))
+        if min_value is not None and mm_value < min_value:
+            return None
+        return mm_value
+    return None
+
+
+def _mm_from_ifc_length(value: Any, default: int) -> int:
+    if isinstance(value, int | float):
+        return round(_model_to_mm(value))
+    return default

@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://a204.batang/shared/schemas/error_detail_artifact.v1.schema.json",
+  "title": "ErrorDetailArtifactV1",
+  "description": "MinIO error/error-detail.v1.json 에 기록되는 아티팩트. 워커 처리 실패 시 오류 상세 정보를 담는다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "error_code",
+    "error_message",
+    "error_class",
+    "job_id",
+    "step_no",
+    "timestamp",
+    "uploaded_artifacts"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "v1"
+    },
+    "error_code": {
+      "type": "string",
+      "minLength": 1,
+      "description": "오류 분류 코드. 예: CLARIFICATION_REQUIRED, UNSUPPORTED_IFC_SCHEMA"
+    },
+    "error_message": {
+      "type": "string",
+      "minLength": 1
+    },
+    "error_class": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Python 예외 클래스 이름."
+    },
+    "job_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "step_no": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "validation_issues": {
+      "description": "검증 실패 시 상세 이슈 목록. 없으면 null.",
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["code", "severity", "message"],
+            "properties": {
+              "code": { "type": "string", "minLength": 1 },
+              "severity": { "type": "string", "enum": ["error", "warning"] },
+              "message": { "type": "string", "minLength": 1 },
+              "context": { "type": "object" }
+            }
+          }
+        },
+        { "type": "null" }
+      ]
+    },
+    "uploaded_artifacts": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "실패 전까지 성공적으로 업로드된 MinIO 경로 목록."
+    },
+    "failed_artifact": {
+      "description": "실패가 발생한 아티팩트 이름. 없으면 null.",
+      "oneOf": [{ "type": "string", "minLength": 1 }, { "type": "null" }]
+    }
+  }
+}

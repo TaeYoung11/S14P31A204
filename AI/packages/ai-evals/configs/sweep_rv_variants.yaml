@@ -1,0 +1,44 @@
+# Img2img 변형 프리셋 비교 스윕 — Realistic Vision V6
+#
+# 목적: 기본 4개 + 변형 8개(총 12개) 프리셋 간 품질 비교
+# 실행 순서: sweep_default.yaml 로 best (strength, guidance) 확정 후 이 config 실행
+#
+# !! strength / guidance_scale 값은 sweep_default 결과 분석 후 교체 !!
+#
+# 스윕 규모: len(fixtures) × len(presets) × strength × guidance × steps
+# 예: 4 × 12 × 3 × 2 × 1 = 288 렌더/run (~GPU 50분)
+#
+# 사용법:
+#   uv run python -m ai_evals.runners.img2img_sweep \
+#     --config packages/ai-evals/configs/sweep_rv_variants.yaml
+
+model:
+  id: SG161222/Realistic_Vision_V6.0_B1_noVAE
+
+seed: 42
+
+fixtures:
+  - packages/ai-rendering/tests/fixtures/input/input (1).jpg
+  - packages/ai-rendering/tests/fixtures/input/input (2).jpg
+  - packages/ai-rendering/tests/fixtures/input/input (3).jpg
+
+presets:
+  # 기본 프리셋
+  - scandinavian
+  - industrial
+  - japanese
+  # 변형 프리셋 — scandinavian
+  - scandinavian_minimal
+  - scandinavian_warm
+  # 변형 프리셋 — industrial
+  - industrial_raw
+  - industrial_polished
+  # 변형 프리셋 — japanese
+  - japanese_traditional
+  - japanese_modern
+
+# sweep_default.yaml 결과 분석 후 best (strength, guidance) 로 교체
+sweep:
+  strength: [0.68, 0.70, 0.72]
+  guidance_scale: [7, 9]
+  num_inference_steps: [25]

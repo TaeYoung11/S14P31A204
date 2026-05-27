@@ -1,0 +1,240 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://a204.batang/shared/schemas/revision_manifest.schema.json",
+  "title": "RevisionManifest",
+  "description": "Immutable revision metadata stored alongside revision artifacts.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "revision_id",
+    "project_id",
+    "revision_no",
+    "status",
+    "created_by",
+    "created_at",
+    "scene_states",
+    "artifacts"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "v1"
+    },
+    "revision_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "parent_revision_id": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "revision_no": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": ["draft", "ready", "applied", "failed", "archived"]
+    },
+    "title": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "summary": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "created_by": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "source_job_id": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "scene_states": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/sceneStateRef"
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/artifactRef"
+      }
+    },
+    "validation_report": {
+      "$ref": "#/$defs/validationReport"
+    }
+  },
+  "$defs": {
+    "sceneStateRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scene_type", "schema_version", "storage_url"],
+      "properties": {
+        "scene_type": {
+          "type": "string",
+          "enum": ["SCENE_2D", "SCENE_3D", "LAYOUT_IMPORT", "SCENE_RENDER"]
+        },
+        "schema_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "storage_url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "size_bytes": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        }
+      }
+    },
+    "artifactRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["artifact_id", "artifact_type", "file_name", "mime_type", "storage_url"],
+      "properties": {
+        "artifact_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "artifact_type": {
+          "$ref": "#/$defs/artifactType"
+        },
+        "file_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "mime_type": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 255
+        },
+        "storage_url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "size_bytes": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        }
+      }
+    },
+    "artifactType": {
+      "type": "string",
+      "enum": [
+        "scene_2d_snapshot",
+        "scene_3d_context",
+        "planner_2d_result",
+        "planner_3d_result",
+        "engine_request",
+        "engine_preview_result",
+        "engine_apply_result",
+        "validation_report",
+        "ifc_model",
+        "render_image",
+        "revision_manifest"
+      ]
+    },
+    "validationReport": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "passed",
+        "checked_element_count",
+        "collision_count",
+        "structural_risk_count",
+        "issues"
+      ],
+      "properties": {
+        "passed": {
+          "type": "boolean"
+        },
+        "checked_element_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "collision_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "structural_risk_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/validationIssue"
+          }
+        }
+      }
+    },
+    "validationIssue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operation_id",
+        "element_global_id",
+        "element_type",
+        "code",
+        "severity",
+        "message"
+      ],
+      "properties": {
+        "operation_id": {
+          "type": "string"
+        },
+        "element_global_id": {
+          "type": "string"
+        },
+        "element_type": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string",
+          "enum": ["COLLISION", "STRUCTURAL_RISK"]
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["error", "warning", "info"]
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

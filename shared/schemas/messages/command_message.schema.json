@@ -1,0 +1,327 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://a204.batang/shared/schemas/messages/command_message.schema.json",
+  "title": "WorkerCommandMessage",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "message_id",
+    "schema_version",
+    "message_type",
+    "command_type",
+    "routing_key",
+    "job_id",
+    "job_step_id",
+    "step_no",
+    "total_steps",
+    "project_id",
+    "requested_by",
+    "expected_output_artifact_id",
+    "expected_output",
+    "payload",
+    "attempt_no",
+    "max_attempts",
+    "idempotency_key",
+    "correlation_id",
+    "created_at"
+  ],
+  "properties": {
+    "message_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "schema_version": {
+      "const": "v1"
+    },
+    "message_type": {
+      "type": "string",
+      "enum": ["COMMAND"]
+    },
+    "command_type": {
+      "type": "string",
+      "enum": [
+        "TWO_D_LLM_GENERATE",
+        "THREE_D_LLM_GENERATE",
+        "SD_RENDER_GENERATE",
+        "IFC_GENERATE_FROM_BUBBLE",
+        "IFC_EDIT_APPLY"
+      ]
+    },
+    "routing_key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "job_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "job_step_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "step_no": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "total_steps": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "requested_by": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "source_revision_id": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "source_scene_state_id": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "source_scene_type": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "target_revision_id": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "expected_output_artifact_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "input": {
+      "$ref": "#/$defs/commandInputRef"
+    },
+    "expected_output": {
+      "$ref": "#/$defs/expectedOutputRef"
+    },
+    "payload": {
+      "type": "object"
+    },
+    "attempt_no": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "max_attempts": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "correlation_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "command_type": {
+            "const": "TWO_D_LLM_GENERATE"
+          }
+        },
+        "required": ["command_type"]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "https://a204.batang/shared/schemas/two_d_llm_generate.payload.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command_type": {
+            "const": "THREE_D_LLM_GENERATE"
+          }
+        },
+        "required": ["command_type"]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "https://a204.batang/shared/schemas/three_d_llm_generate.payload.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command_type": {
+            "const": "SD_RENDER_GENERATE"
+          }
+        },
+        "required": ["command_type"]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "https://a204.batang/shared/schemas/sd_render_generate.payload.schema.json"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command_type": {
+            "const": "IFC_GENERATE_FROM_BUBBLE"
+          }
+        },
+        "required": ["command_type"]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/ifcGeneratePayload"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command_type": {
+            "const": "IFC_EDIT_APPLY"
+          }
+        },
+        "required": ["command_type"]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "$ref": "#/$defs/ifcEditPayload"
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "storageUrl": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "commandInputRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source_scene_storage_url": {
+          "$ref": "#/$defs/storageUrl"
+        },
+        "source_image_storage_url": {
+          "$ref": "#/$defs/storageUrl"
+        },
+        "source_ifc_storage_url": {
+          "$ref": "#/$defs/storageUrl"
+        },
+        "command_json_storage_url": {
+          "$ref": "#/$defs/storageUrl"
+        }
+      }
+    },
+    "expectedOutputRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "edit_plan_storage_url": {
+          "$ref": "#/$defs/storageUrl"
+        },
+        "draft_plan_storage_url": {
+          "$ref": "#/$defs/storageUrl"
+        },
+        "three_d_plan_storage_url": {
+          "$ref": "#/$defs/storageUrl"
+        },
+        "render_image_storage_url": {
+          "$ref": "#/$defs/storageUrl"
+        },
+        "render_manifest_storage_url": {
+          "$ref": "#/$defs/storageUrl"
+        },
+        "render_photo_front_diagonal_left_storage_url": {
+          "$ref": "#/$defs/storageUrl"
+        },
+        "render_photo_front_diagonal_right_storage_url": {
+          "$ref": "#/$defs/storageUrl"
+        },
+        "ifc_storage_url": {
+          "$ref": "#/$defs/storageUrl"
+        },
+        "validation_report_storage_url": {
+          "$ref": "#/$defs/storageUrl"
+        },
+        "error_detail_storage_url": {
+          "$ref": "#/$defs/storageUrl"
+        }
+      }
+    },
+    "ifcEditPayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "engine_request": {
+          "$ref": "https://a204.batang/shared/schemas/engine_request.v2.schema.json"
+        },
+        "command_json_storage_url": {
+          "$ref": "#/$defs/storageUrl"
+        }
+      },
+      "oneOf": [
+        {
+          "required": ["engine_request"]
+        },
+        {
+          "required": ["command_json_storage_url"]
+        }
+      ]
+    },
+    "ifcGeneratePayload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["layout_import"],
+      "properties": {
+        "layout_import": {
+          "oneOf": [
+            {
+              "$ref": "https://a204.batang/shared/schemas/layout_import_v1.schema.json"
+            },
+            {
+              "$ref": "https://a204.batang/shared/schemas/layout_import_v2.schema.json"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,15 @@
+# 브랜치 보호
+branch="$(git rev-parse --abbrev-ref HEAD)"
+protected_branches="master develop FE BE"
+
+for protected in $protected_branches; do
+  if [ "$branch" = "$protected" ]; then
+    echo ""
+    echo "❌ 직접 커밋이 금지된 브랜치입니다: '$branch'"
+    echo "✅ Feature 브랜치를 생성해서 작업해주세요."
+    echo ""
+    exit 1
+  fi
+done
+
+cd FE && npx lint-staged

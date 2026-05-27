@@ -1,0 +1,16 @@
+[project]
+name = "ai-evals"
+version = "0.1.0"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "ai-common",
+    "ai-domain",
+    "ai-rendering",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ai_evals"]

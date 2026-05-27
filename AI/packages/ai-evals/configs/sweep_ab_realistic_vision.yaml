@@ -1,0 +1,23 @@
+# A/B 체크포인트 비교용 — Realistic Vision 측
+# model.id 만 vanilla 와 다름. 나머지 동일 (재현성 공정 비교)
+#
+# 첫 실행 시 ~4GB HuggingFace 다운로드 발생.
+#
+# 실행:
+#   uv run python -m ai_evals.runners.img2img_sweep \
+#     --config packages/ai-evals/configs/sweep_ab_realistic_vision.yaml
+
+model:
+  id: SG161222/Realistic_Vision_V5.1_noVAE
+
+seed: 42
+
+fixtures:
+  - packages/ai-rendering/tests/fixtures/input/image (17).png
+
+presets: [scandinavian]
+
+sweep:
+  strength: [0.65, 0.78]
+  guidance_scale: [9.5]
+  num_inference_steps: [25]

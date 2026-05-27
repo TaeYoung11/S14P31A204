@@ -1,0 +1,68 @@
+import { CollaborationPanel } from '../../panels/CollaborationPanel'
+import type { EditorRightPanelsProps } from './EditorRightPanels.types'
+import { buildCollaborationPanelProps } from './buildCollaborationPanelProps'
+
+type CollaborationDockProps = Pick<
+  EditorRightPanelsProps,
+  | 'selectedPinId'
+  | 'selectedPin'
+  | 'commentPins'
+  | 'commentNotifications'
+  | 'currentCollaborationUserType'
+  | 'currentCollaborationUserId'
+  | 'currentCollaborationUserName'
+  | 'onSelectPin'
+  | 'onCreateCommentReply'
+  | 'onResolvePin'
+  | 'onDeletePin'
+  | 'onResolveComment'
+  | 'resolvingPinId'
+  | 'deletingPinId'
+  | 'resolvingCommentId'
+>
+
+/**
+ * 협업 모드 전용 우측 도크
+ * - 버블 모드가 아닌 경우, 일반 패널 대신 협업 패널만 표시한다.
+ */
+export default function EditorRightPanelsCollaborationDock({
+  selectedPinId,
+  selectedPin,
+  commentPins,
+  commentNotifications,
+  currentCollaborationUserType,
+  currentCollaborationUserId,
+  currentCollaborationUserName,
+  onSelectPin,
+  onCreateCommentReply,
+  onResolvePin,
+  onDeletePin,
+  onResolveComment,
+  resolvingPinId,
+  deletingPinId,
+  resolvingCommentId,
+}: CollaborationDockProps) {
+  const collaborationPanelProps = buildCollaborationPanelProps({
+    selectedPinId,
+    selectedPin,
+    commentPins,
+    commentNotifications,
+    currentCollaborationUserType,
+    currentCollaborationUserId,
+    currentCollaborationUserName,
+    onSelectPin,
+    onCreateCommentReply,
+    onResolvePin,
+    onDeletePin,
+    onResolveComment,
+    resolvingPinId,
+    deletingPinId,
+    resolvingCommentId,
+  })
+
+  return (
+    <div className="relative z-[120] flex h-full min-h-0 w-[320px] shrink-0 flex-col overflow-hidden rounded-2xl border border-[#E2E6EF] bg-white shadow-sm">
+      <CollaborationPanel {...collaborationPanelProps} />
+    </div>
+  )
+}

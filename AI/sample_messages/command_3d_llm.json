@@ -1,0 +1,34 @@
+{
+  "messageId": "msg-3d-001",
+  "schemaVersion": "v1",
+  "messageType": "COMMAND",
+  "commandType": "THREE_D_LLM_GENERATE",
+  "routingKey": "command.three-d-llm.generate",
+  "jobId": "job-3d-001",
+  "jobStepId": "job-step-3d-001",
+  "stepNo": 2,
+  "totalSteps": 3,
+  "projectId": "project-alpha",
+  "requestedBy": "user-001",
+  "sourceRevisionId": "rev-source-002",
+  "sourceSceneStateId": "scene-state-002",
+  "sourceSceneType": "SCENE_3D",
+  "targetRevisionId": "rev-target-002",
+  "expectedOutputArtifactId": "artifact-3d-plan-001",
+  "input": {
+    "sourceSceneStorageUrl": "s3://batang-artifacts/jobs/job-3d-001/steps/2/source-scene.json"
+  },
+  "expectedOutput": {
+    "threeDPlanStorageUrl": "s3://batang-artifacts/jobs/job-3d-001/steps/2/3d-plan.json"
+  },
+  "payload": {
+    "schema_version": "v1",
+    "userInstruction": "주방과 거실의 연결감을 높이는 3D 배치안을 만들어줘",
+    "sourceSceneStorageUrl": "s3://batang-artifacts/jobs/job-3d-001/steps/2/source-scene.json"
+  },
+  "attemptNo": 0,
+  "maxAttempts": 3,
+  "idempotencyKey": "job-3d-001:2",
+  "correlationId": "corr-3d-001",
+  "createdAt": "2026-04-27T09:05:00Z"
+}

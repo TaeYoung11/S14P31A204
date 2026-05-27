@@ -1,0 +1,37 @@
+{
+  "messageId": "msg-ifc2img-render-001",
+  "schemaVersion": "v1",
+  "messageType": "COMMAND",
+  "commandType": "SD_RENDER_GENERATE",
+  "routingKey": "command.sd-render.generate",
+  "jobId": "job-ifc2img-render-001",
+  "jobStepId": "job-step-ifc2img-render-001",
+  "stepNo": 1,
+  "totalSteps": 1,
+  "projectId": "project-ifc2img-001",
+  "requestedBy": "user-001",
+  "sourceRevisionId": "rev-ifc2img-source-001",
+  "sourceSceneStateId": "scene-state-ifc2img-001",
+  "sourceSceneType": "IFC_MODEL",
+  "targetRevisionId": "rev-ifc2img-target-001",
+  "expectedOutputArtifactId": "artifact-ifc2img-render-001",
+  "input": {
+    "sourceIfcStorageUrl": "s3://batang-artifacts/smoke/ifc2img/input/source.ifc"
+  },
+  "expectedOutput": {
+    "renderManifestStorageUrl": "s3://batang-artifacts/projects/project-ifc2img-001/renders/artifact-ifc2img-render-001/manifest.v1.json",
+    "renderPhotoFrontDiagonalLeftStorageUrl": "s3://batang-artifacts/projects/project-ifc2img-001/renders/artifact-ifc2img-render-001/photo_front_diagonal_left.png",
+    "renderPhotoFrontDiagonalRightStorageUrl": "s3://batang-artifacts/projects/project-ifc2img-001/renders/artifact-ifc2img-render-001/photo_front_diagonal_right.png"
+  },
+  "payload": {
+    "renderMode": "ifc2img",
+    "preset": "korean_house",
+    "timeOfDay": "NIGHT",
+    "prompt": "Create two front diagonal exterior render photos from the source IFC model."
+  },
+  "attemptNo": 0,
+  "maxAttempts": 3,
+  "idempotencyKey": "job-ifc2img-render-001:1",
+  "correlationId": "corr-ifc2img-render-001",
+  "createdAt": "2026-05-08T00:00:00Z"
+}

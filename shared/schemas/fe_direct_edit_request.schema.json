@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://a204.batang/shared/schemas/fe_direct_edit_request.schema.json",
+  "title": "FeDirectEditRequest",
+  "description": "Request submitted by FE for direct edit without planner generation. Spring Boot can translate this directly to engine execution.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "request_id",
+    "project_id",
+    "base_revision_id",
+    "source_scene_type",
+    "submitted_by",
+    "engine_request"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "v1"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "base_revision_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "source_scene_state_id": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "source_scene_type": {
+      "type": "string",
+      "enum": ["SCENE_2D", "SCENE_3D"]
+    },
+    "submitted_by": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "engine_request": {
+      "$ref": "https://a204.batang/shared/schemas/engine_request.v2.schema.json"
+    },
+    "ui_context": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "allOf": [
+    {
+      "properties": {
+        "engine_request": {
+          "allOf": [
+            {
+              "$ref": "https://a204.batang/shared/schemas/engine_request.v2.schema.json"
+            },
+            {
+              "properties": {
+                "base_revision_id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                }
+              },
+              "required": ["base_revision_id"]
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "examples": [
+    {
+      "schema_version": "v1",
+      "request_id": "fe-edit-001",
+      "project_id": "project-001",
+      "base_revision_id": "rev-001",
+      "source_scene_state_id": "scene-state-001",
+      "source_scene_type": "SCENE_3D",
+      "submitted_by": "user-001",
+      "engine_request": {
+        "schema_version": "v2",
+        "request_id": "req-001",
+        "mode": "apply",
+        "project_id": "project-001",
+        "base_revision_id": "rev-001",
+        "operations": [
+          {
+            "id": "op-001",
+            "type": "transform_elements",
+            "selector": {
+              "global_ids": ["0J$AbcDEfGhijkLMNOpqrs"]
+            },
+            "parameters": {
+              "translation_mm": {
+                "x": 300,
+                "y": 0,
+                "z": 0
+              },
+              "rotation_deg": {
+                "axis": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 1
+                },
+                "angle": 90,
+                "pivot": "BBOX_CENTER"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

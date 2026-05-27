@@ -1,0 +1,59 @@
+# =========================
+# Environment variables
+# =========================
+.env
+.env.*
+!.env.example
+INFRA/.env
+BE/.env
+FE/.env
+AI/.env
+
+# =========================
+# Docker / Infra local files
+# =========================
+INFRA/backups/
+INFRA/data/
+INFRA/logs/
+docker-compose.override.yml
+
+# =========================
+# Backend - Spring Boot / Gradle
+# =========================
+BE/build/
+BE/.gradle/
+BE/out/
+BE/*.log
+
+# =========================
+# Frontend - React / Vite
+# =========================
+FE/node_modules/
+FE/dist/
+FE/build/
+FE/.vite/
+FE/*.log
+FE/.env.local
+
+# =========================
+# AI - Python
+# =========================
+AI/.venv/
+AI/venv/
+AI/__pycache__/
+AI/**/*.pyc
+AI/*.log
+
+# =========================
+# OS / Editor
+# =========================
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.claude/
+
+docker-compose.local.yml
+
+# AI Agent Guidelines
+AGENTS.md

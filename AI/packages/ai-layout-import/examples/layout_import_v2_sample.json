@@ -1,0 +1,75 @@
+{
+  "schema_version": "v2",
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "name": "sample-project",
+  "rooms": [
+    {
+      "id": "room-left-01",
+      "name": "Left Room",
+      "type": "living",
+      "width": 4200,
+      "height": 3800,
+      "floor": 1,
+      "x": 2100.0,
+      "y": 1900.0,
+      "angle": 0.0,
+      "locked": false,
+      "zoneId": "zone-common"
+    },
+    {
+      "id": "room-right-01",
+      "name": "Right Room",
+      "type": "bedroom",
+      "width": 4200,
+      "height": 3800,
+      "floor": 1,
+      "x": 6300.0,
+      "y": 1900.0,
+      "angle": 0.0,
+      "locked": false
+    }
+  ],
+  "zones": [
+    {
+      "id": "zone-common",
+      "name": "Common",
+      "color": "#FF5733"
+    }
+  ],
+  "adjacency": [
+    {
+      "from_room_id": "room-left-01",
+      "to_room_id": "room-right-01",
+      "strength": 0.8
+    }
+  ],
+  "boundaries": [
+    {
+      "floor": 1,
+      "polygon": [
+        [0.0, 0.0],
+        [8400.0, 0.0],
+        [8400.0, 3800.0],
+        [0.0, 3800.0]
+      ]
+    }
+  ],
+  "generation_options": {
+    "generate_spaces": true,
+    "generate_walls": true,
+    "generate_slabs": true,
+    "generate_roof": true,
+    "generate_openings": false
+  },
+  "modeling_defaults": {
+    "space_height_mm": 2700,
+    "wall_thickness_mm": 200,
+    "slab_thickness_mm": 180,
+    "roof_height_mm": 400
+  },
+  "generation_policy": {
+    "boundary_wall_mode": "outer_boundary",
+    "shared_wall_policy": "from_adjacency",
+    "roof_shape": "flat"
+  }
+}

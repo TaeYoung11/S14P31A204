@@ -1,0 +1,134 @@
+[project]
+name = "ai-workspace"
+version = "0.1.0"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "ai-layout-import",
+    "ai-authoring",
+    "ai-common",
+    "ai-domain",
+    "ai-evals",
+    "ai-planning",
+    "ai-planning-2d",
+    "ai-planning-3d",
+    "ai-rendering",
+    "httpx>=0.28.1",
+    "ifcopenshell>=0.8.5",
+    "instructor>=1.15.1",
+    "openai>=2.32.0",
+    "pydantic>=2.13.3",
+]
+
+[dependency-groups]
+lint = [
+    "ruff>=0.14.0",
+]
+test = [
+    "pytest>=9.0.0",
+    "pytest-asyncio>=1.3.0",
+]
+dev = [
+    "mypy>=1.18.0",
+    "pytest>=9.0.0",
+    "pytest-asyncio>=1.3.0",
+    "ruff>=0.14.0",
+    "types-shapely>=2.1.0.20260508",
+]
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+# PyTorch CUDA 12.6 wheel index — torch / torchvision 모두 이 인덱스에서 당김
+# (explicit=true). Docker 빌드의 pip --index-url 과 동일한 wheel 조합을
+# 강제해 로컬/CI/컨테이너 환경 간 PyTorch ABI drift 를 막는다.
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[tool.uv.sources]
+ai-authoring = { workspace = true }
+ai-common = { workspace = true }
+ai-domain = { workspace = true }
+ai-evals = { workspace = true }
+ai-layout-import = { workspace = true }
+ai-planning = { workspace = true }
+ai-planning-2d = { workspace = true }
+ai-planning-3d = { workspace = true }
+ai-rendering = { workspace = true }
+torch = { index = "pytorch-cu126" }
+torchvision = { index = "pytorch-cu126" }
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = [
+    ".uv-cache",
+    ".uv-python",
+    ".venv",
+    "pytest-cache-files-*",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/run_baseline.py" = ["E501"]
+
+[tool.pytest.ini_options]
+addopts = ["-p", "no:cacheprovider", "--import-mode=importlib"]
+pythonpath = ["."]
+testpaths = ["tests", "packages"]
+markers = [
+    "llm: Ollama 실행이 필요한 LLM 통합 테스트",
+]
+norecursedirs = [
+    ".git",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".uv-cache",
+    ".uv-python",
+    ".venv",
+    ".pytest-local",
+    ".pytest-tmp",
+    ".pytest-tmp-run",
+    ".pytest-tmp-run-*",
+    ".tmp",
+    "pytest-cache-files-*",
+    "pytest_run_local",
+]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+
+[tool.pyrefly]
+python-version = "3.11"
+python-interpreter-path = ".venv/Scripts/python.exe"
+
+project-includes = [
+    "packages/*/src/**/*.py",
+    "packages/*/tests/**/*.py",
+    "tests/**/*.py",
+]
+
+project-excludes = [
+    ".venv/**",
+    ".uv-cache/**",
+    ".uv-python/**",
+    "pytest-cache-files-*/**",
+    "**/__pycache__/**",
+]
+
+search-path = [
+    "stubs",
+    "packages/ai-domain/src",
+    "packages/ai-layout-import/src",
+    "packages/ai-common/src",
+    "packages/ai-planning/src",
+    "packages/ai-rendering/src",
+    "packages/ai-authoring/src",
+    "packages/ai-evals/src",
+    "packages/ai-planning-2d/src",
+]

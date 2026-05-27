@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://a204.batang/shared/schemas/two_d_llm_generate.payload.schema.json",
+  "title": "TwoDLlmGeneratePayload",
+  "description": "TWO_D_LLM 워커 커맨드 페이로드. 워커는 user_instruction과 CommandMessage.input.sourceIfcStorageUrl만 사용하지만, BE/FE 하위 호환을 위해 source_scene 등 선택 필드도 허용한다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "user_instruction"],
+  "properties": {
+    "schema_version": {
+      "const": "v1"
+    },
+    "user_instruction": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "source_scene_storage_url": {
+      "description": "deprecated: 워커는 무시한다. BE/FE 하위 호환을 위해 optional로 허용.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "source_scene": {
+      "description": "deprecated: 워커는 무시한다. FE가 보내고 BE가 전달할 수 있어 optional로 허용.",
+      "type": "object"
+    },
+    "conversation_history": {
+      "description": "deprecated: 워커는 무시한다. FE가 보내고 BE가 전달할 수 있어 optional로 허용.",
+      "type": "array"
+    },
+    "planner_options": {
+      "description": "FE가 선택한 벽 정보 등 워커 동작을 제어하는 추가 옵션.",
+      "$ref": "#/$defs/plannerOptions"
+    }
+  },
+  "$defs": {
+    "plannerOptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "selectedWallId": {
+          "description": "FE가 선택한 벽의 IFC GlobalId. 문/창 생성 단축 경로에 사용.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "host_wall_global_id": {
+          "description": "3D 워커와 동일한 키 이름. selectedWallId의 대체 키 (우선순위 높음).",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      }
+    }
+  }
+}

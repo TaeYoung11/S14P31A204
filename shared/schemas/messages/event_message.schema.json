@@ -1,0 +1,277 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://a204.batang/shared/schemas/messages/event_message.schema.json",
+  "title": "WorkerEventMessage",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "schema_version",
+    "message_type",
+    "event_type",
+    "routing_key",
+    "job_id",
+    "job_step_id",
+    "step_no",
+    "total_steps",
+    "project_id",
+    "worker_type",
+    "worker_id",
+    "status",
+    "idempotency_key",
+    "correlation_id",
+    "occurred_at"
+  ],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "schema_version": {
+      "const": "v1"
+    },
+    "message_type": {
+      "type": "string",
+      "enum": ["EVENT"]
+    },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "TWO_D_LLM_STARTED",
+        "TWO_D_LLM_PROGRESS",
+        "TWO_D_LLM_COMPLETED",
+        "TWO_D_LLM_FAILED",
+        "TWO_D_LLM_CLARIFICATION_REQUIRED",
+        "THREE_D_LLM_STARTED",
+        "THREE_D_LLM_PROGRESS",
+        "THREE_D_LLM_COMPLETED",
+        "THREE_D_LLM_FAILED",
+        "THREE_D_LLM_CLARIFICATION_REQUIRED",
+        "IFC_GENERATE_FROM_BUBBLE_STARTED",
+        "IFC_GENERATE_FROM_BUBBLE_PROGRESS",
+        "IFC_GENERATE_FROM_BUBBLE_COMPLETED",
+        "IFC_GENERATE_FROM_BUBBLE_FAILED",
+        "IFC_GENERATE_FROM_BUBBLE_CLARIFICATION_REQUIRED",
+        "IFC_EDIT_APPLY_STARTED",
+        "IFC_EDIT_APPLY_PROGRESS",
+        "IFC_EDIT_APPLY_COMPLETED",
+        "IFC_EDIT_APPLY_FAILED",
+        "IFC_EDIT_APPLY_CLARIFICATION_REQUIRED",
+        "SD_RENDER_GENERATE_STARTED",
+        "SD_RENDER_GENERATE_PROGRESS",
+        "SD_RENDER_GENERATE_COMPLETED",
+        "SD_RENDER_GENERATE_FAILED",
+        "SD_RENDER_GENERATE_CLARIFICATION_REQUIRED"
+      ]
+    },
+    "routing_key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "job_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "job_step_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "step_no": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "total_steps": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "project_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "worker_type": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "worker_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "source_revision_id": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "target_revision_id": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "output_artifact_id": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "status": {
+      "type": "string",
+      "enum": ["started", "progress", "completed", "failed", "clarification_required"]
+    },
+    "progress": {
+      "type": ["number", "null"],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "output": {
+      "$ref": "#/$defs/eventOutputRef"
+    },
+    "error": {
+      "$ref": "#/$defs/eventError"
+    },
+    "clarification_request_id": {
+      "type": ["string", "null"],
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "correlation_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "progress"
+          }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "required": ["progress"],
+        "properties": {
+          "progress": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "completed"
+          }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "required": ["output"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "failed"
+          }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "required": ["error"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": {
+            "const": "clarification_required"
+          }
+        },
+        "required": ["status"]
+      },
+      "then": {
+        "required": ["clarification_request_id"]
+      }
+    }
+  ],
+  "$defs": {
+    "storageUrl": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048
+    },
+    "eventOutputRef": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "storage_url": {
+          "$ref": "#/$defs/storageUrl"
+        },
+        "validation_report_storage_url": {
+          "$ref": "#/$defs/storageUrl"
+        },
+        "error_detail_storage_url": {
+          "$ref": "#/$defs/storageUrl"
+        },
+        "has_warnings": {
+          "type": "boolean"
+        },
+        "floor_plan_project": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "eventError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "retryable", "clarification_possible"],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "clarification_possible": {
+          "type": "boolean"
+        },
+        "detail_storage_url": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/storageUrl"
+            }
+          ],
+          "description": "Optional artifact URL for additional machine-readable details. In failed events this usually points to an error-detail artifact; in clarification_required events it may point to a clarification/options artifact that the client should fetch to continue the workflow."
+        }
+      }
+    }
+  }
+}

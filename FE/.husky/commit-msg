@@ -1,0 +1,14 @@
+commit_msg=$(cat "$1")
+
+# Merge 커밋은 패턴 체크 건너뜀
+if echo "$commit_msg" | grep -qE "^Merge"; then
+  exit 0
+fi
+
+pattern='^\[(FE|BE|AI|INFRA|COMMON)(-[A-Z0-9]+-[0-9]+)?\] (feat|fix|docs|style|refactor|test|chore): .+'
+
+if ! echo "$commit_msg" | grep -qE "$pattern"; then
+  echo "❌ 커밋 메시지 형식이 잘못됐습니다."
+  echo "✅ 올바른 형식: [FE] feat: 내용"
+  exit 1
+fi

@@ -1,0 +1,35 @@
+import EditorRightPanelsCollaborationDock from './right-panels/EditorRightPanelsCollaborationDock'
+import EditorRightPanelsAgentDock from './right-panels/EditorRightPanelsAgentDock'
+import type { EditorRightPanelsProps } from './right-panels/EditorRightPanels.types'
+import EditorRightPanelsWorkspaceDock from './right-panels/EditorRightPanelsWorkspaceDock'
+import { getRightDockWidth, getVisiblePanelKeys } from './right-panels/rightPanelVisibility'
+
+/**
+ * 에디터 우측 패널 루트 조합 컴포넌트
+ * - 협업 모드 분기와 도크 폭 계산만 담당한다.
+ */
+export function EditorRightPanels(props: EditorRightPanelsProps) {
+  const {
+    mode,
+    isAgentPanelMode,
+    isCollaborationMode,
+    currentCollaborationUserType,
+    panelOpenState,
+    panelWidths,
+  } = props
+  const shouldShowCollaborationPanel =
+    mode !== 'bubble' &&
+    (isCollaborationMode || currentCollaborationUserType === 'CUSTOMER')
+  const visiblePanelKeys = getVisiblePanelKeys(mode)
+  const rightDockWidth = getRightDockWidth(visiblePanelKeys, panelOpenState, panelWidths)
+
+  if (shouldShowCollaborationPanel) {
+    return <EditorRightPanelsCollaborationDock {...props} />
+  }
+
+  if (isAgentPanelMode && mode !== 'bubble') {
+    return <EditorRightPanelsAgentDock props={props} />
+  }
+
+  return <EditorRightPanelsWorkspaceDock rightDockWidth={rightDockWidth} props={props} />
+}
