@@ -300,6 +300,23 @@ uv run python scripts/run_shinchan_production_pipeline.py  # production 렌더 �
 
 ## 6. 서비스 화면
 
+| # | 화면 | 설명 |
+| :---: | :--- | :--- |
+| 01 | <img src="img/scenario_1.png" width="360"/> | **랜딩 페이지** — 버블·2D·3D·렌더링 단계를 한눈에 보여주는 서비스 소개 + 로그인 진입 |
+| 02 | <img src="img/scenario_2.png" width="360"/> | **로그인** — 이메일·비밀번호로 BATANG 계정 인증 |
+| 03 | <img src="img/scenario_3.png" width="360"/> | **회원가입** — 디자이너 / 고객 역할 선택 + 이메일 인증 코드 |
+| 04 | <img src="img/scenario_4.png" width="360"/> | **프로젝트 대시보드** — 내 프로젝트 목록 · 검색 · 새 프로젝트 생성 진입 |
+| 05 | <img src="img/scenario_5.png" width="360"/> | **알림 inbox** — SSE 로 푸시되는 안 읽은 댓글 / 초대 알림 목록 |
+| 06 | <img src="img/scenario_6.png" width="360"/> | **프로필** — 사용자 정보 · 역할 · 로그아웃 · 회원탈퇴 |
+| 07 | <img src="img/scenario_7.png" width="360"/> | **새 프로젝트 생성** — 프로젝트 이름 · 설명 입력 |
+| 08 | <img src="img/scenario_8.png" width="360"/> | **대지 입력 (주소 검색)** — 지도에서 부지 주소 검색 |
+| 09 | <img src="img/scenario_9.png" width="360"/> | **대지 입력 (폴리곤)** — GIS 폴리곤 선택 + 대지 면적 자동 계산 |
+| 10 | <img src="img/scenario_10.png" width="360"/> | **버블 다이어그램 편집** — 공간(거실·주방·침실) 배치 + 인스펙터 / 층 보기 |
+| 11 | <img src="img/scenario_11.png" width="360"/> | **공유 초대** — 이메일로 협업자(CUSTOMER) 초대 발송 |
+| 12 | <img src="img/scenario_12.png" width="360"/> | **2D 평면도 편집** — AI 자동 변환된 평면 결과 편집 |
+| 13 | <img src="img/scenario_13.png" width="360"/> | **3D 편집 모드** — IFC 모델 편집 + 계층 구조 인스펙터 + 뷰어 모드 전환 |
+| 14 | <img src="img/scenario_14.png" width="360"/> | **뷰어 모드 / AI 렌더링** — 시간대·계절 선택 후 포토리얼 렌더 + IFC 내보내기 |
+
 ---
 
 ## 7. 시스템 아키텍처
